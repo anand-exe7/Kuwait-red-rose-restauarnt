@@ -1,8 +1,9 @@
 "use client";
 import React, { useState, useSyncExternalStore } from 'react';
-import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2 } from 'lucide-react';
+import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell } from 'lucide-react';
 import { addOrder } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
+import { callWaiter, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
 
 // In production each table's QR code would link straight to /customer?table=N.
 // Reading it via useSyncExternalStore (rather than state+effect) keeps server/client
@@ -24,6 +25,10 @@ export default function CustomerDashboard() {
   // Live menu managed by the admin's Inventory tab — same source of truth for every role
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
+
+  const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
+  const activeWaiterCall = waiterCalls.find(c => c.table === tableNumber && !c.resolved);
+  const handleCallWaiter = () => callWaiter(tableNumber);
 
   const categories = ['All', 'Starters', 'Mains', 'Desserts', 'Drinks'];
   const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
@@ -87,17 +92,28 @@ export default function CustomerDashboard() {
             </div>
           </div>
           
-          <button 
-            onClick={() => setIsCartOpen(true)}
-            className="relative p-2.5 md:p-3 bg-black text-white rounded-full hover:scale-105 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.2)]"
-          >
-            <ShoppingBag size={20} className="md:w-6 md:h-6" />
-            {cartItemCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 md:w-6 md:h-6 bg-orange-500 text-white text-[10px] md:text-xs font-black rounded-full flex items-center justify-center border-2 border-white shadow-sm">
-                {cartItemCount}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-2 md:gap-3">
+            <button
+              onClick={handleCallWaiter}
+              disabled={!!activeWaiterCall}
+              className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 md:py-3 rounded-full font-bold text-xs md:text-sm transition-all ${activeWaiterCall ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-black/5 text-black/70 hover:bg-black/10 active:scale-95'}`}
+            >
+              <Bell size={16} className={activeWaiterCall ? 'animate-pulse' : ''} />
+              <span className="hidden sm:inline">{activeWaiterCall ? 'Waiter is on the way' : 'Call Waiter'}</span>
+            </button>
+
+            <button
+              onClick={() => setIsCartOpen(true)}
+              className="relative p-2.5 md:p-3 bg-black text-white rounded-full hover:scale-105 transition-all shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.2)]"
+            >
+              <ShoppingBag size={20} className="md:w-6 md:h-6" />
+              {cartItemCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-5 h-5 md:w-6 md:h-6 bg-orange-500 text-white text-[10px] md:text-xs font-black rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                  {cartItemCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
