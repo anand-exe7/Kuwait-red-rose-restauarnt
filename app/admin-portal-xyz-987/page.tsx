@@ -129,7 +129,7 @@ export default function AdminDashboard() {
           <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/20 shrink-0">
             <LayoutDashboard size={18} className="text-white sm:w-5 sm:h-5" />
           </div>
-          <span className="font-bold text-xl hidden md:block">Cenexa Admin</span>
+          <span className="font-bold text-xl hidden md:block">QWAIT Admin</span>
         </div>
 
         <nav className="flex flex-col gap-2 flex-1">

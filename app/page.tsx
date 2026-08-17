@@ -10,7 +10,7 @@ export default function Home() {
 
       {/* Navbar */}
       <header className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 h-20 sm:h-24 flex items-center justify-between">
-        <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">Cenexa</h1>
+        <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">QWAIT</h1>
         <Link href="/customer" className="px-4 py-2.5 sm:px-6 sm:py-3 bg-black text-white rounded-full font-bold text-xs sm:text-sm hover:bg-orange-500 transition-colors shadow-lg shadow-black/10 active:scale-95">
           Order Now
         </Link>

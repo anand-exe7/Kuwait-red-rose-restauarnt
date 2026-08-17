@@ -208,7 +208,7 @@ export default function WaiterDashboard() {
               </div>
               <div>
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                  CENEXA <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30">WAITER PRO</span>
+                  QWAIT <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30">WAITER PRO</span>
                 </h1>
                 <p className="text-xs text-gray-400 font-medium">Floor Manager Mode • Station 2</p>
               </div>

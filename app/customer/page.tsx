@@ -86,7 +86,7 @@ export default function CustomerDashboard() {
       <header className="fixed top-0 w-full z-40 bg-white/70 backdrop-blur-2xl border-b border-black/5 supports-[backdrop-filter]:bg-white/40">
         <div className="max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl md:text-3xl font-black tracking-tighter">Cenexa</h1>
+            <h1 className="text-2xl md:text-3xl font-black tracking-tighter">QWAIT</h1>
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-black/5 rounded-full text-xs font-bold text-black/70">
               <MapPin size={12} /> Table {tableNumber}
             </div>
@@ -96,9 +96,10 @@ export default function CustomerDashboard() {
             <button
               onClick={handleCallWaiter}
               disabled={!!activeWaiterCall}
-              className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 md:py-3 rounded-full font-bold text-xs md:text-sm transition-all ${activeWaiterCall ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-black/5 text-black/70 hover:bg-black/10 active:scale-95'}`}
+              className={`flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2.5 md:py-3 rounded-full font-bold text-[11px] md:text-sm whitespace-nowrap transition-all ${activeWaiterCall ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-black/5 text-black/70 hover:bg-black/10 active:scale-95'}`}
             >
-              <Bell size={16} className={activeWaiterCall ? 'animate-pulse' : ''} />
+              <Bell size={16} className={`shrink-0 ${activeWaiterCall ? 'animate-pulse' : ''}`} />
+              <span className="sm:hidden">{activeWaiterCall ? 'Coming' : 'Call Waiter'}</span>
               <span className="hidden sm:inline">{activeWaiterCall ? 'Waiter is on the way' : 'Call Waiter'}</span>
             </button>
 
@@ -158,25 +159,31 @@ export default function CustomerDashboard() {
             <div key={item.id} className="bg-white rounded-[1.5rem] md:rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 hover:border-orange-500/20 hover:shadow-[0_8px_30px_rgb(249,115,22,0.08)] transition-all group flex flex-col">
               <div className="relative w-full aspect-[4/3] overflow-hidden flex-shrink-0">
                 <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                <div className="absolute top-3 left-3 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-full text-sm font-black shadow-sm text-black">
-                  ${item.price}
-                </div>
               </div>
               <div className="flex flex-col flex-1 p-4 md:p-5">
                 <h4 className="font-black text-lg md:text-xl mb-1.5 text-black leading-tight">{item.name}</h4>
                 <p className="text-xs md:text-sm text-black/50 line-clamp-2 leading-relaxed font-medium mb-4 flex-1">{item.description}</p>
 
-                {cart[item.id] ? (
-                  <div className="flex items-center justify-between gap-3 bg-black/5 p-1 md:p-1.5 rounded-full border border-black/5">
-                    <button onClick={() => removeFromCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-orange-500 transition-colors shrink-0"><Minus size={16} className="md:w-[18px] md:h-[18px]" /></button>
-                    <span className="font-black text-center text-sm md:text-base">{cart[item.id]} in order</span>
-                    <button onClick={() => addToCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-black text-white shadow-[0_4px_10px_rgba(0,0,0,0.2)] flex items-center justify-center hover:bg-orange-500 transition-colors shrink-0"><Plus size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="shrink-0">
+                    <span className="text-xl md:text-2xl font-black text-orange-600">${item.price}</span>
+                    {cart[item.id] > 0 && (
+                      <p className="text-[11px] font-bold text-black/40 -mt-0.5">${(item.price * cart[item.id]).toFixed(2)} total</p>
+                    )}
                   </div>
-                ) : (
-                  <button onClick={() => addToCart(item.id)} className="w-full px-5 py-3 bg-black text-white text-sm md:text-base font-bold rounded-full hover:bg-orange-500 transition-all shadow-[0_8px_20px_rgba(0,0,0,0.15)] active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap">
-                    <Plus size={16} /> Add to Order
-                  </button>
-                )}
+
+                  {cart[item.id] ? (
+                    <div className="flex items-center gap-2 md:gap-3 bg-orange-50 p-1 md:p-1.5 rounded-full border border-orange-200 shrink-0">
+                      <button onClick={() => removeFromCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-orange-600 hover:bg-orange-100 transition-colors shrink-0"><Minus size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                      <span className="font-black text-center text-sm md:text-base text-orange-700 w-4 md:w-5">{cart[item.id]}</span>
+                      <button onClick={() => addToCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-orange-500 to-red-500 text-white shadow-[0_4px_10px_rgba(249,115,22,0.35)] flex items-center justify-center hover:brightness-110 transition-all shrink-0"><Plus size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                    </div>
+                  ) : (
+                    <button onClick={() => addToCart(item.id)} className="px-4 md:px-5 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white text-sm md:text-base font-bold rounded-full hover:brightness-110 transition-all shadow-[0_8px_20px_rgba(249,115,22,0.3)] active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap shrink-0">
+                      <Plus size={16} /> Add to Order
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}
