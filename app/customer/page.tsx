@@ -1,20 +1,29 @@
 "use client";
-import React, { useState } from 'react';
-import { ShoppingBag, ChevronRight, Star, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin } from 'lucide-react';
+import React, { useState, useSyncExternalStore } from 'react';
+import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2 } from 'lucide-react';
+import { addOrder } from '../lib/orderStore';
+import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
+
+// In production each table's QR code would link straight to /customer?table=N.
+// Reading it via useSyncExternalStore (rather than state+effect) keeps server/client
+// render output consistent and avoids a hydration flash.
+const noopSubscribe = () => () => {};
+const getTableParam = () => new URLSearchParams(window.location.search).get('table');
+const getTableParamServer = () => null;
 
 export default function CustomerDashboard() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<Record<string, number>>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [orderState, setOrderState] = useState<'idle' | 'submitting' | 'success'>('idle');
+  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
 
-  const menu = [
-    { id: 'm1', name: 'Wagyu Steak', price: 85, category: 'Mains', desc: 'Premium A5 wagyu with truffle mash, seasonal vegetables and red wine jus.', image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800' },
-    { id: 'm2', name: 'Truffle Pasta', price: 42, category: 'Mains', desc: 'Handmade linguine, black truffle shavings, aged parmesan.', image: 'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&q=80&w=800' },
-    { id: 'm3', name: 'Lobster Bisque', price: 28, category: 'Starters', desc: 'Rich and creamy Maine lobster soup with crème fraîche.', image: 'https://images.unsplash.com/photo-1548943487-a2e4e43b4859?auto=format&fit=crop&q=80&w=800' },
-    { id: 'm4', name: 'Caesar Salad', price: 18, category: 'Starters', desc: 'Crisp romaine, parmesan, garlic croutons, house dressing.', image: 'https://images.unsplash.com/photo-1550304943-4f24f54ddde9?auto=format&fit=crop&q=80&w=800' },
-    { id: 'm5', name: 'Tiramisu', price: 14, category: 'Desserts', desc: 'Classic Italian espresso dessert with mascarpone.', image: 'https://images.unsplash.com/photo-1571115177098-24ec42ed204d?auto=format&fit=crop&q=80&w=800' },
-    { id: 'm6', name: 'Reserve Cabernet', price: 120, category: 'Drinks', desc: 'Napa Valley, 2018. Rich, bold, and perfectly balanced.', image: 'https://images.unsplash.com/photo-1506377247377-2a5b3b417ebb?auto=format&fit=crop&q=80&w=800' },
-  ];
+  const tableParam = useSyncExternalStore(noopSubscribe, getTableParam, getTableParamServer);
+  const tableNumber = Number(tableParam) > 0 ? Number(tableParam) : 12;
+
+  // Live menu managed by the admin's Inventory tab — same source of truth for every role
+  const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
+  const menu = allMenuItems.filter(m => m.status === 'active');
 
   const categories = ['All', 'Starters', 'Mains', 'Desserts', 'Drinks'];
   const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
@@ -34,15 +43,47 @@ export default function CustomerDashboard() {
 
   const cartItemCount = Object.values(cart).reduce((a, b) => a + b, 0);
 
+  const handleSubmitOrder = () => {
+    if (cartItemCount === 0 || orderState === 'submitting') return;
+    setOrderState('submitting');
+
+    const items = Object.entries(cart).map(([id, qty]) => {
+      const item = menu.find(m => m.id === id)!;
+      return { id: item.id, name: item.name, price: item.price, qty };
+    });
+
+    // Small delay so the "sending to kitchen" state is visible, not just an instant jump
+    setTimeout(() => {
+      const order = addOrder({
+        table: tableNumber,
+        items,
+        priority: 'normal',
+        subtotal: cartTotal,
+        tax: cartTotal * 0.1,
+        total: cartTotal * 1.1,
+        source: 'customer',
+      });
+      setLastOrderId(order.id);
+      setCart({});
+      setOrderState('success');
+    }, 700);
+  };
+
+  const startNewOrder = () => {
+    setOrderState('idle');
+    setLastOrderId(null);
+    setIsCartOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#f8f9fa] text-[#111] font-sans pb-32">
       {/* Header */}
       <header className="fixed top-0 w-full z-40 bg-white/70 backdrop-blur-2xl border-b border-black/5 supports-[backdrop-filter]:bg-white/40">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
+        <div className="max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl md:text-3xl font-black tracking-tighter">Cenexa</h1>
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-black/5 rounded-full text-xs font-bold text-black/70">
-              <MapPin size={12} /> Table 12
+              <MapPin size={12} /> Table {tableNumber}
             </div>
           </div>
           
@@ -61,13 +102,13 @@ export default function CustomerDashboard() {
       </header>
 
       {/* Hero Section */}
-      <div className="max-w-5xl mx-auto px-4 md:px-6 pt-24 md:pt-32 mb-8 md:mb-12">
+      <div className="max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6 pt-24 md:pt-32 mb-8 md:mb-12">
         <div className="relative w-full h-[250px] md:h-[400px] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl shadow-black/10 group">
           <img src="https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&q=80&w=1600" alt="Restaurant" className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-6 md:p-12">
             <div className="flex items-center gap-2 mb-3 md:hidden">
               <div className="flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-bold text-white">
-                <MapPin size={12} /> Table 12
+                <MapPin size={12} /> Table {tableNumber}
               </div>
             </div>
             <h2 className="text-4xl md:text-6xl font-black text-white mb-2 md:mb-4 tracking-tight">The Menu.</h2>
@@ -79,7 +120,7 @@ export default function CustomerDashboard() {
       </div>
 
       {/* Categories - Sticky on Mobile */}
-      <div className="sticky top-16 md:static z-30 bg-[#f8f9fa] md:bg-transparent py-4 md:py-0 border-b border-black/5 md:border-0 max-w-5xl mx-auto px-4 md:px-6 mb-8 md:mb-12 overflow-x-auto no-scrollbar -mx-4 md:mx-auto">
+      <div className="sticky top-16 md:static z-30 bg-[#f8f9fa] md:bg-transparent py-4 md:py-0 border-b border-black/5 md:border-0 max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6 mb-8 md:mb-12 overflow-x-auto no-scrollbar -mx-4 md:mx-auto">
         <div className="flex gap-2 md:gap-3 px-4 md:px-0 min-w-max">
           {categories.map(cat => (
             <button 
@@ -94,36 +135,32 @@ export default function CustomerDashboard() {
       </div>
 
       {/* Menu Grid */}
-      <div className="max-w-5xl mx-auto px-4 md:px-6">
+      <div className="max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6">
         <h3 className="text-2xl md:text-3xl font-black mb-6 md:mb-8 text-black/80">{activeCategory}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 md:gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {filteredMenu.map(item => (
-            <div key={item.id} className="bg-white rounded-[1.5rem] md:rounded-[2rem] p-3 md:p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 hover:border-orange-500/20 hover:shadow-[0_8px_30px_rgb(249,115,22,0.08)] transition-all group flex gap-4 md:gap-6">
-              <div className="w-28 h-28 md:w-40 md:h-40 rounded-2xl md:rounded-[1.5rem] overflow-hidden flex-shrink-0 relative shadow-inner">
-                <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                <div className="absolute top-2 left-2 px-2 py-1 md:px-3 md:py-1.5 bg-white/90 backdrop-blur-md rounded-lg text-xs md:text-sm font-black shadow-sm text-black">
+            <div key={item.id} className="bg-white rounded-[1.5rem] md:rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 hover:border-orange-500/20 hover:shadow-[0_8px_30px_rgb(249,115,22,0.08)] transition-all group flex flex-col">
+              <div className="relative w-full aspect-[4/3] overflow-hidden flex-shrink-0">
+                <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                <div className="absolute top-3 left-3 px-3 py-1.5 bg-white/90 backdrop-blur-md rounded-full text-sm font-black shadow-sm text-black">
                   ${item.price}
                 </div>
               </div>
-              <div className="flex flex-col justify-between py-1 md:py-2 flex-1">
-                <div>
-                  <h4 className="font-black text-lg md:text-xl mb-1 md:mb-2 text-black leading-tight">{item.name}</h4>
-                  <p className="text-xs md:text-sm text-black/50 line-clamp-2 md:line-clamp-3 leading-relaxed font-medium">{item.desc}</p>
-                </div>
-                
-                <div className="mt-4">
-                  {cart[item.id] ? (
-                    <div className="flex items-center gap-3 bg-black/5 self-start p-1 md:p-1.5 rounded-full border border-black/5 w-fit">
-                      <button onClick={() => removeFromCart(item.id)} className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-orange-500 transition-colors"><Minus size={18} className="md:w-5 md:h-5" /></button>
-                      <span className="font-black w-4 md:w-6 text-center text-sm md:text-base">{cart[item.id]}</span>
-                      <button onClick={() => addToCart(item.id)} className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-black text-white shadow-[0_4px_10px_rgba(0,0,0,0.2)] flex items-center justify-center hover:bg-orange-500 transition-colors"><Plus size={18} className="md:w-5 md:h-5" /></button>
-                    </div>
-                  ) : (
-                    <button onClick={() => addToCart(item.id)} className="w-full md:w-auto px-5 py-2.5 md:px-6 md:py-3 bg-black text-white text-sm md:text-base font-bold rounded-full hover:bg-orange-500 transition-all shadow-[0_8px_20px_rgba(0,0,0,0.15)] active:scale-95">
-                      Add to Order
-                    </button>
-                  )}
-                </div>
+              <div className="flex flex-col flex-1 p-4 md:p-5">
+                <h4 className="font-black text-lg md:text-xl mb-1.5 text-black leading-tight">{item.name}</h4>
+                <p className="text-xs md:text-sm text-black/50 line-clamp-2 leading-relaxed font-medium mb-4 flex-1">{item.description}</p>
+
+                {cart[item.id] ? (
+                  <div className="flex items-center justify-between gap-3 bg-black/5 p-1 md:p-1.5 rounded-full border border-black/5">
+                    <button onClick={() => removeFromCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-orange-500 transition-colors shrink-0"><Minus size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                    <span className="font-black text-center text-sm md:text-base">{cart[item.id]} in order</span>
+                    <button onClick={() => addToCart(item.id)} className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-black text-white shadow-[0_4px_10px_rgba(0,0,0,0.2)] flex items-center justify-center hover:bg-orange-500 transition-colors shrink-0"><Plus size={16} className="md:w-[18px] md:h-[18px]" /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => addToCart(item.id)} className="w-full px-5 py-3 bg-black text-white text-sm md:text-base font-bold rounded-full hover:bg-orange-500 transition-all shadow-[0_8px_20px_rgba(0,0,0,0.15)] active:scale-95 flex items-center justify-center gap-2 whitespace-nowrap">
+                    <Plus size={16} /> Add to Order
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -133,61 +170,102 @@ export default function CustomerDashboard() {
       {/* Cart Drawer */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity" onClick={() => setIsCartOpen(false)} />
-          <div className="relative w-full md:w-[450px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none mt-16 md:mt-0">
-            <div className="p-6 md:p-8 border-b border-black/5 flex items-center gap-4">
-              <button onClick={() => setIsCartOpen(false)} className="p-2 md:p-3 bg-black/5 hover:bg-black/10 rounded-full transition-colors">
-                <ChevronLeft size={20} className="md:w-6 md:h-6" />
-              </button>
-              <h2 className="text-2xl md:text-3xl font-black flex-1 tracking-tight">Your Order</h2>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col gap-6">
-              {cartItemCount === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-black/30 gap-4">
-                  <ShoppingBag size={64} className="opacity-50" />
-                  <p className="font-bold text-lg">Your order is empty</p>
-                </div>
-              ) : (
-                Object.entries(cart).map(([id, qty]) => {
-                  const item = menu.find(m => m.id === id);
-                  if (!item) return null;
-                  return (
-                    <div key={id} className="flex gap-4 md:gap-6 items-center">
-                      <img src={item.image} alt={item.name} className="w-20 h-20 md:w-24 md:h-24 rounded-[1.25rem] object-cover shadow-sm" />
-                      <div className="flex-1">
-                        <h4 className="font-black text-base md:text-lg text-black leading-tight mb-1">{item.name}</h4>
-                        <p className="text-orange-500 font-black text-sm md:text-base">${item.price * qty}</p>
-                      </div>
-                      <div className="flex items-center gap-2 bg-black/5 p-1 rounded-full border border-black/5">
-                        <button onClick={() => removeFromCart(id)} className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-red-500"><Minus size={14} /></button>
-                        <span className="font-black text-sm md:text-base w-5 text-center">{qty}</span>
-                        <button onClick={() => addToCart(id)} className="w-8 h-8 rounded-full bg-black text-white shadow-sm flex items-center justify-center hover:bg-orange-500"><Plus size={14} /></button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity" onClick={() => orderState !== 'success' && setIsCartOpen(false)} />
+          <div className="relative w-full md:w-[450px] h-[calc(100%-4rem)] md:h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 rounded-t-[2rem] md:rounded-l-[2rem] md:rounded-tr-none mt-16 md:mt-0">
 
-            {cartItemCount > 0 && (
-              <div className="p-6 md:p-8 bg-[#f8f9fa] border-t border-black/5 rounded-b-[2rem] md:rounded-bl-[2rem] md:rounded-br-none pb-8 md:pb-8">
-                <div className="flex justify-between mb-3 text-black/60 font-medium text-sm md:text-base">
-                  <span>Subtotal</span>
-                  <span className="font-bold text-black">${cartTotal.toFixed(2)}</span>
+            {orderState === 'success' ? (
+              /* Order Confirmation */
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 gap-5">
+                <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center animate-in zoom-in duration-500">
+                  <CheckCircle2 size={56} className="text-green-500" strokeWidth={2.5} />
                 </div>
-                <div className="flex justify-between mb-6 text-black/60 font-medium text-sm md:text-base">
-                  <span>Tax (10%)</span>
-                  <span className="font-bold text-black">${(cartTotal * 0.1).toFixed(2)}</span>
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-black mb-2">Order Sent!</h2>
+                  <p className="text-black/50 font-medium max-w-xs">
+                    Your order has been sent straight to the kitchen for Table {tableNumber}. We&apos;ll get it to you shortly.
+                  </p>
                 </div>
-                <div className="flex justify-between mb-8 text-2xl md:text-3xl font-black">
-                  <span>Total</span>
-                  <span>${(cartTotal * 1.1).toFixed(2)}</span>
-                </div>
-                <button className="w-full py-4 md:py-5 bg-black text-white rounded-2xl font-black text-lg md:text-xl flex items-center justify-center gap-3 hover:bg-orange-500 transition-all shadow-[0_8px_25px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_25px_rgba(249,115,22,0.4)] active:scale-95">
-                  <CreditCard size={24} /> Submit Order
+                {lastOrderId && (
+                  <div className="px-4 py-2 bg-black/5 rounded-full text-sm font-bold text-black/60">
+                    Order #{lastOrderId}
+                  </div>
+                )}
+                <button
+                  onClick={startNewOrder}
+                  className="mt-4 w-full px-6 py-4 bg-black text-white rounded-2xl font-black text-lg hover:bg-orange-500 transition-all shadow-[0_8px_25px_rgba(0,0,0,0.2)] active:scale-95"
+                >
+                  Back to Menu
                 </button>
               </div>
+            ) : (
+              <>
+                <div className="p-6 md:p-8 border-b border-black/5 flex items-center gap-4">
+                  <button onClick={() => setIsCartOpen(false)} className="p-2 md:p-3 bg-black/5 hover:bg-black/10 rounded-full transition-colors">
+                    <ChevronLeft size={20} className="md:w-6 md:h-6" />
+                  </button>
+                  <h2 className="text-2xl md:text-3xl font-black flex-1 tracking-tight">Your Order</h2>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 flex flex-col gap-6">
+                  {cartItemCount === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-black/30 gap-4">
+                      <ShoppingBag size={64} className="opacity-50" />
+                      <p className="font-bold text-lg">Your order is empty</p>
+                    </div>
+                  ) : (
+                    Object.entries(cart).map(([id, qty]) => {
+                      const item = menu.find(m => m.id === id);
+                      if (!item) return null;
+                      return (
+                        <div key={id} className="flex gap-4 md:gap-6 items-center">
+                          <img src={item.image} alt={item.name} className="w-20 h-20 md:w-24 md:h-24 rounded-[1.25rem] object-cover shadow-sm" />
+                          <div className="flex-1">
+                            <h4 className="font-black text-base md:text-lg text-black leading-tight mb-1">{item.name}</h4>
+                            <p className="text-orange-500 font-black text-sm md:text-base">${item.price * qty}</p>
+                          </div>
+                          <div className="flex items-center gap-2 bg-black/5 p-1 rounded-full border border-black/5">
+                            <button onClick={() => removeFromCart(id)} className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center hover:text-red-500"><Minus size={14} /></button>
+                            <span className="font-black text-sm md:text-base w-5 text-center">{qty}</span>
+                            <button onClick={() => addToCart(id)} className="w-8 h-8 rounded-full bg-black text-white shadow-sm flex items-center justify-center hover:bg-orange-500"><Plus size={14} /></button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {cartItemCount > 0 && (
+                  <div className="p-6 md:p-8 bg-[#f8f9fa] border-t border-black/5 rounded-b-[2rem] md:rounded-bl-[2rem] md:rounded-br-none pb-8 md:pb-8">
+                    <div className="flex justify-between mb-3 text-black/60 font-medium text-sm md:text-base">
+                      <span>Subtotal</span>
+                      <span className="font-bold text-black">${cartTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between mb-6 text-black/60 font-medium text-sm md:text-base">
+                      <span>Tax (10%)</span>
+                      <span className="font-bold text-black">${(cartTotal * 0.1).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between mb-8 text-2xl md:text-3xl font-black">
+                      <span>Total</span>
+                      <span>${(cartTotal * 1.1).toFixed(2)}</span>
+                    </div>
+                    <button
+                      onClick={handleSubmitOrder}
+                      disabled={orderState === 'submitting'}
+                      className="w-full py-4 md:py-5 bg-black text-white rounded-2xl font-black text-lg md:text-xl flex items-center justify-center gap-3 hover:bg-orange-500 transition-all shadow-[0_8px_25px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_25px_rgba(249,115,22,0.4)] active:scale-95 disabled:opacity-70 disabled:cursor-wait"
+                    >
+                      {orderState === 'submitting' ? (
+                        <>
+                          <Loader2 size={24} className="animate-spin" /> Sending to Kitchen...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard size={24} /> Submit Order
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
