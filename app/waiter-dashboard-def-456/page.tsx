@@ -1,97 +1,182 @@
 "use client";
 
-import React, { useState, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import {
   Plus,
   Minus,
   Send,
   Clock,
-  CheckCircle2,
   User,
   Hash,
   Coffee,
   Utensils,
   Bell,
+  BellRing,
   Search,
   X,
   Flame,
-  Sparkles,
-  ChevronRight,
   Check,
   Trash2,
   Receipt,
-  FileText
+  FileText,
+  Volume2,
+  VolumeX,
+  PackageCheck,
+  PersonStanding,
+  ChevronRight,
 } from 'lucide-react';
-import { addOrder, updateOrderStatus, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders } from '../lib/orderStore';
-import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
+import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders } from '../lib/orderStore';
+import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { WaiterCall, resolveWaiterCall, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
+import { getTablesSnapshot, getTablesServerSnapshot, subscribeToTables } from '../lib/tableStore';
+import { formatKWD } from '../lib/currency';
+import { BRAND } from '../lib/brand';
 
-const TABLE_LIST = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+type TableSel = number | 'standing';
 
 export default function WaiterDashboard() {
   // State
-  const [activeTable, setActiveTable] = useState<number>(1);
+  const [activeTable, setActiveTable] = useState<TableSel>(1);
   const [order, setOrder] = useState<Record<string, number>>({});
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'tables' | 'menu' | 'ticket'>('menu');
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isPriorityRush, setIsPriorityRush] = useState<boolean>(false);
-  const [tableFilter, setTableFilter] = useState<'all' | 'occupied' | 'available'>('all');
+  const [tableFilter, setTableFilter] = useState<'all' | 'occupied'>('all');
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [muted, setMuted] = useState<boolean>(false);
 
-  // Live orders, shared with the customer & chef pages (synced via localStorage across tabs)
+  const activeLabel = activeTable === 'standing' ? 'Standing' : `Table ${activeTable}`;
+
+  // Live shared stores (synced across tabs/devices via localStorage today)
   const placedOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
-
-  // Tables actively calling for a waiter (customer tapped "Call Waiter")
   const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
   const activeWaiterCalls = useMemo(() => waiterCalls.filter((c: WaiterCall) => !c.resolved), [waiterCalls]);
   const calledTables = useMemo(() => new Set(activeWaiterCalls.map(c => c.table)), [activeWaiterCalls]);
 
-  // Live menu managed by the admin's Inventory tab — same source of truth for every role
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = useMemo(() => allMenuItems.filter(m => m.status === 'active'), [allMenuItems]);
 
-  // Table occupancy derived from real active orders, not a hardcoded guess
+  // Tables come from the admin's Table Management (active tables only)
+  const allTables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
+  const tableNumbers = useMemo(
+    () => allTables.filter(t => t.active).map(t => t.number).sort((a, b) => a - b),
+    [allTables]
+  );
+
+  // Table occupancy from real active orders
   const tablesStatus = useMemo(() => {
     const status: Record<number, 'available' | 'occupied'> = {};
-    for (const t of TABLE_LIST) status[t] = 'available';
+    for (const t of tableNumbers) status[t] = 'available';
     for (const o of placedOrders) {
-      if (o.status !== 'served') status[o.table] = 'occupied';
+      if (o.status !== 'served' && o.mode !== 'standing' && o.mode !== 'takeaway') {
+        status[o.table] = 'occupied';
+      }
     }
     return status;
-  }, [placedOrders]);
+  }, [placedOrders, tableNumbers]);
 
-  // Orders currently active for the table the waiter has selected
+  // Orders active for the current selection (table N, or all standing)
   const activeOrdersForActiveTable = useMemo(() => {
-    return placedOrders.filter(o => o.table === activeTable && o.status !== 'served');
+    return placedOrders.filter(o => {
+      if (o.status === 'served') return false;
+      if (activeTable === 'standing') return o.mode === 'standing';
+      return o.table === activeTable && o.mode !== 'standing' && o.mode !== 'takeaway';
+    });
   }, [placedOrders, activeTable]);
 
-  // Trigger Toast Notification
+  const standingActiveCount = useMemo(
+    () => placedOrders.filter(o => o.mode === 'standing' && o.status !== 'served').length,
+    [placedOrders]
+  );
+
+  // ── Ready-order alert (sound + visual) ─────────────────────────────────────
+  const readyOrders = useMemo(
+    () => placedOrders.filter(o => o.status === 'ready').sort((a, b) => a.createdAt - b.createdAt),
+    [placedOrders]
+  );
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const knownReadyRef = useRef<Set<string>>(new Set());
+  const readyInitializedRef = useRef(false);
+
+  const playChime = useCallback(() => {
+    if (muted) return;
+    try {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') void ctx.resume();
+      const now = ctx.currentTime;
+      [880, 1174.66].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const start = now + i * 0.18;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.4);
+      });
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([120, 60, 120]);
+    } catch {
+      /* audio not available — the visual banner still covers it */
+    }
+  }, [muted]);
+
+  // Prime/resume audio on first interaction (browser autoplay policy)
+  useEffect(() => {
+    const prime = () => {
+      try {
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (Ctx && !audioCtxRef.current) audioCtxRef.current = new Ctx();
+        void audioCtxRef.current?.resume();
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('pointerdown', prime, { once: true });
+    return () => window.removeEventListener('pointerdown', prime);
+  }, []);
+
+  // Chime when a brand-new ready ticket appears
+  useEffect(() => {
+    const currentReady = new Set(readyOrders.map(o => o.id));
+    if (!readyInitializedRef.current) {
+      knownReadyRef.current = currentReady;
+      readyInitializedRef.current = true;
+      return;
+    }
+    let hasNew = false;
+    currentReady.forEach(id => { if (!knownReadyRef.current.has(id)) hasNew = true; });
+    knownReadyRef.current = currentReady;
+    if (hasNew) playChime();
+  }, [readyOrders, playChime]);
+
+  // Gentle re-alert every 30s while ready tickets wait
+  useEffect(() => {
+    if (readyOrders.length === 0 || muted) return;
+    const iv = setInterval(() => playChime(), 30000);
+    return () => clearInterval(iv);
+  }, [readyOrders.length, muted, playChime]);
+
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 3000);
+    setTimeout(() => setToastMessage(null), 2600);
   };
 
-  // Handlers for Order Modifiers
-  const addToOrder = (id: string) => {
-    setOrder(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
-  };
-
+  // Order builders
+  const addToOrder = (id: string) => setOrder(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
   const removeFromOrder = (id: string) => {
     setOrder(prev => {
       const copy = { ...prev };
-      if (copy[id] > 1) {
-        copy[id]--;
-      } else {
+      if (copy[id] > 1) copy[id]--;
+      else {
         delete copy[id];
-        // Also remove note if quantity hits zero
-        const noteCopy = { ...itemNotes };
-        delete noteCopy[id];
-        setItemNotes(noteCopy);
+        setItemNotes(n => { const c = { ...n }; delete c[id]; return c; });
       }
       return copy;
     });
@@ -101,21 +186,28 @@ export default function WaiterDashboard() {
     setOrder({});
     setItemNotes({});
     setIsPriorityRush(false);
-    triggerToast(`Cleared order for Table ${activeTable}`);
+    triggerToast(`Cleared ticket for ${activeLabel}`);
   };
 
-  // Submit Order — goes straight into the shared store, so it appears live on the chef's screen
+  // Totals
+  const subtotal = Object.entries(order).reduce((acc, [id, qty]) => {
+    const item = menu.find(m => m.id === id);
+    return acc + (item?.price || 0) * qty;
+  }, 0);
+  const tax = subtotal * 0.1;
+  const serviceCharge = subtotal * 0.05;
+  const orderTotal = subtotal + tax + serviceCharge;
+  const orderItemCount = useMemo(() => Object.values(order).reduce((a, b) => a + b, 0), [order]);
+
   const submitOrder = () => {
     if (Object.keys(order).length === 0) return;
-
     const itemsList = Object.entries(order).map(([id, qty]) => {
       const item = menu.find(m => m.id === id);
-      const note = itemNotes[id];
-      return { id, name: item?.name || 'Item', price: item?.price || 0, qty, notes: note || undefined };
+      return { id, name: item?.name || 'Item', price: item?.price || 0, qty, notes: itemNotes[id] || undefined };
     });
-
     addOrder({
-      table: activeTable,
+      table: activeTable === 'standing' ? 0 : activeTable,
+      mode: activeTable === 'standing' ? 'standing' : 'table',
       items: itemsList,
       priority: isPriorityRush ? 'high' : 'normal',
       subtotal,
@@ -123,308 +215,329 @@ export default function WaiterDashboard() {
       total: orderTotal,
       source: 'waiter',
     });
-
     setOrder({});
     setItemNotes({});
     setIsPriorityRush(false);
-    triggerToast(`⚡ Order sent to Kitchen for Table ${activeTable}!`);
-    setActiveTab('tables'); // Switch view to track status
+    triggerToast(`Order fired to kitchen · ${activeLabel}`);
+    setActiveTab('tables');
   };
 
-  // Waiter can only serve orders once the kitchen marks them ready — cooking status is the chef's call
   const serveOrder = (ticketId: string) => {
     updateOrderStatus(ticketId, 'served');
-    triggerToast(`Ticket ${ticketId} served — table cleared`);
+    triggerToast(`Ticket ${ticketId} served`);
   };
 
-  // Filtered Menu Items
   const filteredMenu = useMemo(() => {
     return menu.filter(item => {
       const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            item.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const q = searchQuery.toLowerCase();
+      const matchesSearch = item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q);
       return matchesCategory && matchesSearch;
     });
   }, [menu, activeCategory, searchQuery]);
 
-  // Order Totals
-  const subtotal = Object.entries(order).reduce((acc, [id, qty]) => {
-    const item = menu.find(m => m.id === id);
-    return acc + (item?.price || 0) * qty;
-  }, 0);
+  const selectTable = (t: TableSel) => {
+    setActiveTable(t);
+    setActiveTab('menu');
+    triggerToast(t === 'standing' ? 'Standing / walk-in order' : `Switched to Table ${t}`);
+  };
 
-  const tax = subtotal * 0.10;
-  const serviceCharge = subtotal * 0.05;
-  const orderTotal = subtotal + tax + serviceCharge;
-
-  const orderItemCount = useMemo(() => {
-    return Object.values(order).reduce((a, b) => a + b, 0);
-  }, [order]);
+  const cardBase = 'bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm';
 
   return (
-    <div className="min-h-screen bg-[#070709] text-gray-100 font-sans selection:bg-orange-500 selection:text-white pb-24 lg:pb-6">
-      
-      {/* Toast Alert */}
+    <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-28 lg:pb-0 selection:bg-brand-red selection:text-white">
+      {/* Toast */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-orange-500 to-amber-500 text-white px-6 py-3 rounded-full font-bold shadow-[0_10px_30px_rgba(249,115,22,0.4)] flex items-center gap-2 animate-bounce">
-          <Sparkles size={18} />
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-ink text-white px-5 py-2.5 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
+          <Check size={16} className="text-brand-gold" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      <div className="max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 lg:h-screen flex flex-col gap-4 lg:gap-6">
+      <div className="max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4 lg:h-screen">
 
-        {/* Waiter Call Alerts */}
-        {activeWaiterCalls.length > 0 && (
-          <div className="shrink-0 flex flex-col gap-2">
-            {activeWaiterCalls.map(call => (
-              <div key={call.id} className="bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/40 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 animate-pulse">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-red-500 text-white flex items-center justify-center shrink-0">
-                    <Bell size={16} />
-                  </div>
-                  <div>
-                    <p className="font-black text-white text-sm">Table {call.table} needs a waiter</p>
-                    <p className="text-xs text-gray-400">{new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => resolveWaiterCall(call.id)}
-                  className="px-3 py-1.5 rounded-lg bg-white text-black text-xs font-black hover:bg-gray-200 transition-colors shrink-0"
-                >
-                  Resolve
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Top Navbar */}
-        <header className="bg-[#121216] border border-white/10 rounded-2xl sm:rounded-3xl p-3 sm:p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl shrink-0">
-          <div className="flex items-center justify-between w-full md:w-auto">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-400 flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.4)]">
-                <Utensils size={24} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
-                  QWAIT <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-bold border border-orange-500/30">WAITER PRO</span>
+        {/* ============ TOP BAR ============ */}
+        <header className={`${cardBase} p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0`}>
+          <div className="flex items-center justify-between w-full md:w-auto gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={BRAND.logo} alt={BRAND.fullName} className="h-10 sm:h-12 w-auto rounded-lg border border-brand-gold/30 shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2 truncate">
+                  {BRAND.name}
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-red text-white font-bold tracking-wide">WAITER</span>
                 </h1>
-                <p className="text-xs text-gray-400 font-medium">Floor Manager Mode • Station 2</p>
+                <p className="text-xs text-brand-ink/50 font-medium truncate">Floor service · Station 2</p>
               </div>
             </div>
-
-            {/* Mobile Shift Tag */}
-            <div className="md:hidden flex items-center gap-2 bg-[#1a1a20] px-3 py-1.5 rounded-xl border border-white/5">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-bold text-gray-300">Tbl {activeTable}</span>
+            <div className="md:hidden flex items-center gap-2 bg-brand-sand px-3 py-1.5 rounded-xl border border-brand-gold/30 shrink-0">
+              <span className="w-2 h-2 rounded-full bg-brand-green animate-pulse" />
+              <span className="text-xs font-bold">{activeLabel}</span>
             </div>
           </div>
 
-          {/* Quick Search & Waiter Stats Bar */}
-          <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex items-center gap-2 w-full md:w-auto">
             <div className="relative flex-1 md:w-72">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input 
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-ink/40" size={18} />
+              <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search dishes, drinks..."
-                className="w-full bg-[#18181f] text-sm text-white placeholder-gray-500 rounded-xl pl-10 pr-9 py-2.5 border border-white/10 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
+                placeholder="Search dishes, drinks…"
+                className="w-full bg-brand-cream/60 text-sm text-brand-ink placeholder-brand-ink/40 rounded-xl pl-10 pr-9 py-2.5 border border-brand-gold/25 focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-ink/40 hover:text-brand-red">
                   <X size={16} />
                 </button>
               )}
             </div>
 
-            <div className="hidden sm:flex items-center gap-3 bg-[#18181f] p-1.5 rounded-xl border border-white/10">
-              <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-lg">
-                <User size={16} className="text-orange-400" />
-                <span className="text-xs font-bold text-gray-200">Alex W.</span>
+            <button
+              onClick={() => setMuted(m => !m)}
+              title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
+              className={`shrink-0 relative flex items-center justify-center w-11 h-11 rounded-xl border transition-colors ${
+                muted
+                  ? 'bg-white text-brand-ink/40 border-brand-gold/25 hover:text-brand-ink'
+                  : 'bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/20'
+              }`}
+            >
+              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {!muted && readyOrders.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-red animate-ping" />
+              )}
+            </button>
+
+            <div className="hidden xl:flex items-center gap-2 bg-brand-sand p-1.5 rounded-xl border border-brand-gold/25 shrink-0">
+              <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-lg">
+                <User size={15} className="text-brand-red" />
+                <span className="text-xs font-bold">Alex W.</span>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                Live Sync
+              <div className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-brand-green">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-green animate-ping" /> Live
               </div>
             </div>
           </div>
         </header>
 
-        {/* Main Dashboard Layout */}
-        <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 min-h-0 overflow-hidden">
-          
-          {/* ================= LEFT SIDEBAR: TABLES & ACTIVE TICKETS ================= */}
-          <aside className={`w-full lg:w-80 flex flex-col gap-4 lg:gap-6 overflow-y-auto lg:overflow-hidden ${activeTab !== 'tables' ? 'hidden lg:flex' : 'flex'}`}>
-            
-            {/* Table Selection Box */}
-            <div className="bg-[#121216] rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/10 shadow-xl flex flex-col shrink-0">
+        {/* ============ ALERT ZONE (ready pickups + waiter calls) ============ */}
+        {(readyOrders.length > 0 || activeWaiterCalls.length > 0) && (
+          <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {readyOrders.length > 0 && (
+              <div className="rounded-2xl border-2 border-brand-red bg-brand-red text-white p-3 shadow-lg shadow-brand-red/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <BellRing size={18} className="animate-bounce" />
+                  <span className="font-black text-sm uppercase tracking-wide">Ready to serve — pick up now</span>
+                  <span className="ml-auto text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{readyOrders.length}</span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {readyOrders.map(o => (
+                    <div key={o.id} className="shrink-0 flex items-center gap-2 bg-white text-brand-ink rounded-xl px-3 py-2 shadow">
+                      <div className="leading-tight">
+                        <p className="font-black text-sm">{orderLabel(o)}</p>
+                        <p className="text-[11px] text-brand-ink/50">#{o.id.split('-')[1]} · {o.items.reduce((s, i) => s + i.qty, 0)} items</p>
+                      </div>
+                      <button
+                        onClick={() => serveOrder(o.id)}
+                        className="ml-1 px-3 py-1.5 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
+                      >
+                        <Check size={13} /> Serve
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeWaiterCalls.length > 0 && (
+              <div className="rounded-2xl border-2 border-brand-red bg-brand-red text-white p-3 shadow-lg shadow-brand-red/20">
+                <div className="flex items-center gap-2 mb-2">
+                  <Bell size={18} className="animate-bounce" />
+                  <span className="font-black text-sm uppercase tracking-wide">Tables calling a waiter</span>
+                  <span className="ml-auto text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{activeWaiterCalls.length}</span>
+                </div>
+                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                  {activeWaiterCalls.map(call => (
+                    <div key={call.id} className="shrink-0 flex items-center gap-2 bg-white text-brand-ink rounded-xl px-3 py-2 shadow">
+                      <div className="leading-tight">
+                        <p className="font-black text-sm">Table {call.table}</p>
+                        <p className="text-[11px] text-brand-ink/50">{new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                      <button
+                        onClick={() => resolveWaiterCall(call.id)}
+                        className="ml-1 px-3 py-1.5 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-all"
+                      >
+                        Resolve
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============ MAIN 3-COLUMN LAYOUT ============ */}
+        <div className="flex-1 flex flex-col lg:flex-row gap-3 sm:gap-4 min-h-0">
+
+          {/* LEFT: tables + kitchen feed */}
+          <aside className={`w-full lg:w-72 xl:w-80 flex-col gap-3 sm:gap-4 lg:min-h-0 ${activeTab !== 'tables' ? 'hidden lg:flex' : 'flex'}`}>
+            {/* Tables */}
+            <div className={`${cardBase} p-4 shrink-0`}>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <Hash size={14} className="text-orange-400" /> Floor Tables
+                <h3 className="text-xs font-black text-brand-ink/50 uppercase tracking-widest flex items-center gap-1.5">
+                  <Hash size={14} className="text-brand-red" /> Floor Tables
                 </h3>
-                
-                {/* Table Filter Tabs */}
-                <div className="flex gap-1 bg-[#18181f] p-1 rounded-lg border border-white/5">
-                  <button 
-                    onClick={() => setTableFilter('all')} 
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${tableFilter === 'all' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
-                    All
-                  </button>
-                  <button 
-                    onClick={() => setTableFilter('occupied')} 
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${tableFilter === 'occupied' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'}`}
-                  >
-                    Occupied
-                  </button>
+                <div className="flex gap-1 bg-brand-sand p-1 rounded-lg">
+                  {(['all', 'occupied'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setTableFilter(f)}
+                      className={`px-2.5 py-0.5 rounded text-[10px] font-black capitalize transition-colors ${tableFilter === f ? 'bg-brand-red text-white' : 'text-brand-ink/50 hover:text-brand-ink'}`}
+                    >
+                      {f}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Table Grid */}
-              <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-4 gap-2.5 max-h-56 lg:max-h-none overflow-y-auto pr-1">
-                {TABLE_LIST
-                  .filter(t => {
-                    if (tableFilter === 'occupied') return tablesStatus[t] === 'occupied';
-                    return true;
-                  })
+              <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-4 gap-2">
+                {tableNumbers
+                  .filter(t => (tableFilter === 'occupied' ? tablesStatus[t] === 'occupied' : true))
                   .map(t => {
                     const status = tablesStatus[t] || 'available';
                     const isSelected = activeTable === t;
-                    const activeCount = placedOrders.filter(o => o.table === t && o.status !== 'served').length;
-                    const hasReady = placedOrders.some(o => o.table === t && o.status === 'ready');
+                    const activeCount = placedOrders.filter(o => o.table === t && o.mode !== 'standing' && o.mode !== 'takeaway' && o.status !== 'served').length;
+                    const hasReady = placedOrders.some(o => o.table === t && o.mode !== 'standing' && o.status === 'ready');
                     const isCalling = calledTables.has(t);
-
                     return (
                       <button
                         key={t}
-                        onClick={() => {
-                          setActiveTable(t);
-                          setActiveTab('menu');
-                          triggerToast(`Switched to Table ${t}`);
-                        }}
-                        className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-1 transition-all duration-200 font-black text-sm relative group border ${
+                        onClick={() => selectTable(t)}
+                        className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all font-black relative border-2 ${
                           isSelected
-                            ? 'bg-gradient-to-b from-orange-500 to-amber-600 text-white border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.5)] scale-105 z-10'
+                            ? 'bg-brand-red text-white border-brand-red shadow-md scale-[1.03]'
                             : isCalling
-                            ? 'bg-[#241416] text-red-200 border-red-500/50 hover:border-red-500/70 animate-pulse'
+                            ? 'bg-red-50 text-brand-red border-red-300 animate-pulse'
                             : hasReady
-                            ? 'bg-[#122019] text-emerald-200 border-emerald-500/40 hover:border-emerald-500/70'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
                             : status === 'occupied'
-                            ? 'bg-[#1e1b18] text-orange-200 border-orange-500/30 hover:border-orange-500/60'
-                            : 'bg-[#18181f] text-gray-300 border-white/5 hover:bg-[#22222a] hover:border-white/20'
+                            ? 'bg-brand-sand text-brand-ink border-brand-gold/40'
+                            : 'bg-white text-brand-ink/70 border-brand-gold/20 hover:border-brand-red/40'
                         }`}
                       >
-                        <span className="text-xs font-bold text-white/70">TBL</span>
+                        <span className={`text-[9px] font-bold ${isSelected ? 'text-white/70' : 'text-brand-ink/40'}`}>TBL</span>
                         <span className="text-lg leading-none">{t}</span>
-
                         {isCalling && (
-                          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center border border-white/20">
-                            <Bell size={11} />
+                          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand-red text-white flex items-center justify-center border-2 border-white">
+                            <Bell size={10} />
                           </span>
                         )}
-
                         {activeCount > 0 && (
-                          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-black text-white text-[10px] font-black flex items-center justify-center border border-white/20">
+                          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-brand-ink text-white text-[10px] font-black flex items-center justify-center border-2 border-white">
                             {activeCount}
                           </span>
                         )}
-
-                        {/* Status Pill Indicator */}
-                        <span className={`w-2 h-2 rounded-full absolute top-2 right-2 ${
-                          isSelected ? 'bg-white shadow-[0_0_8px_white]' :
-                          hasReady ? 'bg-emerald-400 animate-pulse' :
-                          status === 'occupied' ? 'bg-orange-500' : 'bg-emerald-500'
-                        }`} />
                       </button>
                     );
-                })}
+                  })}
               </div>
+
+              {/* Standing / walk-in */}
+              <button
+                onClick={() => selectTable('standing')}
+                className={`mt-2.5 w-full rounded-xl border-2 px-3 py-2.5 flex items-center gap-2.5 font-black text-sm transition-all ${
+                  activeTable === 'standing'
+                    ? 'bg-brand-red text-white border-brand-red shadow-md'
+                    : 'bg-white text-brand-ink border-dashed border-brand-gold/50 hover:border-brand-red/50'
+                }`}
+              >
+                <PersonStanding size={18} className={activeTable === 'standing' ? 'text-white' : 'text-brand-red'} />
+                <span className="flex-1 text-left leading-tight">
+                  Standing / Walk-in
+                  <span className={`block text-[10px] font-medium ${activeTable === 'standing' ? 'text-white/70' : 'text-brand-ink/45'}`}>
+                    No table — customer stands & eats
+                  </span>
+                </span>
+                {standingActiveCount > 0 && (
+                  <span className={`text-[10px] font-black rounded-full px-2 py-0.5 ${activeTable === 'standing' ? 'bg-white/20' : 'bg-brand-red/10 text-brand-red'}`}>
+                    {standingActiveCount}
+                  </span>
+                )}
+              </button>
             </div>
 
-            {/* Active Tickets Feed */}
-            <div className="bg-[#121216] rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-white/10 shadow-xl flex-1 flex flex-col overflow-hidden min-h-[300px]">
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/5">
-                <div className="flex items-center gap-2">
-                  <Bell size={16} className="text-orange-400 animate-bounce" />
-                  <h3 className="text-xs font-bold text-gray-300 uppercase tracking-widest">Kitchen Live Feed</h3>
-                </div>
-                <span className="px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 text-[11px] font-black border border-orange-500/20">
-                  {placedOrders.filter(o => o.status !== 'served').length} Active
+            {/* Kitchen live feed */}
+            <div className={`${cardBase} p-4 flex-1 flex flex-col overflow-hidden min-h-[240px]`}>
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-brand-gold/20">
+                <h3 className="text-xs font-black text-brand-ink/50 uppercase tracking-widest flex items-center gap-1.5">
+                  <Coffee size={14} className="text-brand-red" /> Kitchen Feed
+                </h3>
+                <span className="px-2 py-0.5 rounded-full bg-brand-red/10 text-brand-red text-[11px] font-black">
+                  {placedOrders.filter(o => o.status !== 'served').length} active
                 </span>
               </div>
-
-              <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3">
-                {placedOrders.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-gray-500 p-6 text-center">
-                    <Coffee size={40} className="opacity-30 mb-2" />
-                    <p className="text-xs font-semibold">No active kitchen tickets</p>
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5">
+                {placedOrders.filter(o => o.status !== 'served').length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/30 p-6 text-center">
+                    <Coffee size={36} className="mb-2 opacity-40" />
+                    <p className="text-xs font-bold">No active tickets</p>
                   </div>
                 ) : (
-                  placedOrders.map((ticket) => (
+                  placedOrders.filter(o => o.status !== 'served').map(ticket => (
                     <div
                       key={ticket.id}
-                      className={`p-3.5 rounded-2xl bg-[#18181f] border transition-all duration-200 ${
-                        ticket.status === 'ready'
-                          ? 'border-emerald-500/50 bg-emerald-950/10 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-                          : ticket.status === 'served'
-                          ? 'border-white/5 opacity-50'
-                          : 'border-white/10 hover:border-white/20'
+                      className={`p-3 rounded-xl border transition-all ${
+                        ticket.priority === 'high'
+                          ? 'border-brand-red/40 bg-brand-red/5'
+                          : ticket.status === 'ready'
+                          ? 'border-emerald-300 bg-emerald-50'
+                          : 'border-brand-gold/20 bg-brand-cream/40'
                       }`}
                     >
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-white text-base">Table {ticket.table}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-gray-400 font-mono">{ticket.id}</span>
+                      <div className="flex justify-between items-start mb-1.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-black text-sm">{orderLabel(ticket)}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
                             {ticket.source === 'customer' && (
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold">Self-order</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
                             )}
                           </div>
-                          <span className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
-                            <Clock size={12} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <span className="text-[11px] text-brand-ink/45 flex items-center gap-1 mt-0.5">
+                            <Clock size={11} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-
                         {ticket.priority === 'high' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">
-                            <Flame size={10} /> RUSH
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-brand-red text-white shrink-0">
+                            <Flame size={10} /> Rush
                           </span>
                         )}
                       </div>
-
-                      {/* Items list summary */}
-                      <div className="text-xs text-gray-300 space-y-1 mb-3 bg-[#121216] p-2 rounded-xl border border-white/5">
-                        {ticket.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between items-center">
-                            <span className="truncate font-medium">{item.name}{item.notes ? ` (${item.notes})` : ''}</span>
-                            <span className="font-bold text-orange-400 ml-2">x{item.qty}</span>
+                      <div className="text-xs text-brand-ink/70 space-y-0.5 mb-2">
+                        {ticket.items.slice(0, 4).map((item, idx) => (
+                          <div key={idx} className="flex justify-between gap-2">
+                            <span className="truncate">{item.name}{item.notes ? ` · ${item.notes}` : ''}</span>
+                            <span className="font-bold text-brand-red">×{item.qty}</span>
                           </div>
                         ))}
+                        {ticket.items.length > 4 && <p className="text-[11px] text-brand-ink/40">+{ticket.items.length - 4} more…</p>}
                       </div>
-
-                      {/* Action buttons on ticket */}
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${
-                          ticket.status === 'ready'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                            : ticket.status === 'served'
-                            ? 'bg-gray-500/20 text-gray-400 border border-gray-500/20'
-                            : ticket.status === 'cooking'
-                            ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-                            : 'bg-white/5 text-gray-400 border border-white/10'
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                          ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
+                          : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
+                          : 'bg-brand-ink/5 text-brand-ink/50'
                         }`}>
-                          {ticket.status === 'ready' ? <CheckCircle2 size={12} /> : <Coffee size={12} />}
-                          {ticket.status === 'pending' ? 'waiting on kitchen' : ticket.status}
+                          {ticket.status === 'ready' ? <PackageCheck size={11} /> : <Coffee size={11} />}
+                          {ticket.status === 'pending' ? 'waiting' : ticket.status}
                         </span>
-
                         {ticket.status === 'ready' && (
                           <button
                             onClick={() => serveOrder(ticket.id)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-1 shadow-lg hover:bg-emerald-600"
+                            className="px-2.5 py-1 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
                           >
-                            <Check size={12} /> Serve Now
+                            <Check size={12} /> Serve
                           </button>
                         )}
                       </div>
@@ -435,161 +548,93 @@ export default function WaiterDashboard() {
             </div>
           </aside>
 
-          {/* ================= MIDDLE PANEL: INTERACTIVE MENU & DISHES ================= */}
-          <main className={`flex-1 bg-[#121216] rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 flex flex-col relative overflow-hidden shadow-xl ${activeTab !== 'menu' ? 'hidden lg:flex' : 'flex'}`}>
-            
-            {/* Category Pills Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-6 pb-3 border-b border-white/5 shrink-0">
+          {/* CENTER: menu */}
+          <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden lg:min-h-0 ${activeTab !== 'menu' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Menu Selection</h2>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-white/5 text-gray-400 font-bold">
-                  Table {activeTable}
+                <h2 className="text-lg sm:text-xl font-black tracking-tight">Menu</h2>
+                <span className="text-xs px-2.5 py-1 rounded-full bg-brand-sand text-brand-ink/70 font-bold flex items-center gap-1">
+                  {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
                 </span>
                 {activeOrdersForActiveTable.length > 0 && (
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 font-bold flex items-center gap-1.5">
-                    <Bell size={12} />
-                    {activeOrdersForActiveTable.length} order{activeOrdersForActiveTable.length > 1 ? 's' : ''} already in •
-                    ${activeOrdersForActiveTable.reduce((sum, o) => sum + o.total, 0).toFixed(2)}
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-brand-red/10 text-brand-red font-bold">
+                    {activeOrdersForActiveTable.length} in · {formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}
                   </span>
                 )}
               </div>
-
-              {/* Functional Category Filter Buttons */}
-              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
-                {['All', 'Starters', 'Mains', 'Desserts', 'Drinks'].map((cat) => {
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
+                {['All', ...MENU_CATEGORIES].map(cat => {
                   const isActive = activeCategory === cat;
                   const count = cat === 'All' ? menu.length : menu.filter(m => m.category === cat).length;
-
                   return (
                     <button
                       key={cat}
                       onClick={() => setActiveCategory(cat)}
-                      className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 whitespace-nowrap flex items-center gap-2 border ${
-                        isActive 
-                          ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.4)] scale-105' 
-                          : 'bg-[#18181f] text-gray-400 hover:text-white hover:bg-[#22222a] border-white/5'
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1.5 border transition-all ${
+                        isActive
+                          ? 'bg-brand-red text-white border-brand-red shadow-sm'
+                          : 'bg-white text-brand-ink/60 hover:text-brand-ink border-brand-gold/25'
                       }`}
                     >
-                      <span>{cat}</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${isActive ? 'bg-white/30 text-white' : 'bg-white/5 text-gray-500'}`}>
-                        {count}
-                      </span>
+                      {cat}
+                      <span className={`text-[10px] px-1.5 rounded-full font-black ${isActive ? 'bg-white/25' : 'bg-brand-sand text-brand-ink/50'}`}>{count}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Menu Dish Cards Grid */}
-            <div className="flex-1 overflow-y-auto pr-1 sm:pr-2 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
               {filteredMenu.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-gray-500 py-12">
-                  <Search size={48} className="opacity-20 mb-3" />
-                  <p className="font-bold text-sm">No menu items found</p>
-                  <p className="text-xs text-gray-600 mt-1">Try clearing your search query or switching categories</p>
+                <div className="h-full flex flex-col items-center justify-center text-brand-ink/30 py-12">
+                  <Search size={44} className="mb-3 opacity-40" />
+                  <p className="font-bold text-sm">No items found</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
-                  {filteredMenu.map((item) => {
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {filteredMenu.map(item => {
                     const currentQty = order[item.id] || 0;
-
                     return (
-                      <div 
-                        key={item.id} 
-                        className={`bg-[#18181f] rounded-2xl sm:rounded-3xl p-3.5 border transition-all duration-300 flex flex-col justify-between group hover:shadow-[0_10px_25px_rgba(0,0,0,0.5)] ${
-                          currentQty > 0 
-                            ? 'border-orange-500/50 bg-[#1c1a17]' 
-                            : 'border-white/5 hover:border-orange-500/30'
+                      <div
+                        key={item.id}
+                        className={`rounded-2xl p-3 border flex flex-col justify-between transition-all ${
+                          currentQty > 0 ? 'border-brand-red/50 bg-brand-red/[0.03]' : 'border-brand-gold/20 bg-white hover:border-brand-red/30'
                         }`}
                       >
                         <div>
-                          {/* Dish Image Container */}
-                          <div className="w-full h-36 sm:h-40 rounded-2xl overflow-hidden relative mb-3 bg-[#22222a]">
-                            <img 
-                              src={item.image} 
-                              alt={item.name} 
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                              onError={(e) => {
-                                // Fallback image handling
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
+                          <div className="w-full h-28 sm:h-32 rounded-xl overflow-hidden relative mb-2.5 bg-brand-sand">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                             />
-                            {/* Dark Gradient Overlay for readability */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-
-                            {/* Price Tag Badge */}
-                            <div className="absolute top-2.5 left-2.5 px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 font-black text-xs text-amber-400">
-                              ${item.price}
+                            <div className="absolute top-2 left-2 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur font-black text-xs text-brand-red shadow-sm">
+                              {formatKWD(item.price)}
                             </div>
-
-                            {/* Prep Time Badge */}
-                            <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-gray-300 flex items-center gap-1">
-                              <Clock size={10} /> {item.prepTime}
-                            </div>
-
-                            {/* Item Attribute Badges */}
-                            <div className="absolute bottom-2 left-2.5 flex items-center gap-1.5">
-                              {item.isChefSpecial && (
-                                <span className="px-2 py-0.5 rounded-md bg-amber-500/80 backdrop-blur-md text-[9px] font-black text-black uppercase tracking-wider">
-                                  Chef Special
-                                </span>
-                              )}
-                              {item.isPopular && (
-                                <span className="px-2 py-0.5 rounded-md bg-orange-500/80 backdrop-blur-md text-[9px] font-black text-white uppercase tracking-wider">
-                                  Popular
-                                </span>
-                              )}
-                              {item.isSpicy && (
-                                <span className="px-2 py-0.5 rounded-md bg-red-500/80 backdrop-blur-md text-[9px] font-black text-white uppercase tracking-wider">
-                                  Spicy 🔥
-                                </span>
-                              )}
+                            <div className="absolute top-2 right-2 flex gap-1">
+                              {item.isChefSpecial && <span className="px-1.5 py-0.5 rounded bg-brand-gold text-brand-ink text-[9px] font-black uppercase">Chef</span>}
+                              {item.isSpicy && <span className="px-1.5 py-0.5 rounded bg-brand-red text-white text-[9px] font-black uppercase">Spicy</span>}
                             </div>
                           </div>
-
-                          {/* Dish Info */}
-                          <div className="mb-3 px-1">
-                            <h4 className="font-bold text-white text-base sm:text-lg leading-snug group-hover:text-orange-400 transition-colors">
-                              {item.name}
-                            </h4>
-                            <p className="text-xs text-gray-400 line-clamp-2 mt-1 leading-relaxed">
-                              {item.description}
-                            </p>
-                          </div>
+                          <h4 className="font-bold text-sm leading-snug">{item.name}</h4>
+                          <p className="text-xs text-brand-ink/50 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
                         </div>
-
-                        {/* Action Buttons Area - Responsive Stepper */}
-                        <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-                          <span className="text-xs font-bold text-gray-400">
-                            {currentQty > 0 ? `${currentQty} selected` : 'Not in order'}
-                          </span>
-
+                        <div className="pt-2.5 mt-2.5 border-t border-brand-gold/15 flex items-center justify-between">
+                          <span className="text-xs font-bold text-brand-ink/45">{currentQty > 0 ? `${currentQty} in ticket` : `${item.prepTime}`}</span>
                           {currentQty > 0 ? (
-                            <div className="flex items-center gap-2 bg-[#121216] p-1 rounded-full border border-orange-500/40">
-                              <button 
-                                onClick={() => removeFromOrder(item.id)}
-                                className="w-8 h-8 rounded-full bg-[#22222a] hover:bg-red-500/20 text-gray-300 hover:text-red-400 flex items-center justify-center transition-all active:scale-95"
-                                aria-label="Decrease quantity"
-                              >
-                                <Minus size={16} />
-                              </button>
-                              <span className="font-black text-sm w-6 text-center text-orange-400">
-                                {currentQty}
-                              </span>
-                              <button 
-                                onClick={() => addToOrder(item.id)}
-                                className="w-8 h-8 rounded-full bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition-all active:scale-95 shadow-md"
-                                aria-label="Increase quantity"
-                              >
-                                <Plus size={16} />
-                              </button>
+                            <div className="flex items-center gap-1.5 bg-brand-cream p-1 rounded-full border border-brand-red/30">
+                              <button onClick={() => removeFromOrder(item.id)} className="w-8 h-8 rounded-full bg-white text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={15} /></button>
+                              <span className="font-black text-sm w-5 text-center text-brand-red">{currentQty}</span>
+                              <button onClick={() => addToOrder(item.id)} className="w-8 h-8 rounded-full bg-brand-red text-white flex items-center justify-center hover:bg-brand-red-dark active:scale-95"><Plus size={15} /></button>
                             </div>
                           ) : (
                             <button
                               onClick={() => addToOrder(item.id)}
-                              className="px-4 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-500 text-orange-400 hover:text-white font-bold text-xs sm:text-sm flex items-center gap-2 border border-orange-500/30 transition-all duration-200 active:scale-95 shadow-sm"
+                              className="px-3.5 py-2 rounded-xl bg-brand-red text-white font-bold text-xs flex items-center gap-1.5 hover:bg-brand-red-dark active:scale-95 shadow-sm shadow-brand-red/20"
                             >
-                              <Plus size={16} /> Add to Ticket
+                              <Plus size={15} /> Add
                             </button>
                           )}
                         </div>
@@ -601,117 +646,72 @@ export default function WaiterDashboard() {
             </div>
           </main>
 
-          {/* ================= RIGHT SIDEBAR: CURRENT ORDER TICKET ================= */}
-          <aside className={`w-full lg:w-96 bg-[#121216] rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-white/10 flex flex-col relative overflow-hidden shadow-xl ${activeTab !== 'ticket' ? 'hidden lg:flex' : 'flex'}`}>
-            
-            {/* Header info */}
-            <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-orange-500/20 text-orange-400 flex items-center justify-center border border-orange-500/30">
+          {/* RIGHT: current ticket */}
+          <aside className={`w-full lg:w-80 xl:w-96 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden lg:min-h-0 ${activeTab !== 'ticket' ? 'hidden lg:flex' : 'flex'}`}>
+            <div className="flex items-center justify-between mb-3 pb-3 border-b border-brand-gold/20 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center">
                   <Receipt size={20} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-white">Live Ticket</h2>
-                  <p className="text-xs text-gray-400">Station 2 Waiter Desk</p>
+                  <h2 className="text-lg font-black">Current Ticket</h2>
+                  <p className="text-xs text-brand-ink/50 flex items-center gap-1">
+                    {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
+                  </p>
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-full text-xs font-black shadow-md">
-                  Table {activeTable}
-                </span>
-                {orderItemCount > 0 && (
-                  <button 
-                    onClick={clearOrder}
-                    title="Clear Order"
-                    className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
+              {orderItemCount > 0 && (
+                <button onClick={clearOrder} title="Clear ticket" className="p-2 text-brand-ink/40 hover:text-brand-red hover:bg-brand-red/10 rounded-lg transition-colors">
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
 
-            {/* Selected Items Scroll List */}
-            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3 custom-scrollbar min-h-[220px]">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5 min-h-[180px]">
               {Object.keys(order).length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-gray-500 p-8 text-center border-2 border-dashed border-white/5 rounded-2xl">
-                  <Utensils size={44} className="opacity-20 mb-3" />
-                  <p className="font-bold text-sm text-gray-400">No items in ticket</p>
-                  <p className="text-xs text-gray-600 mt-1 max-w-[200px]">Tap &quot;+ Add to Ticket&quot; on any dish from the menu panel</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/35 p-8 text-center border-2 border-dashed border-brand-gold/30 rounded-2xl">
+                  <Utensils size={40} className="mb-3 opacity-40" />
+                  <p className="font-bold text-sm text-brand-ink/50">No items yet</p>
+                  <p className="text-xs text-brand-ink/40 mt-1">Tap “Add” on any dish</p>
                 </div>
               ) : (
                 Object.entries(order).map(([id, qty]) => {
                   const item = menu.find(m => m.id === id);
                   if (!item) return null;
-
                   const hasNote = Boolean(itemNotes[id]);
-
                   return (
-                    <div key={id} className="bg-[#18181f] p-3 rounded-2xl border border-white/5 flex flex-col gap-2">
-                      <div className="flex items-center gap-3">
-                        <img 
-                          src={item.image} 
-                          alt={item.name} 
-                          className="w-12 h-12 rounded-xl object-cover shrink-0 bg-[#22222a]"
-                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                        />
-
+                    <div key={id} className="bg-brand-cream/50 p-2.5 rounded-xl border border-brand-gold/20 flex flex-col gap-2">
+                      <div className="flex items-center gap-2.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.image} alt={item.name} className="w-11 h-11 rounded-lg object-cover shrink-0 bg-brand-sand" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                         <div className="flex-1 min-w-0">
-                          <h5 className="font-bold text-sm text-white truncate">{item.name}</h5>
-                          <p className="text-orange-400 font-black text-xs mt-0.5">
-                            ${(item.price * qty).toFixed(2)} 
-                            <span className="text-gray-500 font-normal text-[11px] ml-1">(${item.price} each)</span>
-                          </p>
+                          <h5 className="font-bold text-sm truncate">{item.name}</h5>
+                          <p className="text-brand-red font-black text-xs">{formatKWD(item.price * qty)}</p>
                         </div>
-
-                        {/* Touch-Friendly Stepper Buttons */}
-                        <div className="flex items-center gap-1.5 bg-[#121216] p-1 rounded-xl border border-white/10 shrink-0">
-                          <button 
-                            onClick={() => removeFromOrder(id)}
-                            className="w-7 h-7 rounded-lg bg-[#22222a] hover:bg-red-500/20 text-gray-300 hover:text-red-400 flex items-center justify-center transition-all active:scale-95"
-                          >
-                            <Minus size={14} />
-                          </button>
-                          <span className="font-black text-xs w-5 text-center text-white">{qty}</span>
-                          <button 
-                            onClick={() => addToOrder(id)}
-                            className="w-7 h-7 rounded-lg bg-orange-500 hover:bg-orange-600 text-white flex items-center justify-center transition-all active:scale-95"
-                          >
-                            <Plus size={14} />
-                          </button>
+                        <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-brand-gold/25 shrink-0">
+                          <button onClick={() => removeFromOrder(id)} className="w-7 h-7 rounded-md bg-brand-cream text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={13} /></button>
+                          <span className="font-black text-xs w-5 text-center">{qty}</span>
+                          <button onClick={() => addToOrder(id)} className="w-7 h-7 rounded-md bg-brand-red text-white flex items-center justify-center hover:bg-brand-red-dark active:scale-95"><Plus size={13} /></button>
                         </div>
                       </div>
-
-                      {/* Custom Kitchen Note Input Trigger */}
-                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-white/5">
+                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-brand-gold/15">
                         {editingNoteFor === id ? (
                           <div className="flex items-center gap-1.5 w-full">
-                            <input 
+                            <input
                               type="text"
-                              placeholder="e.g. Extra sauce, no onions..."
+                              placeholder="e.g. extra sauce, no nuts…"
                               value={itemNotes[id] || ''}
                               onChange={(e) => setItemNotes({ ...itemNotes, [id]: e.target.value })}
-                              className="flex-1 bg-[#121216] text-white text-xs px-2 py-1 rounded border border-orange-500/50 focus:outline-none"
+                              className="flex-1 bg-white text-xs px-2 py-1 rounded border border-brand-red/40 focus:outline-none"
                               autoFocus
                             />
-                            <button 
-                              onClick={() => setEditingNoteFor(null)} 
-                              className="px-2 py-1 bg-orange-500 text-white font-bold rounded text-[10px]"
-                            >
-                              Done
-                            </button>
+                            <button onClick={() => setEditingNoteFor(null)} className="px-2 py-1 bg-brand-red text-white font-bold rounded text-[10px]">Done</button>
                           </div>
                         ) : (
                           <>
-                            <span className="text-gray-400 truncate max-w-[200px]">
-                              {hasNote ? `Note: "${itemNotes[id]}"` : 'No custom note'}
-                            </span>
-                            <button 
-                              onClick={() => setEditingNoteFor(id)}
-                              className="text-orange-400 hover:underline font-semibold text-[10px] flex items-center gap-0.5"
-                            >
-                              <FileText size={10} /> {hasNote ? 'Edit note' : '+ Add note'}
+                            <span className="text-brand-ink/50 truncate max-w-[180px]">{hasNote ? `Note: ${itemNotes[id]}` : 'No note'}</span>
+                            <button onClick={() => setEditingNoteFor(id)} className="text-brand-red font-bold text-[10px] flex items-center gap-0.5 shrink-0">
+                              <FileText size={10} /> {hasNote ? 'Edit' : 'Add note'}
                             </button>
                           </>
                         )}
@@ -722,127 +722,82 @@ export default function WaiterDashboard() {
               )}
             </div>
 
-            {/* Bottom Bill Breakdown & Submit Button */}
-            <div className="mt-4 pt-4 border-t border-white/10 shrink-0">
-              
-              {/* Priority Toggle */}
+            <div className="mt-3 pt-3 border-t border-brand-gold/20 shrink-0">
               {orderItemCount > 0 && (
-                <div className="mb-4 flex items-center justify-between bg-[#18181f] p-2.5 rounded-xl border border-white/5">
+                <div className="mb-3 flex items-center justify-between bg-brand-cream/60 p-2.5 rounded-xl border border-brand-gold/20">
                   <div className="flex items-center gap-2">
-                    <Flame size={16} className={isPriorityRush ? 'text-red-400 animate-pulse' : 'text-gray-500'} />
-                    <span className="text-xs font-bold text-gray-300">Rush Order Priority</span>
+                    <Flame size={16} className={isPriorityRush ? 'text-brand-red' : 'text-brand-ink/40'} />
+                    <span className="text-xs font-bold">Rush priority</span>
                   </div>
                   <button
                     onClick={() => setIsPriorityRush(!isPriorityRush)}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-1 ${isPriorityRush ? 'bg-red-500' : 'bg-gray-700'}`}
+                    className={`w-11 h-6 rounded-full transition-colors relative p-1 ${isPriorityRush ? 'bg-brand-red' : 'bg-brand-ink/20'}`}
                   >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isPriorityRush ? 'translate-x-5' : 'translate-x-0'}`} />
+                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isPriorityRush ? 'translate-x-5' : ''}`} />
                   </button>
                 </div>
               )}
-
-              {/* Price Calculations */}
-              <div className="space-y-2 mb-4 text-xs font-medium text-gray-400">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <span className="text-gray-200">${subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tax (10%)</span>
-                  <span className="text-gray-200">${tax.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Service Fee (5%)</span>
-                  <span className="text-gray-200">${serviceCharge.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center pt-2 border-t border-white/10 text-base">
-                  <span className="font-black text-white">Total</span>
-                  <span className="font-black text-xl text-orange-400">${orderTotal.toFixed(2)}</span>
+              <div className="space-y-1.5 mb-3 text-xs font-medium text-brand-ink/60">
+                <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
+                <div className="flex justify-between"><span>Tax (10%)</span><span className="text-brand-ink font-bold">{formatKWD(tax)}</span></div>
+                <div className="flex justify-between"><span>Service (5%)</span><span className="text-brand-ink font-bold">{formatKWD(serviceCharge)}</span></div>
+                <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
+                  <span className="font-black text-brand-ink">Total</span>
+                  <span className="font-black text-xl text-brand-red">{formatKWD(orderTotal)}</span>
                 </div>
               </div>
-
-              {/* Submit Button */}
-              <button 
+              <button
                 onClick={submitOrder}
                 disabled={orderItemCount === 0}
-                className="w-full py-3.5 sm:py-4 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-black text-base sm:text-lg flex items-center justify-center gap-2.5 hover:from-orange-600 hover:to-amber-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-[0_0_25px_rgba(249,115,22,0.4)] active:scale-[0.98]"
+                className="w-full py-3.5 rounded-2xl bg-brand-red text-white font-black text-base flex items-center justify-center gap-2 hover:bg-brand-red-dark disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-red/25 active:scale-[0.98]"
               >
-                <Send size={20} />
-                <span>Fire Order to Kitchen ({orderItemCount})</span>
+                <Send size={18} /> Fire to Kitchen ({orderItemCount})
               </button>
             </div>
           </aside>
         </div>
       </div>
 
-      {/* Mobile Bottom Quick Drawer (When in Menu tab with items selected) */}
+      {/* Mobile quick bar (menu tab, items selected) */}
       {orderItemCount > 0 && activeTab === 'menu' && (
-        <div className="lg:hidden fixed bottom-16 left-3 right-3 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-2xl p-3.5 shadow-[0_10px_30px_rgba(249,115,22,0.5)] flex items-center justify-between z-40 animate-slide-up">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-black/20 flex items-center justify-center font-black">
-              {orderItemCount}
-            </div>
+        <div className="lg:hidden fixed bottom-20 left-3 right-3 bg-brand-red text-white rounded-2xl p-3 shadow-xl shadow-brand-red/30 flex items-center justify-between z-40">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center font-black">{orderItemCount}</div>
             <div>
-              <p className="text-xs font-bold opacity-90">Table {activeTable} Order</p>
-              <p className="text-base font-black">${orderTotal.toFixed(2)}</p>
+              <p className="text-xs font-bold opacity-90">{activeLabel}</p>
+              <p className="text-base font-black">{formatKWD(orderTotal)}</p>
             </div>
           </div>
-          <button 
-            onClick={() => setActiveTab('ticket')}
-            className="px-4 py-2 bg-black/80 hover:bg-black text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
-          >
-            Review Ticket <ChevronRight size={16} />
+          <button onClick={() => setActiveTab('ticket')} className="px-4 py-2 bg-white text-brand-red font-black text-xs rounded-xl flex items-center gap-1">
+            Review <ChevronRight size={15} />
           </button>
         </div>
       )}
 
-      {/* Mobile/Tablet Bottom Navigation Bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-[#0e0e12]/95 backdrop-blur-2xl border-t border-white/10 flex items-center justify-around p-2.5 z-50 shadow-2xl">
-        <button 
-          onClick={() => setActiveTab('tables')}
-          className={`flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all ${
-            activeTab === 'tables' ? 'text-orange-400 bg-orange-500/10 font-bold' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Hash size={20} />
-          <span className="text-[10px] uppercase tracking-wider font-semibold">Tables</span>
-        </button>
-
-        <button 
-          onClick={() => setActiveTab('menu')}
-          className={`flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all ${
-            activeTab === 'menu' ? 'text-orange-400 bg-orange-500/10 font-bold' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Utensils size={20} />
-          <span className="text-[10px] uppercase tracking-wider font-semibold">Menu</span>
-        </button>
-
-        <button 
-          onClick={() => setActiveTab('ticket')}
-          className={`flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl transition-all relative ${
-            activeTab === 'ticket' ? 'text-orange-400 bg-orange-500/10 font-bold' : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Receipt size={20} />
-          <span className="text-[10px] uppercase tracking-wider font-semibold">Ticket</span>
-          {orderItemCount > 0 && (
-            <span className="absolute -top-1 right-2 w-4 h-4 bg-orange-500 text-white text-[10px] font-black rounded-full flex items-center justify-center animate-pulse">
-              {orderItemCount}
-            </span>
-          )}
-        </button>
+      {/* Mobile bottom nav */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-brand-gold/25 flex items-center justify-around p-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+        {([
+          { key: 'tables', icon: Hash, label: 'Tables', badge: activeWaiterCalls.length + readyOrders.length },
+          { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
+          { key: 'ticket', icon: Receipt, label: 'Ticket', badge: orderItemCount },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-xl transition-all ${
+              activeTab === tab.key ? 'text-brand-red bg-brand-red/10 font-bold' : 'text-brand-ink/50 hover:text-brand-ink'
+            }`}
+          >
+            <tab.icon size={20} />
+            <span className="text-[10px] uppercase tracking-wider font-bold">{tab.label}</span>
+            {tab.badge > 0 && (
+              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-red text-white text-[10px] font-black rounded-full flex items-center justify-center border border-white">
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
       </nav>
-
-      {/* Custom Styles */}
-      <style dangerouslySetInnerHTML={{__html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #262630; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #3f3f50; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}} />
     </div>
   );
 }
