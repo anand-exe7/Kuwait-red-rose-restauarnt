@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fbf8ee;
+  --foreground: #2a1a12;
 }
 
 @theme inline {
@@ -10,13 +10,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Red Rose brand palette (from the shop sign) */
+  --color-brand-beige: #f3ecd2;
+  --color-brand-cream: #fbf8ee;
+  --color-brand-sand: #efe6c9;
+  --color-brand-red: #b01e28;
+  --color-brand-red-dark: #8f1720;
+  --color-brand-gold: #c9a961;
+  --color-brand-gold-dark: #a5843f;
+  --color-brand-plum: #8e2570;
+  --color-brand-green: #3f8f3a;
+  --color-brand-ink: #2a1a12;
 }
 
 html, body {
@@ -27,5 +32,13 @@ html, body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Shared utility scrollbars used across the staff dashboards */
+.custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #c9a961; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a5843f; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
