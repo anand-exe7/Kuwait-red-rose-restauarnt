@@ -21,8 +21,17 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  LayoutGrid,
+  LogOut,
+  Ticket,
+  Receipt,
 } from 'lucide-react';
 import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders } from '../lib/orderStore';
+import { formatKWD } from '../lib/currency';
+import { BRAND } from '../lib/brand';
+import TablesSection from './TablesSection';
+import CouponsSection from './CouponsSection';
+import BillingSection from './BillingSection';
 import {
   MenuItem,
   MenuCategory,
@@ -41,8 +50,7 @@ import {
 
 type Period = 'all' | 'today' | 'week' | 'month' | 'year' | 'custom';
 
-const fmt = (n: number) =>
-  `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt = (n: number) => formatKWD(n);
 
 function isInPeriod(createdAt: number, period: Period, from?: string, to?: string): boolean {
   if (period === 'all') return true;
@@ -97,7 +105,7 @@ function exportOrdersToCSV(orders: Order[]) {
 
 const STATUS_STYLES: Record<Order['status'], string> = {
   pending: 'bg-gray-500/10 text-gray-600 border-gray-500/20',
-  cooking: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
+  cooking: 'bg-brand-red/10 text-brand-red-dark border-brand-red/20',
   ready: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
   served: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
 };
@@ -108,7 +116,7 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63
 // Root
 // ---------------------------------------------------------------------------
 
-type Section = 'analytics' | 'orders' | 'inventory';
+type Section = 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
 
 export default function AdminDashboard() {
   const [section, setSection] = useState<Section>('analytics');
@@ -119,6 +127,9 @@ export default function AdminDashboard() {
     { key: 'analytics', icon: LayoutDashboard, label: 'Analytics' },
     { key: 'orders', icon: ClipboardList, label: 'Orders' },
     { key: 'inventory', icon: Package, label: 'Inventory' },
+    { key: 'tables', icon: LayoutGrid, label: 'Tables' },
+    { key: 'billing', icon: Receipt, label: 'Billing' },
+    { key: 'coupons', icon: Ticket, label: 'Coupons' },
   ];
 
   return (
@@ -126,10 +137,9 @@ export default function AdminDashboard() {
       {/* Sidebar Navigation */}
       <div className="fixed left-0 top-0 h-full w-16 sm:w-20 md:w-64 bg-[#141414] border-r border-white/5 flex flex-col p-3 sm:p-4 z-50 transition-all">
         <div className="flex items-center gap-3 mb-6 sm:mb-10 pl-1 sm:pl-2">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-red-500 flex items-center justify-center shadow-lg shadow-orange-500/20 shrink-0">
-            <LayoutDashboard size={18} className="text-white sm:w-5 sm:h-5" />
-          </div>
-          <span className="font-bold text-xl hidden md:block">QWAIT Admin</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={BRAND.logo} alt={BRAND.fullName} className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover shrink-0 shadow-lg" />
+          <span className="font-bold text-xl hidden md:block">{BRAND.name} Admin</span>
         </div>
 
         <nav className="flex flex-col gap-2 flex-1">
@@ -137,7 +147,7 @@ export default function AdminDashboard() {
             <button
               key={item.key}
               onClick={() => setSection(item.key)}
-              className={`flex items-center justify-center md:justify-start gap-4 p-3 rounded-xl transition-all ${section === item.key ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+              className={`flex items-center justify-center md:justify-start gap-4 p-3 rounded-xl transition-all ${section === item.key ? 'bg-brand-red text-white shadow-lg shadow-brand-red/20' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
             >
               <item.icon size={20} />
               <span className="font-medium hidden md:block">{item.label}</span>
@@ -146,7 +156,7 @@ export default function AdminDashboard() {
         </nav>
 
         <div className="mt-auto p-2 sm:p-4 flex items-center justify-center md:justify-start gap-3">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-orange-500/20 border border-orange-500/30 text-orange-400 font-black flex items-center justify-center shrink-0">A</div>
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-brand-red/20 border border-brand-red/30 text-brand-gold font-black flex items-center justify-center shrink-0">A</div>
           <div className="hidden md:block">
             <p className="text-sm font-bold">Admin</p>
             <p className="text-xs text-gray-500">Manager</p>
@@ -158,15 +168,29 @@ export default function AdminDashboard() {
       <div className="ml-16 sm:ml-20 md:ml-64">
         <header className="bg-white text-black border-b border-black/5 px-4 sm:px-6 md:px-8 h-16 flex items-center justify-between sticky top-0 z-40">
           <h1 className="text-lg font-black capitalize">{section}</h1>
-          <Link href="/" className="text-sm font-bold text-black/60 hover:text-black flex items-center gap-1.5">
-            <ArrowLeft size={16} /> View Store
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-sm font-bold text-black/60 hover:text-black flex items-center gap-1.5">
+              <ArrowLeft size={16} /> View Store
+            </Link>
+            <button
+              onClick={async () => {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                window.location.assign('/login?role=admin');
+              }}
+              className="text-sm font-bold text-brand-red hover:text-brand-red-dark flex items-center gap-1.5"
+            >
+              <LogOut size={16} /> Logout
+            </button>
+          </div>
         </header>
 
         <main className="bg-[#f4f5f7] min-h-[calc(100vh-4rem)] text-black p-4 sm:p-6 md:p-8">
           {section === 'analytics' && <AnalyticsSection orders={orders} />}
           {section === 'orders' && <OrdersSection orders={orders} />}
           {section === 'inventory' && <InventorySection menu={menu} />}
+          {section === 'tables' && <TablesSection />}
+          {section === 'billing' && <BillingSection />}
+          {section === 'coupons' && <CouponsSection />}
         </main>
       </div>
     </div>
@@ -265,15 +289,15 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
   const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
     { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-500/10', hint: 'From served orders' },
     { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'Fully served bills' },
-    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-orange-500', bg: 'bg-orange-500/10', hint: 'Waiter-placed orders' },
+    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-placed orders' },
     { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-purple-500', bg: 'bg-purple-500/10', hint: 'Customer QR orders' },
   ];
 
   const stats2: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-orange-500', bg: 'bg-orange-500/10', hint: 'Waiter-taken bills' },
+    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-taken bills' },
     { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-purple-500', bg: 'bg-purple-500/10', hint: 'Customer self-ordered' },
     { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'From completed bills' },
-    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-amber-500', bg: 'bg-amber-500/10', hint: 'Per completed order' },
+    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold', bg: 'bg-brand-gold/10', hint: 'Per completed order' },
     { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-500/10', hint: 'Most sold item' },
   ];
 
@@ -290,7 +314,7 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
               <button
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${period === p.key ? 'bg-orange-500 text-white shadow' : 'text-black/50 hover:text-black'}`}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${period === p.key ? 'bg-brand-red text-white shadow' : 'text-black/50 hover:text-black'}`}
               >
                 {p.label}
               </button>
@@ -322,7 +346,7 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 flex flex-col gap-6">
           <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
-            <p className="text-sm font-bold text-black/50">Revenue Trend This Year <span className="text-orange-500">{year}</span></p>
+            <p className="text-sm font-bold text-black/50">Revenue Trend This Year <span className="text-brand-red">{year}</span></p>
             <p className="text-2xl sm:text-3xl font-black mt-1">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
             <div className="mt-8 flex items-end justify-between gap-0.5 sm:gap-2 h-48">
               {monthly.map((v, i) => (
@@ -335,7 +359,7 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
                   <div
                     onMouseEnter={() => setHoveredMonth(i)}
                     onMouseLeave={() => setHoveredMonth(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-orange-500 hover:bg-orange-600' : 'bg-black/5'}`}
+                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-brand-red hover:bg-brand-red-dark' : 'bg-black/5'}`}
                     style={{ height: `${Math.max(3, (v / maxMonthly) * 100)}%` }}
                   />
                   <span className="text-[7px] sm:text-[10px] font-bold text-black/40 truncate w-full text-center">{monthLabels[i]}</span>
@@ -346,7 +370,7 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
 
           <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
             <p className="text-sm font-bold text-black/50">
-              Revenue This Week <span className="text-orange-500">(Week {weekNumber} of {year})</span>
+              Revenue This Week <span className="text-brand-red">(Week {weekNumber} of {year})</span>
             </p>
             <p className="text-xs text-black/40 mt-1">{fmt(weekTotal)} total</p>
             <div className="mt-8 flex items-end justify-between gap-1 sm:gap-2 h-40">
@@ -360,7 +384,7 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
                   <div
                     onMouseEnter={() => setHoveredDay(i)}
                     onMouseLeave={() => setHoveredDay(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-orange-500 hover:bg-orange-600' : 'bg-black/5'}`}
+                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-brand-red hover:bg-brand-red-dark' : 'bg-black/5'}`}
                     style={{ height: `${Math.max(3, (v / maxWeekly) * 100)}%` }}
                   />
                   <span className="text-[8px] sm:text-[10px] font-bold text-black/40 truncate w-full text-center">{weekDayLabels[i]}</span>
@@ -376,11 +400,11 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
             <div className="flex flex-col gap-4">
               <div>
                 <div className="flex justify-between text-xs font-bold mb-1.5">
-                  <span className="text-orange-500 uppercase tracking-wide">Staff-Taken</span>
+                  <span className="text-brand-red uppercase tracking-wide">Staff-Taken</span>
                   <span>{staffOrders.length}</span>
                 </div>
                 <div className="h-2 rounded-full bg-black/5 overflow-hidden">
-                  <div className="h-full bg-orange-500 rounded-full" style={{ width: `${completed.length ? (staffOrders.length / completed.length) * 100 : 0}%` }} />
+                  <div className="h-full bg-brand-red rounded-full" style={{ width: `${completed.length ? (staffOrders.length / completed.length) * 100 : 0}%` }} />
                 </div>
               </div>
               <div>
@@ -408,10 +432,10 @@ function AnalyticsSection({ orders }: { orders: Order[] }) {
                         <span className="text-black/30 shrink-0">{i + 1}</span>
                         <span className="truncate">{item.name}</span>
                       </span>
-                      <span className="text-orange-500 font-black text-sm shrink-0">{fmt(item.revenue)}</span>
+                      <span className="text-brand-red font-black text-sm shrink-0">{fmt(item.revenue)}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-black/5 overflow-hidden">
-                      <div className="h-full bg-orange-500 rounded-full" style={{ width: `${(item.revenue / maxItemRevenue) * 100}%` }} />
+                      <div className="h-full bg-brand-red rounded-full" style={{ width: `${(item.revenue / maxItemRevenue) * 100}%` }} />
                     </div>
                     <p className="text-[11px] text-black/40 mt-1">{item.qty} pcs sold</p>
                   </div>
@@ -482,7 +506,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search ticket ID or table..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red"
             />
           </div>
         </div>
@@ -498,7 +522,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               <button
                 key={t.key}
                 onClick={() => setTypeFilter(t.key as typeof typeFilter)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${typeFilter === t.key ? 'bg-orange-500 text-white' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${typeFilter === t.key ? 'bg-brand-red text-white' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}
               >
                 {t.label}
               </button>
@@ -517,7 +541,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               <button
                 key={t.key}
                 onClick={() => setDateFilter(t.key as typeof dateFilter)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${dateFilter === t.key ? 'bg-orange-500 text-white' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${dateFilter === t.key ? 'bg-brand-red text-white' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}
               >
                 {t.label}
               </button>
@@ -541,7 +565,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
           <button
             onClick={() => exportOrdersToCSV(filtered)}
             disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 text-sm font-bold text-orange-500 hover:text-orange-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 text-sm font-bold text-brand-red hover:text-brand-red-dark disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Download size={14} /> Export CSV
           </button>
@@ -567,10 +591,10 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               {filtered.map(o => (
                 <React.Fragment key={o.id}>
                   <tr className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors cursor-pointer" onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}>
-                    <td className="px-5 py-4 font-bold text-orange-500">{o.id}</td>
+                    <td className="px-5 py-4 font-bold text-brand-red">{o.id}</td>
                     <td className="px-5 py-4">Table {o.table}</td>
                     <td className="px-5 py-4">
-                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${o.source === 'customer' ? 'bg-purple-500/10 text-purple-600' : 'bg-orange-500/10 text-orange-600'}`}>
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${o.source === 'customer' ? 'bg-purple-500/10 text-purple-600' : 'bg-brand-red/10 text-brand-red-dark'}`}>
                         {o.source === 'customer' ? 'Self-Order' : 'Staff-Taken'}
                       </span>
                     </td>
@@ -627,115 +651,160 @@ function OrdersSection({ orders }: { orders: Order[] }) {
 // Inventory
 // ---------------------------------------------------------------------------
 
+type StockState = 'in' | 'low' | 'out' | 'untracked';
+function stockState(m: MenuItem): StockState {
+  if (m.stock == null) return 'untracked';
+  if (m.stock <= 0) return 'out';
+  if (m.lowStockThreshold != null && m.stock <= m.lowStockThreshold) return 'low';
+  return 'in';
+}
+
 function InventorySection({ menu }: { menu: MenuItem[] }) {
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'All' | MenuCategory>('All');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const filtered = menu.filter(
-    m => m.name.toLowerCase().includes(search.toLowerCase()) || m.category.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = menu.filter(m => {
+    const q = search.toLowerCase();
+    const matchesSearch = m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q) || (m.sku || '').toLowerCase().includes(q);
+    const matchesCat = categoryFilter === 'All' || m.category === categoryFilter;
+    return matchesSearch && matchesCat;
+  });
 
-  const openAdd = () => {
-    setEditing(null);
-    setFormOpen(true);
+  const totalProducts = menu.length;
+  const activeCount = menu.filter(m => m.status === 'active').length;
+  const lowCount = menu.filter(m => stockState(m) === 'low').length;
+  const outCount = menu.filter(m => stockState(m) === 'out').length;
+  const retailValue = menu.reduce((s, m) => s + m.price * (m.stock || 0), 0);
+  const unitsInStock = menu.reduce((s, m) => s + (m.stock || 0), 0);
+
+  const openAdd = () => { setEditing(null); setFormOpen(true); };
+  const openEdit = (item: MenuItem) => { setEditing(item); setFormOpen(true); };
+  const adjustStock = (item: MenuItem, delta: number) => {
+    const next = Math.max(0, (item.stock ?? 0) + delta);
+    updateMenuItem(item.id, { stock: next });
   };
-  const openEdit = (item: MenuItem) => {
-    setEditing(item);
-    setFormOpen(true);
+
+  const summary: { label: string; value: string; cls: string }[] = [
+    { label: 'Total Products', value: String(totalProducts), cls: 'text-brand-ink' },
+    { label: 'Active', value: String(activeCount), cls: 'text-emerald-600' },
+    { label: 'Low Stock', value: String(lowCount), cls: 'text-amber-600' },
+    { label: 'Out of Stock', value: String(outCount), cls: 'text-brand-red' },
+    { label: 'Units in Stock', value: String(unitsInStock), cls: 'text-blue-600' },
+    { label: 'Retail Value', value: fmt(retailValue), cls: 'text-brand-ink' },
+  ];
+
+  const STOCK_PILL: Record<StockState, string> = {
+    in: 'bg-emerald-500/10 text-emerald-600',
+    low: 'bg-amber-500/10 text-amber-600',
+    out: 'bg-brand-red/10 text-brand-red',
+    untracked: 'bg-black/5 text-black/40',
   };
+  const STOCK_LABEL: Record<StockState, string> = { in: 'In stock', low: 'Low', out: 'Out', untracked: 'Not tracked' };
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        {summary.map(s => (
+          <div key={s.label} className="bg-white p-4 rounded-2xl border border-black/5 shadow-sm">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-black/40">{s.label}</p>
+            <p className={`text-xl font-black mt-1 ${s.cls}`}>{s.value}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
           <div>
             <h2 className="text-2xl font-black">Menu Inventory</h2>
-            <p className="text-sm text-black/50">Manage pricing, categories, and availability.</p>
+            <p className="text-sm text-black/50">Manage pricing, stock levels, categories, and availability.</p>
           </div>
-          <button
-            onClick={openAdd}
-            className="flex items-center justify-center gap-2 px-5 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm transition-colors shrink-0"
-          >
+          <button onClick={openAdd} className="flex items-center justify-center gap-2 px-5 py-3 bg-brand-red hover:bg-brand-red-dark text-white rounded-xl font-bold text-sm transition-colors shrink-0">
             <Plus size={16} /> Add New Product
           </button>
         </div>
-        <div className="relative">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/30" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search products by name or category..."
-            className="w-full max-w-md pl-10 pr-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500"
-          />
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/30" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, category or SKU..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+            {(['All', ...MENU_CATEGORIES] as const).map(c => (
+              <button key={c} onClick={() => setCategoryFilter(c as 'All' | MenuCategory)} className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${categoryFilter === c ? 'bg-brand-red text-white' : 'bg-black/5 text-black/60 hover:bg-black/10'}`}>{c}</button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="bg-white rounded-3xl border border-black/5 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[640px]">
+          <table className="w-full text-left min-w-[820px]">
             <thead>
               <tr className="text-black/40 text-xs uppercase tracking-wide border-b border-black/5">
                 <th className="px-5 py-4 font-bold">Product</th>
                 <th className="px-5 py-4 font-bold">Category</th>
                 <th className="px-5 py-4 font-bold">Price</th>
+                <th className="px-5 py-4 font-bold">Stock</th>
                 <th className="px-5 py-4 font-bold">Status</th>
                 <th className="px-5 py-4 font-bold">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(item => (
-                <tr key={item.id} className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors">
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-orange-100 text-orange-600 font-black flex items-center justify-center shrink-0">
-                        {item.name.charAt(0).toUpperCase()}
+              {filtered.map(item => {
+                const st = stockState(item);
+                return (
+                  <tr key={item.id} className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg bg-brand-red/10 text-brand-red-dark font-black flex items-center justify-center shrink-0">
+                          {item.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold truncate">{item.name}</p>
+                          <p className="text-xs text-black/40">{item.sku || '—'}</p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-bold truncate">{item.name}</p>
-                        <p className="text-xs text-black/40">{fmt(item.price)}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className="px-2.5 py-1 rounded-full bg-black/5 text-xs font-bold text-black/60">{item.category}</span>
+                    </td>
+                    <td className="px-5 py-4 font-bold">{fmt(item.price)}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => adjustStock(item, -1)} className="w-7 h-7 rounded-md bg-black/5 hover:bg-black/10 flex items-center justify-center" title="−1"><ChevronDown size={14} /></button>
+                        <span className="w-8 text-center font-black">{item.stock ?? '—'}</span>
+                        <button onClick={() => adjustStock(item, 1)} className="w-7 h-7 rounded-md bg-black/5 hover:bg-black/10 flex items-center justify-center" title="+1"><ChevronUp size={14} /></button>
+                        <span className={`ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${STOCK_PILL[st]}`}>{STOCK_LABEL[st]}</span>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 rounded-full bg-black/5 text-xs font-bold text-black/60">{item.category}</span>
-                  </td>
-                  <td className="px-5 py-4 font-bold">{fmt(item.price)}</td>
-                  <td className="px-5 py-4">
-                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${item.status === 'active' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-gray-500/10 text-gray-500'}`}>
-                      {item.status === 'active' ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    {confirmDeleteId === item.id ? (
-                      <div className="flex items-center gap-2 text-xs font-bold">
-                        <span className="text-black/50">Delete?</span>
-                        <button onClick={() => { deleteMenuItem(item.id); setConfirmDeleteId(null); }} className="text-red-500 hover:underline">
-                          Yes
-                        </button>
-                        <button onClick={() => setConfirmDeleteId(null)} className="text-black/40 hover:underline">
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-4 text-sm font-bold">
-                        <button onClick={() => openEdit(item)} className="text-blue-500 hover:underline flex items-center gap-1">
-                          <Pencil size={13} /> Edit
-                        </button>
-                        <button onClick={() => setConfirmDeleteId(item.id)} className="text-red-500 hover:underline flex items-center gap-1">
-                          <Trash2 size={13} /> Delete
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${item.status === 'active' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-gray-500/10 text-gray-500'}`}>
+                        {item.status === 'active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      {confirmDeleteId === item.id ? (
+                        <div className="flex items-center gap-2 text-xs font-bold">
+                          <span className="text-black/50">Delete?</span>
+                          <button onClick={() => { deleteMenuItem(item.id); setConfirmDeleteId(null); }} className="text-red-500 hover:underline">Yes</button>
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-black/40 hover:underline">No</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-4 text-sm font-bold">
+                          <button onClick={() => openEdit(item)} className="text-blue-500 hover:underline flex items-center gap-1"><Pencil size={13} /> Edit</button>
+                          <button onClick={() => setConfirmDeleteId(item.id)} className="text-red-500 hover:underline flex items-center gap-1"><Trash2 size={13} /> Delete</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-5 py-16 text-center text-black/30 font-bold">
-                    No products found.
-                  </td>
+                  <td colSpan={6} className="px-5 py-16 text-center text-black/30 font-bold">No products found.</td>
                 </tr>
               )}
             </tbody>
@@ -750,15 +819,19 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
 
 function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: () => void }) {
   const [name, setName] = useState(item?.name || '');
-  const [category, setCategory] = useState<MenuCategory>(item?.category || 'Mains');
+  const [category, setCategory] = useState<MenuCategory>(item?.category || MENU_CATEGORIES[0]);
   const [price, setPrice] = useState(item ? String(item.price) : '');
   const [description, setDescription] = useState(item?.description || '');
   const [image, setImage] = useState(item?.image || '');
-  const [prepTime, setPrepTime] = useState(item?.prepTime || '10 min');
+  const [prepTime, setPrepTime] = useState(item?.prepTime || '5 min');
   const [status, setStatus] = useState<'active' | 'inactive'>(item?.status || 'active');
   const [isPopular, setIsPopular] = useState(!!item?.isPopular);
   const [isChefSpecial, setIsChefSpecial] = useState(!!item?.isChefSpecial);
   const [isSpicy, setIsSpicy] = useState(!!item?.isSpicy);
+  const [sku, setSku] = useState(item?.sku || '');
+  const [stock, setStock] = useState(item?.stock != null ? String(item.stock) : '');
+  const [lowStock, setLowStock] = useState(item?.lowStockThreshold != null ? String(item.lowStockThreshold) : '');
+  const [cost, setCost] = useState(item?.cost != null ? String(item.cost) : '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -771,11 +844,15 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
       price: priceNum,
       description: description.trim(),
       image: image.trim() || FALLBACK_IMAGE,
-      prepTime: prepTime.trim() || '10 min',
+      prepTime: prepTime.trim() || '5 min',
       status,
       isPopular,
       isChefSpecial,
       isSpicy,
+      sku: sku.trim() || undefined,
+      stock: stock.trim() === '' ? undefined : Math.max(0, Number(stock) || 0),
+      lowStockThreshold: lowStock.trim() === '' ? undefined : Math.max(0, Number(lowStock) || 0),
+      cost: cost.trim() === '' ? undefined : Math.max(0, Number(cost) || 0),
     };
 
     if (item) updateMenuItem(item.id, payload);
@@ -796,56 +873,79 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="text-xs font-bold text-black/50 mb-1.5 block">Product Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500" placeholder="e.g. Truffle Pasta" />
+            <input value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. Truffle Pasta" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-black/50 mb-1.5 block">Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value as MenuCategory)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500">
+              <select value={category} onChange={e => setCategory(e.target.value as MenuCategory)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red">
                 {MENU_CATEGORIES.map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block">Price ($)</label>
-              <input value={price} onChange={e => setPrice(e.target.value)} required type="number" min="0" step="0.01" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500" placeholder="0.00" />
+              <label className="text-xs font-bold text-black/50 mb-1.5 block">Price (KD)</label>
+              <input value={price} onChange={e => setPrice(e.target.value)} required type="number" min="0" step="0.01" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="0.00" />
             </div>
           </div>
 
           <div>
             <label className="text-xs font-bold text-black/50 mb-1.5 block">Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500 resize-none" placeholder="Short menu description" />
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red resize-none" placeholder="Short menu description" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-bold text-black/50 mb-1.5 block">Image URL</label>
-              <input value={image} onChange={e => setImage(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500" placeholder="https://..." />
+              <input value={image} onChange={e => setImage(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="https://..." />
             </div>
             <div>
               <label className="text-xs font-bold text-black/50 mb-1.5 block">Prep Time</label>
-              <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-orange-500" placeholder="e.g. 15 min" />
+              <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
+            </div>
+          </div>
+
+          {/* Inventory / stock */}
+          <div className="rounded-xl bg-[#fafafa] border border-black/5 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-black/50 mb-3">Inventory</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-black/50 mb-1.5 block">SKU / Code</label>
+                <input value={sku} onChange={e => setSku(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. AS-BKL" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-black/50 mb-1.5 block">Cost Price (KD)</label>
+                <input value={cost} onChange={e => setCost(e.target.value)} type="number" min="0" step="0.001" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="0.000" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-black/50 mb-1.5 block">Stock Qty</label>
+                <input value={stock} onChange={e => setStock(e.target.value)} type="number" min="0" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="leave blank = untracked" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-black/50 mb-1.5 block">Low-stock Alert At</label>
+                <input value={lowStock} onChange={e => setLowStock(e.target.value)} type="number" min="0" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 10" />
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isPopular} onChange={e => setIsPopular(e.target.checked)} className="accent-orange-500" /> Popular
+              <input type="checkbox" checked={isPopular} onChange={e => setIsPopular(e.target.checked)} className="accent-brand-red" /> Popular
             </label>
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isChefSpecial} onChange={e => setIsChefSpecial(e.target.checked)} className="accent-orange-500" /> Chef Special
+              <input type="checkbox" checked={isChefSpecial} onChange={e => setIsChefSpecial(e.target.checked)} className="accent-brand-red" /> Chef Special
             </label>
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isSpicy} onChange={e => setIsSpicy(e.target.checked)} className="accent-orange-500" /> Spicy
+              <input type="checkbox" checked={isSpicy} onChange={e => setIsSpicy(e.target.checked)} className="accent-brand-red" /> Spicy
             </label>
             <label className="flex items-center gap-2 text-sm font-medium ml-auto">
-              <input type="checkbox" checked={status === 'active'} onChange={e => setStatus(e.target.checked ? 'active' : 'inactive')} className="accent-orange-500" /> Active
+              <input type="checkbox" checked={status === 'active'} onChange={e => setStatus(e.target.checked ? 'active' : 'inactive')} className="accent-brand-red" /> Active
             </label>
           </div>
 
-          <button type="submit" className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-sm transition-colors mt-2">
+          <button type="submit" className="w-full py-3.5 bg-brand-red hover:bg-brand-red-dark text-white rounded-xl font-black text-sm transition-colors mt-2">
             {item ? 'Save Changes' : 'Add Product'}
           </button>
         </form>
