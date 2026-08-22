@@ -1,8 +1,8 @@
 "use client";
 
-export type MenuCategory = 'Starters' | 'Mains' | 'Desserts' | 'Drinks';
+export type MenuCategory = 'Arabic Sweets' | 'Cakes' | 'Pastries' | 'Drinks';
 
-export const MENU_CATEGORIES: MenuCategory[] = ['Starters', 'Mains', 'Desserts', 'Drinks'];
+export const MENU_CATEGORIES: MenuCategory[] = ['Arabic Sweets', 'Cakes', 'Pastries', 'Drinks'];
 
 export interface MenuItem {
   id: string;
@@ -16,66 +16,95 @@ export interface MenuItem {
   isPopular?: boolean;
   isChefSpecial?: boolean;
   isSpicy?: boolean;
+  // Inventory / stock tracking
+  stock?: number;              // units in stock
+  lowStockThreshold?: number;  // warn at/below this
+  sku?: string;                // stock keeping unit / code
+  cost?: number;               // cost price (KD) for margin/value reporting
   createdAt: number;
 }
 
-const STORAGE_KEY = 'cenexa_menu_v1';
+const STORAGE_KEY = 'cenexa_menu_v3';
 const EVENT_NAME = 'cenexa-menu-updated';
 
 const SEED_MENU: MenuItem[] = [
   {
-    id: 'm1', name: 'Wagyu Steak A5', price: 85, category: 'Mains', prepTime: '20 min', status: 'active',
-    description: 'Japanese A5 Wagyu served with truffle potato mash & seasonal asparagus.',
-    image: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=400',
-    isChefSpecial: true, isPopular: true, createdAt: Date.now(),
+    id: 'm1', name: 'Assorted Baklava Box', price: 3.5, category: 'Arabic Sweets', prepTime: '5 min', status: 'active',
+    description: 'A dozen layered filo pieces with pistachio, walnut & cashew, soaked in rose syrup.',
+    image: 'https://images.unsplash.com/photo-1519676867240-f03562e64548?auto=format&fit=crop&q=80&w=400',
+    isChefSpecial: true, isPopular: true, sku: 'AS-BKL', stock: 40, lowStockThreshold: 10, cost: 1.8, createdAt: Date.now(),
   },
   {
-    id: 'm2', name: 'Truffle Tagliatelle', price: 42, category: 'Mains', prepTime: '15 min', status: 'active',
-    description: 'Handmade pasta shaved with black Norcia truffle and aged parmigiano cream.',
-    image: 'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?auto=format&fit=crop&q=80&w=400',
-    isPopular: true, createdAt: Date.now(),
+    id: 'm2', name: 'Kunafa Nabulsia', price: 2.75, category: 'Arabic Sweets', prepTime: '8 min', status: 'active',
+    description: 'Warm shredded pastry over molten Nabulsi cheese, topped with pistachio & syrup.',
+    image: 'https://images.unsplash.com/photo-1610508500445-a4592435e27e?auto=format&fit=crop&q=80&w=400',
+    isPopular: true, sku: 'AS-KNF', stock: 25, lowStockThreshold: 8, cost: 1.3, createdAt: Date.now(),
   },
   {
-    id: 'm3', name: 'Maine Lobster Bisque', price: 28, category: 'Starters', prepTime: '10 min', status: 'active',
-    description: 'Rich velvety lobster reduction garnished with tarragon oil & cognac drizzle.',
-    image: 'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&q=80&w=400',
-    isChefSpecial: true, createdAt: Date.now(),
+    id: 'm3', name: 'Maamoul (Dates)', price: 2.25, category: 'Arabic Sweets', prepTime: '3 min', status: 'active',
+    description: 'Semolina shortbread filled with spiced date paste — six pieces per box.',
+    image: 'https://images.unsplash.com/photo-1600617953089-e2f0d5b7f0b8?auto=format&fit=crop&q=80&w=400',
+    sku: 'AS-MML', stock: 30, lowStockThreshold: 10, cost: 1.0, createdAt: Date.now(),
   },
   {
-    id: 'm4', name: 'Classic Caesar Salad', price: 18, category: 'Starters', prepTime: '8 min', status: 'active',
-    description: 'Crisp romaine hearts, smoked pancetta croutons & shaved Parmigiano.',
-    image: 'https://images.unsplash.com/photo-1550304943-4f24f54ddde9?auto=format&fit=crop&q=80&w=400',
-    createdAt: Date.now(),
+    id: 'm4', name: 'Luqaimat', price: 1.75, category: 'Arabic Sweets', prepTime: '6 min', status: 'active',
+    description: 'Golden crisp dough dumplings drizzled with date syrup and sesame.',
+    image: 'https://images.unsplash.com/photo-1666181733257-6e2f0f2f0f5b?auto=format&fit=crop&q=80&w=400',
+    sku: 'AS-LQM', stock: 50, lowStockThreshold: 12, cost: 0.6, createdAt: Date.now(),
   },
   {
-    id: 'm5', name: 'Artisanal Tiramisu', price: 14, category: 'Desserts', prepTime: '5 min', status: 'active',
-    description: 'Espresso-soaked ladyfingers layering creamed mascarpone and dark cocoa.',
-    image: 'https://images.unsplash.com/photo-1571115177098-24ec42ed204d?auto=format&fit=crop&q=80&w=400',
-    isPopular: true, createdAt: Date.now(),
+    id: 'm5', name: 'Red Rose Signature Cake', price: 6.5, category: 'Cakes', prepTime: '5 min', status: 'active',
+    description: 'Rose-infused sponge, white chocolate cream and a hand-piped rose finish.',
+    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?auto=format&fit=crop&q=80&w=400',
+    isChefSpecial: true, isPopular: true, sku: 'CK-RRS', stock: 12, lowStockThreshold: 4, cost: 3.2, createdAt: Date.now(),
   },
   {
-    id: 'm6', name: 'Barolo Red Wine 2018', price: 120, category: 'Drinks', prepTime: '3 min', status: 'active',
-    description: 'Full-bodied Nebbiolo from Piedmont, Italy with notes of cherry & spice.',
-    image: 'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&q=80&w=400',
-    createdAt: Date.now(),
+    id: 'm6', name: 'Chocolate Fudge Slice', price: 1.25, category: 'Cakes', prepTime: '3 min', status: 'active',
+    description: 'Dense triple-chocolate fudge cake with a glossy ganache glaze.',
+    image: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&q=80&w=400',
+    isPopular: true, sku: 'CK-CHF', stock: 20, lowStockThreshold: 6, cost: 0.5, createdAt: Date.now(),
   },
   {
-    id: 'm7', name: 'Pan-Seared Salmon', price: 36, category: 'Mains', prepTime: '16 min', status: 'active',
-    description: 'Wild Norwegian salmon with saffron risotto & lemon herb emulsion.',
-    image: 'https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?auto=format&fit=crop&q=80&w=400',
-    createdAt: Date.now(),
+    id: 'm7', name: 'New York Cheesecake', price: 1.5, category: 'Cakes', prepTime: '3 min', status: 'active',
+    description: 'Creamy baked cheesecake on a buttery biscuit base with berry compote.',
+    image: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?auto=format&fit=crop&q=80&w=400',
+    sku: 'CK-NYC', stock: 18, lowStockThreshold: 6, cost: 0.6, createdAt: Date.now(),
   },
   {
-    id: 'm8', name: 'Spicy Arrabbiata', price: 24, category: 'Mains', prepTime: '12 min', status: 'active',
-    description: 'Penne in fiery San Marzano tomato sauce, garlic, and fresh basil.',
-    image: 'https://images.unsplash.com/photo-1621996346565-e3d5d6281270?auto=format&fit=crop&q=80&w=400',
-    isSpicy: true, createdAt: Date.now(),
+    id: 'm8', name: 'Butter Croissant', price: 0.75, category: 'Pastries', prepTime: '2 min', status: 'active',
+    description: 'Flaky all-butter croissant baked fresh every morning.',
+    image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&q=80&w=400',
+    isPopular: true, sku: 'PS-CRS', stock: 60, lowStockThreshold: 15, cost: 0.25, createdAt: Date.now(),
   },
   {
-    id: 'm9', name: 'Smoked Berry Mocktail', price: 12, category: 'Drinks', prepTime: '4 min', status: 'active',
-    description: 'Fresh blackberry, rosemary syrup, lime juice & sparkling soda.',
+    id: 'm9', name: 'Date Roll', price: 1.0, category: 'Pastries', prepTime: '2 min', status: 'active',
+    description: 'Soft pastry spiral filled with premium Kuwaiti dates and cardamom.',
+    image: 'https://images.unsplash.com/photo-1509365465985-25d11c17e812?auto=format&fit=crop&q=80&w=400',
+    sku: 'PS-DTR', stock: 35, lowStockThreshold: 10, cost: 0.4, createdAt: Date.now(),
+  },
+  {
+    id: 'm10', name: 'Cream Puff', price: 0.85, category: 'Pastries', prepTime: '2 min', status: 'active',
+    description: 'Light choux pastry filled with vanilla custard cream.',
+    image: 'https://images.unsplash.com/photo-1587244141930-3d3bf0f0c1e5?auto=format&fit=crop&q=80&w=400',
+    sku: 'PS-CRP', stock: 28, lowStockThreshold: 8, cost: 0.3, createdAt: Date.now(),
+  },
+  {
+    id: 'm11', name: 'Arabic Coffee (Gahwa)', price: 0.75, category: 'Drinks', prepTime: '3 min', status: 'active',
+    description: 'Traditional cardamom-spiced Arabic coffee, served with dates.',
+    image: 'https://images.unsplash.com/photo-1512568400610-62da28bc8a13?auto=format&fit=crop&q=80&w=400',
+    sku: 'DR-GHW', stock: 100, lowStockThreshold: 20, cost: 0.2, createdAt: Date.now(),
+  },
+  {
+    id: 'm12', name: 'Karak Tea', price: 0.5, category: 'Drinks', prepTime: '3 min', status: 'active',
+    description: 'Rich spiced milk tea brewed the Kuwaiti way.',
+    image: 'https://images.unsplash.com/photo-1571934811356-5cc061b6821f?auto=format&fit=crop&q=80&w=400',
+    isPopular: true, sku: 'DR-KRK', stock: 100, lowStockThreshold: 20, cost: 0.15, createdAt: Date.now(),
+  },
+  {
+    id: 'm13', name: 'Rose Lemonade', price: 1.5, category: 'Drinks', prepTime: '4 min', status: 'active',
+    description: 'Fresh lemonade with a splash of rose water and mint.',
     image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&q=80&w=400',
-    createdAt: Date.now(),
+    sku: 'DR-RSL', stock: 40, lowStockThreshold: 10, cost: 0.5, createdAt: Date.now(),
   },
 ];
 

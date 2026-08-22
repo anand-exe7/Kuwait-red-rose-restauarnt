@@ -10,6 +10,10 @@ export interface OrderItem {
   notes?: string;
 }
 
+/** Where the order is served. 'table' = seated dine-in (uses `table`),
+ *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go. */
+export type OrderMode = 'table' | 'standing' | 'takeaway';
+
 export interface Order {
   id: string;
   table: number;
@@ -21,6 +25,16 @@ export interface Order {
   total: number;
   createdAt: number;
   source: 'customer' | 'waiter';
+  mode?: OrderMode; // undefined on legacy orders → treated as 'table'
+  discount?: number;   // coupon/manual discount applied (KD)
+  couponCode?: string; // coupon used, if any
+}
+
+/** Human label for where an order goes — used by every role's UI. */
+export function orderLabel(o: Pick<Order, 'mode' | 'table'>): string {
+  if (o.mode === 'standing') return 'Standing';
+  if (o.mode === 'takeaway') return 'Takeaway';
+  return `Table ${o.table}`;
 }
 
 const STORAGE_KEY = 'cenexa_orders_v1';
@@ -81,19 +95,26 @@ export function addOrder(input: {
   tax: number;
   total: number;
   source: 'customer' | 'waiter';
+  mode?: OrderMode;
+  discount?: number;
+  couponCode?: string;
+  status?: OrderStatus;
 }): Order {
   const orders = readOrders();
   const newOrder: Order = {
     id: `TK-${Math.floor(1000 + Math.random() * 9000)}`,
     table: input.table,
     items: input.items,
-    status: 'pending',
+    status: input.status ?? 'pending',
     priority: input.priority,
     subtotal: input.subtotal,
     tax: input.tax,
     total: input.total,
     createdAt: Date.now(),
     source: input.source,
+    mode: input.mode ?? 'table',
+    discount: input.discount,
+    couponCode: input.couponCode,
   };
   writeOrders([newOrder, ...orders]);
   return newOrder;
