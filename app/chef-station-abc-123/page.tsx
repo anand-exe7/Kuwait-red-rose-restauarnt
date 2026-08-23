@@ -1,17 +1,24 @@
 "use client";
-import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
-import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkles, PackageCheck } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from 'react';
+import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkles, PackageCheck, Volume2, VolumeX } from 'lucide-react';
 import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
+import { BRAND } from '../lib/brand';
+import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
 export default function ChefDashboard() {
   const orders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState<'active' | 'history'>('active');
+  const [muted, setMuted] = useState<boolean>(false);
   // Two-step confirm before a ticket is sent to the waiter (marked ready).
   const [confirmReadyId, setConfirmReadyId] = useState<string | null>(null);
   const knownIds = useRef<Set<string>>(new Set());
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  const chime = useCallback(() => playChime(audioCtxRef, muted), [muted]);
+  useEffect(() => primeAudioOnFirstInteraction(audioCtxRef), []);
 
   // Auto-cancel the "Are you sure?" prompt if the chef doesn't confirm quickly.
   useEffect(() => {
@@ -20,17 +27,18 @@ export default function ChefDashboard() {
     return () => clearTimeout(t);
   }, [confirmReadyId]);
 
-  // Flash a toast whenever a brand new ticket lands, so the kitchen notices it without staring at the screen
+  // Flash a toast + chime whenever a brand new ticket lands, so the kitchen notices it without staring at the screen
   useEffect(() => {
     const freshTicket = orders.find(o => o.status === 'pending' && !knownIds.current.has(o.id));
     if (freshTicket && knownIds.current.size > 0) {
       setToastMessage(`New ticket — ${orderLabel(freshTicket)}`);
+      chime();
       const dismiss = setTimeout(() => setToastMessage(null), 3500);
       knownIds.current = new Set(orders.map(o => o.id));
       return () => clearTimeout(dismiss);
     }
     knownIds.current = new Set(orders.map(o => o.id));
-  }, [orders]);
+  }, [orders, chime]);
 
   // Keeps the "waiting X min" badges live without needing a full re-fetch
   useEffect(() => {
@@ -71,15 +79,19 @@ export default function ChefDashboard() {
         </div>
       )}
 
-      <div className="max-w-[1200px] mx-auto flex flex-col gap-4 sm:gap-6 lg:h-[calc(100vh-3rem)]">
+      <div className="max-w-[1400px] mx-auto flex flex-col gap-4 sm:gap-6">
 
         {/* Header */}
         <header className="flex flex-col md:flex-row items-center justify-between bg-[#111] p-4 sm:p-6 rounded-3xl sm:rounded-[2rem] border border-white/5 relative overflow-hidden shrink-0 gap-4">
           <div className="absolute top-0 right-1/4 w-[30%] h-full bg-brand-red/10 rounded-full blur-[100px] pointer-events-none" />
 
-          <div className="flex items-center gap-6 relative z-10 w-full md:w-auto">
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-tr from-red-600 to-brand-red flex items-center justify-center shadow-[0_0_25px_rgba(239,68,68,0.3)] shrink-0">
-              <ChefHat size={32} className="text-white" />
+          <div className="flex items-center gap-4 sm:gap-6 relative z-10 w-full md:w-auto">
+            <div className="relative shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={BRAND.logo} alt={BRAND.fullName} className="w-14 h-14 md:w-16 md:h-16 rounded-2xl object-cover border border-white/10 shadow-[0_0_25px_rgba(239,68,68,0.3)]" />
+              <div className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-lg bg-gradient-to-tr from-red-600 to-brand-red flex items-center justify-center border-2 border-[#111] shadow-md">
+                <ChefHat size={15} className="text-white" />
+              </div>
             </div>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight">Active Orders</h1>
@@ -91,19 +103,30 @@ export default function ChefDashboard() {
             </div>
           </div>
 
-          <div className="w-full md:w-auto relative z-10 bg-[#1a1a1a] p-1.5 rounded-xl border border-white/5 flex gap-2">
+          <div className="w-full md:w-auto relative z-10 flex items-center gap-2">
             <button
-              onClick={() => setView('active')}
-              className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-black transition-colors ${view === 'active' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              onClick={() => setMuted(m => !m)}
+              title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
+              className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl border transition-colors ${
+                muted ? 'bg-[#1a1a1a] text-gray-500 border-white/5 hover:text-white' : 'bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/20'
+              }`}
             >
-              All Orders
+              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <button
-              onClick={() => setView('history')}
-              className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-colors ${view === 'history' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
-            >
-              History
-            </button>
+            <div className="flex-1 md:flex-none bg-[#1a1a1a] p-1.5 rounded-xl border border-white/5 flex gap-2">
+              <button
+                onClick={() => setView('active')}
+                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-black transition-colors ${view === 'active' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              >
+                All Orders
+              </button>
+              <button
+                onClick={() => setView('history')}
+                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-colors ${view === 'history' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
+              >
+                History
+              </button>
+            </div>
           </div>
         </header>
 
@@ -123,7 +146,7 @@ export default function ChefDashboard() {
 
         {/* History Feed */}
         {view === 'history' && (
-          <div className="lg:flex-1 lg:overflow-y-auto custom-scrollbar lg:pr-2 pb-12">
+          <div className="pb-6">
             {servedOrders.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
                 <Clock size={64} className="opacity-20" />
@@ -155,6 +178,9 @@ export default function ChefDashboard() {
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold uppercase tracking-wider flex items-center gap-1">
                           <CheckCircle size={10} /> Served
                         </span>
+                        {order.mode === 'standing' && order.standingLabel && (
+                          <span className="text-xs font-bold text-brand-gold">{orderLabel(order)}</span>
+                        )}
                       </div>
                       <p className="text-sm text-gray-400 mt-1 truncate">
                         {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
@@ -173,12 +199,12 @@ export default function ChefDashboard() {
 
         {/* Single Feed Grid */}
         {view === 'active' && (
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-12">
+        <div className="pb-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
             {activeOrders.map(order => {
               const mins = waitMinutes(order.createdAt);
               return (
-              <div key={order.id} className={`bg-[#111] rounded-[2rem] p-5 md:p-6 border relative overflow-hidden transition-all ${order.status === 'cooking' ? 'border-brand-red/30 shadow-[0_0_30px_rgba(176,30,40,0.1)]' : 'border-white/5'}`}>
+              <div key={order.id} className={`bg-[#111] rounded-[2rem] p-5 md:p-6 border relative overflow-hidden transition-all flex flex-col ${order.status === 'cooking' ? 'border-brand-red/30 shadow-[0_0_30px_rgba(176,30,40,0.1)]' : 'border-white/5'}`}>
 
                 {/* Priority Indicator */}
                 {order.priority === 'high' && (
@@ -207,6 +233,9 @@ export default function ChefDashboard() {
                           <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold uppercase tracking-wider">Self-order</span>
                         )}
                       </h3>
+                      {order.mode === 'standing' && order.standingLabel && (
+                        <p className="text-sm font-bold text-brand-gold mt-0.5">{orderLabel(order)}</p>
+                      )}
                       <div className="flex items-center gap-2 mt-1">
                         <span className={`flex items-center gap-1 text-xs font-bold bg-white/5 px-2 py-1 rounded-md ${waitColor(mins)}`}>
                           <Clock size={12} /> {mins < 1 ? 'just now' : `${mins} min wait`}
@@ -220,14 +249,14 @@ export default function ChefDashboard() {
                 </div>
 
                 {/* Items List */}
-                <div className="space-y-3 mb-6 bg-[#1a1a1a] p-4 md:p-5 rounded-2xl border border-white/5">
+                <div className="flex-1 space-y-3 mb-6 bg-[#1a1a1a] p-4 md:p-5 rounded-2xl border border-white/5">
                   {order.items.map((item, i) => (
                     <div key={i} className="flex gap-4 items-start border-b border-white/5 last:border-0 pb-3 last:pb-0">
-                      <div className="w-8 h-8 rounded-lg bg-[#222] flex items-center justify-center font-black text-brand-red shrink-0 border border-white/5">
+                      <div className="w-9 h-9 rounded-lg bg-[#222] flex items-center justify-center font-black text-base text-brand-red shrink-0 border border-white/5">
                         {item.qty}
                       </div>
                       <div className="flex-1 pt-1">
-                        <p className="font-black text-white md:text-lg leading-tight">{item.name}</p>
+                        <p className="font-black text-white text-lg md:text-xl leading-tight">{item.name}</p>
                         {item.notes && (
                           <div className="flex items-start gap-1.5 mt-1.5 text-brand-gold bg-brand-gold/10 p-2 rounded-lg border border-brand-gold/20">
                             <AlertTriangle size={14} className="mt-0.5 shrink-0" />

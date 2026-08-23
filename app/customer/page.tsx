@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useSyncExternalStore } from 'react';
 import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell, ShoppingCart, Tag, X } from 'lucide-react';
-import { addOrder } from '../lib/orderStore';
+import { addOrder, getActiveSessionId } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { callWaiter, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
 import { formatKWD } from '../lib/currency';
@@ -31,10 +31,13 @@ export default function CustomerDashboard() {
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [standingChoice, setStandingChoice] = useState<'dine-in' | 'takeaway' | null>(null);
 
   const tableParam = useSyncExternalStore(noopSubscribe, getTableParam, getParamServer);
   const modeParam = useSyncExternalStore(noopSubscribe, getModeParam, getParamServer);
-  const isTakeaway = modeParam === 'takeaway';
+  const isStandingQR = modeParam === 'standing';
+  const isTakeaway = modeParam === 'takeaway' || (isStandingQR && standingChoice === 'takeaway');
+  const isStandingDineIn = isStandingQR && standingChoice === 'dine-in';
   const tableNumber = Number(tableParam) > 0 ? Number(tableParam) : 12;
 
   // Live menu managed by the admin's Inventory tab — same source of truth for every role
@@ -96,17 +99,21 @@ export default function CustomerDashboard() {
 
     // Small delay so the "sending to kitchen" state is visible, not just an instant jump
     setTimeout(() => {
+      const mode = isTakeaway ? 'takeaway' as const : isStandingDineIn ? 'standing' as const : 'table' as const;
+      const sessionId = mode === 'table' ? getActiveSessionId(tableNumber, 'table') : undefined;
       const order = addOrder({
-        table: tableNumber,
+        table: mode === 'standing' || mode === 'takeaway' ? 0 : tableNumber,
         items,
         priority: 'normal',
         subtotal: cartTotal,
         tax: taxAmt,
         total: grandTotal,
         source: 'customer',
-        mode: isTakeaway ? 'takeaway' : 'table',
+        mode,
         discount: discount > 0 ? discount : undefined,
         couponCode: appliedCoupon?.code,
+        sessionId: sessionId || undefined,
+        standingLabel: isStandingDineIn ? `QR Walk-in` : undefined,
       });
       if (appliedCoupon) incrementCouponUsage(appliedCoupon.id);
       setLastOrderId(order.id);
@@ -122,6 +129,33 @@ export default function CustomerDashboard() {
     setLastOrderId(null);
     setIsCartOpen(false);
   };
+
+  if (isStandingQR && !standingChoice) {
+    return (
+      <div className="min-h-screen bg-brand-cream text-brand-ink font-sans flex flex-col items-center justify-center p-6">
+        <div className="max-w-sm w-full text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={BRAND.logo} alt={BRAND.fullName} className="h-20 w-auto mx-auto rounded-2xl mb-6 shadow-lg" />
+          <h1 className="text-3xl font-black mb-2">{BRAND.fullName}</h1>
+          <p className="text-brand-ink/50 font-medium mb-10">How would you like to order?</p>
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={() => setStandingChoice('dine-in')}
+              className="w-full py-5 bg-brand-red text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-brand-red-dark transition-all shadow-lg shadow-brand-red/25 active:scale-95"
+            >
+              <MapPin size={22} /> Dine In
+            </button>
+            <button
+              onClick={() => setStandingChoice('takeaway')}
+              className="w-full py-5 bg-brand-ink text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-black transition-all shadow-lg active:scale-95"
+            >
+              <ShoppingCart size={22} /> Takeaway
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-32">

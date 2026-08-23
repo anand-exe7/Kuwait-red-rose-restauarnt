@@ -24,13 +24,17 @@ import {
   PackageCheck,
   PersonStanding,
   ChevronRight,
+  Banknote,
+  Users,
 } from 'lucide-react';
-import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders } from '../lib/orderStore';
+import type { Order } from '../lib/orderStore';
+import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, getActiveStandingSessions, getSessionOrders, billSession } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { WaiterCall, resolveWaiterCall, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
 import { getTablesSnapshot, getTablesServerSnapshot, subscribeToTables } from '../lib/tableStore';
 import { formatKWD } from '../lib/currency';
 import { BRAND } from '../lib/brand';
+import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
 type TableSel = number | 'standing';
 
@@ -39,7 +43,7 @@ export default function WaiterDashboard() {
   const [activeTable, setActiveTable] = useState<TableSel>(1);
   const [order, setOrder] = useState<Record<string, number>>({});
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<'tables' | 'menu' | 'ticket'>('menu');
+  const [activeTab, setActiveTab] = useState<'tables' | 'menu' | 'ticket' | 'alerts'>('menu');
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isPriorityRush, setIsPriorityRush] = useState<boolean>(false);
@@ -47,6 +51,8 @@ export default function WaiterDashboard() {
   const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState<boolean>(false);
+  const [standingLabel, setStandingLabel] = useState<string>('');
+  const [billingSessionId, setBillingSessionId] = useState<string | null>(null);
 
   const activeLabel = activeTable === 'standing' ? 'Standing' : `Table ${activeTable}`;
 
@@ -91,6 +97,26 @@ export default function WaiterDashboard() {
     () => placedOrders.filter(o => o.mode === 'standing' && o.status !== 'served').length,
     [placedOrders]
   );
+  const standingEverCount = useMemo(() => placedOrders.filter(o => o.mode === 'standing').length, [placedOrders]);
+
+  const activeStandingSessions = useMemo(() => getActiveStandingSessions(placedOrders), [placedOrders]);
+
+  const currentSessionId = useMemo(() => {
+    if (activeTable === 'standing') return undefined;
+    const tableOrders = placedOrders.filter(o => o.table === activeTable && !o.billed && o.sessionId && (o.mode || 'table') === 'table');
+    return tableOrders[0]?.sessionId;
+  }, [placedOrders, activeTable]);
+
+  const sessionOrders = useMemo(() => {
+    const sid = billingSessionId || currentSessionId;
+    if (!sid) return [];
+    return getSessionOrders(placedOrders, sid);
+  }, [placedOrders, billingSessionId, currentSessionId]);
+
+  const canBill = useMemo(() => {
+    if (activeTable === 'standing') return false;
+    return placedOrders.some(o => o.table === activeTable && !o.billed && o.sessionId && (o.mode || 'table') === 'table');
+  }, [placedOrders, activeTable]);
 
   // ── Ready-order alert (sound + visual) ─────────────────────────────────────
   const readyOrders = useMemo(
@@ -100,49 +126,15 @@ export default function WaiterDashboard() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const knownReadyRef = useRef<Set<string>>(new Set());
   const readyInitializedRef = useRef(false);
+  const knownCallsRef = useRef<Set<string>>(new Set());
+  const callsInitializedRef = useRef(false);
 
-  const playChime = useCallback(() => {
-    if (muted) return;
-    try {
-      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!Ctx) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') void ctx.resume();
-      const now = ctx.currentTime;
-      [880, 1174.66].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        const start = now + i * 0.18;
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + 0.4);
-      });
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([120, 60, 120]);
-    } catch {
-      /* audio not available — the visual banner still covers it */
-    }
-  }, [muted]);
+  const chime = useCallback(() => playChime(audioCtxRef, muted), [muted]);
 
   // Prime/resume audio on first interaction (browser autoplay policy)
-  useEffect(() => {
-    const prime = () => {
-      try {
-        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        if (Ctx && !audioCtxRef.current) audioCtxRef.current = new Ctx();
-        void audioCtxRef.current?.resume();
-      } catch { /* ignore */ }
-    };
-    window.addEventListener('pointerdown', prime, { once: true });
-    return () => window.removeEventListener('pointerdown', prime);
-  }, []);
+  useEffect(() => primeAudioOnFirstInteraction(audioCtxRef), []);
 
-  // Chime when a brand-new ready ticket appears
+  // Chime once when a brand-new ready ticket appears (event-driven only — no repeat timer)
   useEffect(() => {
     const currentReady = new Set(readyOrders.map(o => o.id));
     if (!readyInitializedRef.current) {
@@ -153,15 +145,22 @@ export default function WaiterDashboard() {
     let hasNew = false;
     currentReady.forEach(id => { if (!knownReadyRef.current.has(id)) hasNew = true; });
     knownReadyRef.current = currentReady;
-    if (hasNew) playChime();
-  }, [readyOrders, playChime]);
+    if (hasNew) chime();
+  }, [readyOrders, chime]);
 
-  // Gentle re-alert every 30s while ready tickets wait
+  // Chime once when a table calls for a waiter
   useEffect(() => {
-    if (readyOrders.length === 0 || muted) return;
-    const iv = setInterval(() => playChime(), 30000);
-    return () => clearInterval(iv);
-  }, [readyOrders.length, muted, playChime]);
+    const currentCalls = new Set(activeWaiterCalls.map(c => c.id));
+    if (!callsInitializedRef.current) {
+      knownCallsRef.current = currentCalls;
+      callsInitializedRef.current = true;
+      return;
+    }
+    let hasNew = false;
+    currentCalls.forEach(id => { if (!knownCallsRef.current.has(id)) hasNew = true; });
+    knownCallsRef.current = currentCalls;
+    if (hasNew) chime();
+  }, [activeWaiterCalls, chime]);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -186,6 +185,7 @@ export default function WaiterDashboard() {
     setOrder({});
     setItemNotes({});
     setIsPriorityRush(false);
+    setStandingLabel('');
     triggerToast(`Cleared ticket for ${activeLabel}`);
   };
 
@@ -205,19 +205,22 @@ export default function WaiterDashboard() {
       const item = menu.find(m => m.id === id);
       return { id, name: item?.name || 'Item', price: item?.price || 0, qty, notes: itemNotes[id] || undefined };
     });
+    const isStanding = activeTable === 'standing';
     addOrder({
-      table: activeTable === 'standing' ? 0 : activeTable,
-      mode: activeTable === 'standing' ? 'standing' : 'table',
+      table: isStanding ? 0 : activeTable,
+      mode: isStanding ? 'standing' : 'table',
       items: itemsList,
       priority: isPriorityRush ? 'high' : 'normal',
       subtotal,
       tax: tax + serviceCharge,
       total: orderTotal,
       source: 'waiter',
+      standingLabel: isStanding ? (standingLabel.trim() || `Walk-in #${standingEverCount + 1}`) : undefined,
     });
     setOrder({});
     setItemNotes({});
     setIsPriorityRush(false);
+    setStandingLabel('');
     triggerToast(`Order fired to kitchen · ${activeLabel}`);
     setActiveTab('tables');
   };
@@ -239,13 +242,14 @@ export default function WaiterDashboard() {
   const selectTable = (t: TableSel) => {
     setActiveTable(t);
     setActiveTab('menu');
+    if (t !== 'standing') setStandingLabel('');
     triggerToast(t === 'standing' ? 'Standing / walk-in order' : `Switched to Table ${t}`);
   };
 
   const cardBase = 'bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm';
 
   return (
-    <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-28 lg:pb-0 selection:bg-brand-red selection:text-white">
+    <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-24 selection:bg-brand-red selection:text-white">
       {/* Toast */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-ink text-white px-5 py-2.5 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
@@ -254,7 +258,7 @@ export default function WaiterDashboard() {
         </div>
       )}
 
-      <div className="max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4 lg:h-screen">
+      <div className="max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
 
         {/* ============ TOP BAR ============ */}
         <header className={`${cardBase} p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0`}>
@@ -320,70 +324,44 @@ export default function WaiterDashboard() {
           </div>
         </header>
 
-        {/* ============ ALERT ZONE (ready pickups + waiter calls) ============ */}
-        {(readyOrders.length > 0 || activeWaiterCalls.length > 0) && (
-          <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {readyOrders.length > 0 && (
-              <div className="rounded-2xl border-2 border-brand-red bg-brand-red text-white p-3 shadow-lg shadow-brand-red/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <BellRing size={18} className="animate-bounce" />
-                  <span className="font-black text-sm uppercase tracking-wide">Ready to serve — pick up now</span>
-                  <span className="ml-auto text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{readyOrders.length}</span>
-                </div>
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                  {readyOrders.map(o => (
-                    <div key={o.id} className="shrink-0 flex items-center gap-2 bg-white text-brand-ink rounded-xl px-3 py-2 shadow">
-                      <div className="leading-tight">
-                        <p className="font-black text-sm">{orderLabel(o)}</p>
-                        <p className="text-[11px] text-brand-ink/50">#{o.id.split('-')[1]} · {o.items.reduce((s, i) => s + i.qty, 0)} items</p>
-                      </div>
-                      <button
-                        onClick={() => serveOrder(o.id)}
-                        className="ml-1 px-3 py-1.5 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
-                      >
-                        <Check size={13} /> Serve
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeWaiterCalls.length > 0 && (
-              <div className="rounded-2xl border-2 border-brand-red bg-brand-red text-white p-3 shadow-lg shadow-brand-red/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <Bell size={18} className="animate-bounce" />
-                  <span className="font-black text-sm uppercase tracking-wide">Tables calling a waiter</span>
-                  <span className="ml-auto text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{activeWaiterCalls.length}</span>
-                </div>
-                <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                  {activeWaiterCalls.map(call => (
-                    <div key={call.id} className="shrink-0 flex items-center gap-2 bg-white text-brand-ink rounded-xl px-3 py-2 shadow">
-                      <div className="leading-tight">
-                        <p className="font-black text-sm">Table {call.table}</p>
-                        <p className="text-[11px] text-brand-ink/50">{new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                      </div>
-                      <button
-                        onClick={() => resolveWaiterCall(call.id)}
-                        className="ml-1 px-3 py-1.5 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-all"
-                      >
-                        Resolve
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        {/* ============ ALERTS PAGE (ready pickups + waiter calls) ============ */}
+        {activeTab === 'alerts' ? (
+          <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar">
+            <AlertsSection
+              title="Ready to serve — pick up now"
+              icon={BellRing}
+              emptyText="No tickets waiting for pickup."
+              items={readyOrders.map(o => ({
+                id: o.id,
+                title: orderLabel(o),
+                subtitle: `#${o.id.split('-')[1]} · ${o.items.reduce((s, i) => s + i.qty, 0)} items · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                actionLabel: 'Serve',
+                actionIcon: Check,
+                onAction: () => serveOrder(o.id),
+              }))}
+            />
+            <AlertsSection
+              title="Tables calling a waiter"
+              icon={Bell}
+              emptyText="No active waiter calls."
+              items={activeWaiterCalls.map(call => ({
+                id: call.id,
+                title: `Table ${call.table}`,
+                subtitle: new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                actionLabel: 'Resolve',
+                onAction: () => resolveWaiterCall(call.id),
+              }))}
+            />
           </div>
-        )}
-
-        {/* ============ MAIN 3-COLUMN LAYOUT ============ */}
-        <div className="flex-1 flex flex-col lg:flex-row gap-3 sm:gap-4 min-h-0">
+        ) : (
+        <>
+        {/* ============ MAIN LAYOUT — menu+ticket side by side on desktop ============ */}
+        <div className={`flex-1 flex flex-col ${activeTab === 'menu' ? 'lg:flex-row' : ''} gap-4`}>
 
           {/* LEFT: tables + kitchen feed */}
-          <aside className={`w-full lg:w-72 xl:w-80 flex-col gap-3 sm:gap-4 lg:min-h-0 ${activeTab !== 'tables' ? 'hidden lg:flex' : 'flex'}`}>
+          <aside className={`w-full gap-4 ${activeTab !== 'tables' ? 'hidden' : 'grid lg:grid-cols-2'}`}>
             {/* Tables */}
-            <div className={`${cardBase} p-4 shrink-0`}>
+            <div className={`${cardBase} p-4`}>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-black text-brand-ink/50 uppercase tracking-widest flex items-center gap-1.5">
                   <Hash size={14} className="text-brand-red" /> Floor Tables
@@ -401,7 +379,7 @@ export default function WaiterDashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-4 gap-2">
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                 {tableNumbers
                   .filter(t => (tableFilter === 'occupied' ? tablesStatus[t] === 'occupied' : true))
                   .map(t => {
@@ -465,6 +443,31 @@ export default function WaiterDashboard() {
                   </span>
                 )}
               </button>
+
+              {activeStandingSessions.length > 0 && (
+                <div className="mt-2.5">
+                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users size={11} /> Active Standing Sessions</p>
+                  <div className="flex flex-col gap-1.5">
+                    {activeStandingSessions.map(s => (
+                      <div key={s.sessionId} className="w-full rounded-lg border border-brand-gold/30 bg-brand-cream/50 px-3 py-2 flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => { setActiveTable('standing'); setStandingLabel(s.label); setActiveTab('menu'); triggerToast(`Resumed: ${s.label}`); }}
+                          className="flex-1 text-left text-xs font-bold truncate hover:text-brand-red transition-colors"
+                        >
+                          {s.label}
+                          <span className="block text-[10px] font-medium text-brand-ink/40">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · {formatKWD(s.total)}</span>
+                        </button>
+                        <button
+                          onClick={() => setBillingSessionId(s.sessionId)}
+                          className="shrink-0 px-2 py-1 rounded-lg bg-brand-ink text-white text-[10px] font-black hover:bg-black transition-colors flex items-center gap-1"
+                        >
+                          <Banknote size={11} /> Bill
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Kitchen live feed */}
@@ -477,7 +480,7 @@ export default function WaiterDashboard() {
                   {placedOrders.filter(o => o.status !== 'served').length} active
                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5">
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
                 {placedOrders.filter(o => o.status !== 'served').length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/30 p-6 text-center">
                     <Coffee size={36} className="mb-2 opacity-40" />
@@ -487,7 +490,7 @@ export default function WaiterDashboard() {
                   placedOrders.filter(o => o.status !== 'served').map(ticket => (
                     <div
                       key={ticket.id}
-                      className={`p-3 rounded-xl border transition-all ${
+                      className={`p-3.5 rounded-xl border transition-all ${
                         ticket.priority === 'high'
                           ? 'border-brand-red/40 bg-brand-red/5'
                           : ticket.status === 'ready'
@@ -495,49 +498,48 @@ export default function WaiterDashboard() {
                           : 'border-brand-gold/20 bg-brand-cream/40'
                       }`}
                     >
-                      <div className="flex justify-between items-start mb-1.5">
+                      <div className="flex justify-between items-start mb-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-black text-sm">{orderLabel(ticket)}</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
+                            <span className="font-black text-base">{orderLabel(ticket)}</span>
+                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
                             {ticket.source === 'customer' && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
                             )}
                           </div>
-                          <span className="text-[11px] text-brand-ink/45 flex items-center gap-1 mt-0.5">
-                            <Clock size={11} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <span className="text-xs text-brand-ink/45 flex items-center gap-1 mt-0.5">
+                            <Clock size={12} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
                         {ticket.priority === 'high' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-brand-red text-white shrink-0">
-                            <Flame size={10} /> Rush
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black uppercase bg-brand-red text-white shrink-0">
+                            <Flame size={11} /> Rush
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-brand-ink/70 space-y-0.5 mb-2">
-                        {ticket.items.slice(0, 4).map((item, idx) => (
+                      <div className="text-sm text-brand-ink/70 space-y-1 mb-2.5">
+                        {ticket.items.map((item, idx) => (
                           <div key={idx} className="flex justify-between gap-2">
                             <span className="truncate">{item.name}{item.notes ? ` · ${item.notes}` : ''}</span>
                             <span className="font-bold text-brand-red">×{item.qty}</span>
                           </div>
                         ))}
-                        {ticket.items.length > 4 && <p className="text-[11px] text-brand-ink/40">+{ticket.items.length - 4} more…</p>}
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase ${
                           ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
                           : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
                           : 'bg-brand-ink/5 text-brand-ink/50'
                         }`}>
-                          {ticket.status === 'ready' ? <PackageCheck size={11} /> : <Coffee size={11} />}
+                          {ticket.status === 'ready' ? <PackageCheck size={12} /> : <Coffee size={12} />}
                           {ticket.status === 'pending' ? 'waiting' : ticket.status}
                         </span>
                         {ticket.status === 'ready' && (
                           <button
                             onClick={() => serveOrder(ticket.id)}
-                            className="px-2.5 py-1 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
+                            className="px-3 py-1.5 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
                           >
-                            <Check size={12} /> Serve
+                            <Check size={13} /> Serve
                           </button>
                         )}
                       </div>
@@ -549,7 +551,7 @@ export default function WaiterDashboard() {
           </aside>
 
           {/* CENTER: menu */}
-          <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden lg:min-h-0 ${activeTab !== 'menu' ? 'hidden lg:flex' : 'flex'}`}>
+          <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab !== 'menu' ? 'hidden' : 'flex'}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg sm:text-xl font-black tracking-tight">Menu</h2>
@@ -646,8 +648,8 @@ export default function WaiterDashboard() {
             </div>
           </main>
 
-          {/* RIGHT: current ticket */}
-          <aside className={`w-full lg:w-80 xl:w-96 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden lg:min-h-0 ${activeTab !== 'ticket' ? 'hidden lg:flex' : 'flex'}`}>
+          {/* RIGHT: current ticket — visible alongside menu on desktop */}
+          <aside className={`w-full ${activeTab === 'menu' ? 'lg:w-[25%] lg:min-w-[320px] lg:shrink-0' : 'max-w-2xl mx-auto'} ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab === 'ticket' ? 'flex' : activeTab === 'menu' ? 'hidden lg:flex' : 'hidden'}`}>
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center">
@@ -666,6 +668,19 @@ export default function WaiterDashboard() {
                 </button>
               )}
             </div>
+
+            {activeTable === 'standing' && (
+              <div className="mb-3 shrink-0">
+                <label className="text-[11px] font-bold text-brand-ink/50 mb-1 block">Walk-in name/tag (optional)</label>
+                <input
+                  type="text"
+                  value={standingLabel}
+                  onChange={(e) => setStandingLabel(e.target.value)}
+                  placeholder={`e.g. Ahmed, Family of 4 — defaults to "Walk-in #${standingEverCount + 1}"`}
+                  className="w-full bg-brand-cream/60 text-sm px-3 py-2 rounded-xl border border-brand-gold/25 focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
+                />
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5 min-h-[180px]">
               {Object.keys(order).length === 0 ? (
@@ -753,9 +768,19 @@ export default function WaiterDashboard() {
               >
                 <Send size={18} /> Fire to Kitchen ({orderItemCount})
               </button>
+              {canBill && activeTable !== 'standing' && (
+                <button
+                  onClick={() => setBillingSessionId(currentSessionId || null)}
+                  className="w-full mt-2 py-3 rounded-2xl bg-brand-ink text-white font-black text-sm flex items-center justify-center gap-2 hover:bg-black transition-all active:scale-[0.98]"
+                >
+                  <Banknote size={18} /> Close Bill · Table {activeTable}
+                </button>
+              )}
             </div>
           </aside>
         </div>
+        </>
+        )}
       </div>
 
       {/* Mobile quick bar (menu tab, items selected) */}
@@ -774,12 +799,28 @@ export default function WaiterDashboard() {
         </div>
       )}
 
-      {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-brand-gold/25 flex items-center justify-around p-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+      {/* Billing modal */}
+      {billingSessionId && (
+        <BillingModal
+          sessionOrders={sessionOrders}
+          sessionId={billingSessionId}
+          onClose={() => setBillingSessionId(null)}
+          onConfirm={() => {
+            billSession(billingSessionId);
+            setBillingSessionId(null);
+            triggerToast('Bill closed — table is now free');
+            setActiveTab('tables');
+          }}
+        />
+      )}
+
+      {/* Section nav — visible on every screen size so desktop can jump straight to Alerts too */}
+      <nav className="fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:bottom-4 lg:rounded-2xl lg:shadow-xl lg:border lg:px-2 bg-white border-t-2 border-brand-red/30 lg:border lg:border-brand-gold/25 flex items-center justify-around lg:justify-center lg:gap-1 p-2.5 z-50 shadow-[0_-6px_24px_rgba(0,0,0,0.1)]">
         {([
-          { key: 'tables', icon: Hash, label: 'Tables', badge: activeWaiterCalls.length + readyOrders.length },
+          { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
           { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
           { key: 'ticket', icon: Receipt, label: 'Ticket', badge: orderItemCount },
+          { key: 'alerts', icon: Bell, label: 'Alerts', badge: activeWaiterCalls.length + readyOrders.length },
         ] as const).map(tab => (
           <button
             key={tab.key}
@@ -791,13 +832,130 @@ export default function WaiterDashboard() {
             <tab.icon size={20} />
             <span className="text-[10px] uppercase tracking-wider font-bold">{tab.label}</span>
             {tab.badge > 0 && (
-              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-red text-white text-[10px] font-black rounded-full flex items-center justify-center border border-white">
+              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-red text-white text-[10px] font-black rounded-full flex items-center justify-center border border-white animate-pulse">
                 {tab.badge}
               </span>
             )}
           </button>
         ))}
       </nav>
+    </div>
+  );
+}
+
+function AlertsSection({
+  title,
+  icon: Icon,
+  items,
+  emptyText,
+}: {
+  title: string;
+  icon: typeof Bell;
+  emptyText: string;
+  items: { id: string; title: string; subtitle: string; actionLabel: string; actionIcon?: typeof Check; onAction: () => void }[];
+}) {
+  return (
+    <div className="bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm p-4 sm:p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Icon size={20} className="text-brand-red" />
+        <h3 className="font-black text-base sm:text-lg">{title}</h3>
+        <span className="ml-auto text-xs font-bold bg-brand-red/10 text-brand-red rounded-full px-2.5 py-1">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-brand-ink/40 font-medium py-6 text-center">{emptyText}</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {items.map(item => (
+            <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-red/5 border-2 border-brand-red/20 rounded-2xl px-4 py-3.5">
+              <div className="min-w-0">
+                <p className="font-black text-base truncate">{item.title}</p>
+                <p className="text-xs text-brand-ink/50 mt-0.5">{item.subtitle}</p>
+              </div>
+              <button
+                onClick={item.onAction}
+                className="shrink-0 px-4 py-2.5 rounded-xl bg-brand-green text-white text-sm font-black hover:brightness-110 transition-all flex items-center gap-1.5"
+              >
+                {item.actionIcon ? <item.actionIcon size={15} /> : null} {item.actionLabel}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BillingModal({
+  sessionOrders,
+  sessionId,
+  onClose,
+  onConfirm,
+}: {
+  sessionOrders: Order[];
+  sessionId: string;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const grandTotal = sessionOrders.reduce((s, o) => s + o.total, 0);
+  const grandSubtotal = sessionOrders.reduce((s, o) => s + o.subtotal, 0);
+  const grandTax = sessionOrders.reduce((s, o) => s + o.tax, 0);
+  const grandDiscount = sessionOrders.reduce((s, o) => s + (o.discount || 0), 0);
+  const label = sessionOrders[0] ? orderLabel(sessionOrders[0]) : 'Session';
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center"><Banknote size={20} /></div>
+            <div>
+              <h2 className="text-lg font-black">Close Bill</h2>
+              <p className="text-xs text-brand-ink/50">{label} · {sessionOrders.length} ticket{sessionOrders.length > 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-black/5"><X size={18} /></button>
+        </div>
+
+        <div className="flex flex-col gap-3 mb-5">
+          {sessionOrders.map(o => (
+            <div key={o.id} className="bg-brand-cream/50 border border-brand-gold/20 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-brand-ink/50">#{o.id}</span>
+                <span className="text-xs text-brand-ink/40">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
+              {o.items.map((item, i) => (
+                <div key={i} className="flex justify-between text-sm py-0.5">
+                  <span className="truncate">{item.qty}× {item.name}</span>
+                  <span className="font-bold shrink-0 ml-2">{formatKWD(item.price * item.qty)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between mt-1.5 pt-1.5 border-t border-brand-gold/15 text-sm font-bold">
+                <span>Ticket total</span>
+                <span className="text-brand-red">{formatKWD(o.total)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-brand-ink/[0.03] rounded-2xl p-4 space-y-2 mb-5">
+          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Subtotal</span><span className="font-bold">{formatKWD(grandSubtotal)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Tax & Fees</span><span className="font-bold">{formatKWD(grandTax)}</span></div>
+          {grandDiscount > 0 && (
+            <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-black">−{formatKWD(grandDiscount)}</span></div>
+          )}
+          <div className="flex justify-between items-center pt-2 mt-1 border-t-2 border-black/10">
+            <span className="font-black text-lg">Grand Total</span>
+            <span className="font-black text-2xl text-brand-red">{formatKWD(grandTotal)}</span>
+          </div>
+        </div>
+
+        <button
+          onClick={onConfirm}
+          className="w-full py-4 rounded-2xl bg-brand-green text-white font-black text-base flex items-center justify-center gap-2 hover:brightness-110 transition-all shadow-lg active:scale-[0.98]"
+        >
+          <Check size={20} /> Confirm Payment & Close
+        </button>
+      </div>
     </div>
   );
 }

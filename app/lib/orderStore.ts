@@ -28,11 +28,14 @@ export interface Order {
   mode?: OrderMode; // undefined on legacy orders → treated as 'table'
   discount?: number;   // coupon/manual discount applied (KD)
   couponCode?: string; // coupon used, if any
+  standingLabel?: string; // optional name/tag distinguishing walk-in parties (mode === 'standing')
+  sessionId?: string;  // groups multiple orders into one dining session
+  billed?: boolean;    // true after waiter closes the bill — only billed orders show in admin analytics
 }
 
 /** Human label for where an order goes — used by every role's UI. */
-export function orderLabel(o: Pick<Order, 'mode' | 'table'>): string {
-  if (o.mode === 'standing') return 'Standing';
+export function orderLabel(o: Pick<Order, 'mode' | 'table' | 'standingLabel'>): string {
+  if (o.mode === 'standing') return o.standingLabel ? `Standing · ${o.standingLabel}` : 'Standing';
   if (o.mode === 'takeaway') return 'Takeaway';
   return `Table ${o.table}`;
 }
@@ -87,6 +90,49 @@ export function getActiveOrdersForTable(table: number): Order[] {
   return readOrders().filter(o => o.table === table && o.status !== 'served');
 }
 
+/** Find the active (un-billed) session ID for a table or standing label. */
+export function getActiveSessionId(table: number, mode?: OrderMode, standingLabel?: string): string | undefined {
+  const orders = readOrders();
+  const active = orders.find(o => {
+    if (o.billed || !o.sessionId) return false;
+    const m = o.mode || 'table';
+    if (mode === 'standing') return m === 'standing' && o.standingLabel === standingLabel;
+    if (mode === 'takeaway') return false; // takeaway doesn't reuse sessions
+    return o.table === table && m === 'table';
+  });
+  return active?.sessionId;
+}
+
+/** List active (un-billed) standing customer sessions for the waiter to resume. */
+export function getActiveStandingSessions(orders: Order[]): { sessionId: string; label: string; orderCount: number; total: number }[] {
+  const sessions = new Map<string, { label: string; count: number; total: number }>();
+  for (const o of orders) {
+    if ((o.mode === 'standing') && !o.billed && o.sessionId) {
+      const cur = sessions.get(o.sessionId);
+      if (cur) { cur.count++; cur.total += o.total; }
+      else sessions.set(o.sessionId, { label: o.standingLabel || 'Standing', count: 1, total: o.total });
+    }
+  }
+  return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, label: v.label, orderCount: v.count, total: v.total }));
+}
+
+/** Get all orders belonging to a session (for billing). */
+export function getSessionOrders(orders: Order[], sessionId: string): Order[] {
+  return orders.filter(o => o.sessionId === sessionId);
+}
+
+/** Mark all orders in a session as billed and served. */
+export function billSession(sessionId: string) {
+  const orders = readOrders().map(o =>
+    o.sessionId === sessionId ? { ...o, billed: true, status: 'served' as OrderStatus } : o
+  );
+  writeOrders(orders);
+}
+
+function generateSessionId(): string {
+  return `SN-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+}
+
 export function addOrder(input: {
   table: number;
   items: OrderItem[];
@@ -99,8 +145,22 @@ export function addOrder(input: {
   discount?: number;
   couponCode?: string;
   status?: OrderStatus;
+  standingLabel?: string;
+  sessionId?: string;
 }): Order {
   const orders = readOrders();
+  const mode = input.mode ?? 'table';
+  let sessionId = input.sessionId;
+  if (!sessionId) {
+    const existing = orders.find(o => {
+      if (o.billed || !o.sessionId) return false;
+      const m = o.mode || 'table';
+      if (mode === 'standing') return m === 'standing' && o.standingLabel === input.standingLabel;
+      if (mode === 'takeaway') return false;
+      return o.table === input.table && m === 'table';
+    });
+    sessionId = existing?.sessionId || generateSessionId();
+  }
   const newOrder: Order = {
     id: `TK-${Math.floor(1000 + Math.random() * 9000)}`,
     table: input.table,
@@ -112,9 +172,11 @@ export function addOrder(input: {
     total: input.total,
     createdAt: Date.now(),
     source: input.source,
-    mode: input.mode ?? 'table',
+    mode,
     discount: input.discount,
     couponCode: input.couponCode,
+    standingLabel: input.standingLabel,
+    sessionId,
   };
   writeOrders([newOrder, ...orders]);
   return newOrder;
