@@ -1,7 +1,7 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import QRCode from 'qrcode';
-import { Plus, X, Pencil, Trash2, QrCode as QrIcon, Copy, Check, Download, Printer, Armchair, MapPin } from 'lucide-react';
+import { Plus, X, Pencil, Trash2, QrCode as QrIcon, Copy, Check, Download, Printer, Armchair, MapPin, PersonStanding } from 'lucide-react';
 import {
   RestaurantTable,
   getTablesSnapshot,
@@ -23,6 +23,10 @@ function tableUrl(origin: string, number: number) {
   return `${origin}/customer?table=${number}`;
 }
 
+function standingUrl(origin: string) {
+  return `${origin}/customer?mode=standing`;
+}
+
 export default function TablesSection() {
   const tables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
   const origin = useSyncExternalStore(noopSub, getOrigin, getOriginServer);
@@ -32,6 +36,7 @@ export default function TablesSection() {
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedStanding, setCopiedStanding] = useState(false);
 
   const openAdd = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (t: RestaurantTable) => { setEditing(t); setFormOpen(true); };
@@ -169,6 +174,56 @@ export default function TablesSection() {
           ))}
         </div>
       )}
+
+      {/* Standing Area QR */}
+      <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="rounded-xl border border-black/5 p-2 bg-white shrink-0">
+              <QrCode value={standingUrl(origin)} size={104} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-lg font-black flex items-center gap-2">
+                <PersonStanding size={20} className="text-brand-red" /> Standing Area QR
+              </p>
+              <p className="text-xs text-black/50 mt-1">For walk-in customers who aren't seated at a table. Scanning this QR gives them a choice between "Dine In" and "Takeaway."</p>
+              <p className="text-[11px] text-black/40 mt-1 break-all flex items-center gap-1">
+                <QrIcon size={12} className="shrink-0" /> {standingUrl(origin).replace(/^https?:\/\//, '')}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(standingUrl(origin));
+                  setCopiedStanding(true);
+                  setTimeout(() => setCopiedStanding(false), 1500);
+                } catch { /* ignore */ }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-black/5 hover:bg-black/10 text-xs font-bold transition-colors"
+            >
+              {copiedStanding ? <><Check size={13} className="text-emerald-600" /> Copied</> : <><Copy size={13} /> Copy link</>}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const dataUrl = await QRCode.toDataURL(standingUrl(origin), { margin: 2, width: 600, color: { dark: '#2a1a12', light: '#ffffff' } });
+                  const a = document.createElement('a');
+                  a.href = dataUrl;
+                  a.download = 'red-rose-standing-qr.png';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                } catch { /* ignore */ }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-red/10 hover:bg-brand-red/20 text-brand-red text-xs font-bold transition-colors"
+            >
+              <Download size={13} /> Download QR
+            </button>
+          </div>
+        </div>
+      </div>
 
       {formOpen && <TableFormModal table={editing} onClose={() => setFormOpen(false)} />}
     </div>
