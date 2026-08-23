@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useSyncExternalStore } from 'react';
-import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell, ShoppingCart, Tag, X } from 'lucide-react';
+import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell, ShoppingCart, Tag, X, PackageCheck } from 'lucide-react';
 import { addOrder, getActiveSessionId } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { callWaiter, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
@@ -31,13 +31,24 @@ export default function CustomerDashboard() {
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
-  const [standingChoice, setStandingChoice] = useState<'dine-in' | 'takeaway' | null>(null);
+  const [cartIsTakeaway, setCartIsTakeaway] = useState(false);
+
+  const [standingLabelId] = useState(() => {
+    if (typeof window === 'undefined') return 'QR Walk-in';
+    const key = 'cenexa_standing_label';
+    let label = sessionStorage.getItem(key);
+    if (!label) {
+      label = `QR Walk-in #${Math.floor(Math.random() * 9000 + 1000)}`;
+      sessionStorage.setItem(key, label);
+    }
+    return label;
+  });
 
   const tableParam = useSyncExternalStore(noopSubscribe, getTableParam, getParamServer);
   const modeParam = useSyncExternalStore(noopSubscribe, getModeParam, getParamServer);
   const isStandingQR = modeParam === 'standing';
-  const isTakeaway = modeParam === 'takeaway' || (isStandingQR && standingChoice === 'takeaway');
-  const isStandingDineIn = isStandingQR && standingChoice === 'dine-in';
+  const isTakeaway = modeParam === 'takeaway';
+  const isStandingDineIn = isStandingQR;
   const tableNumber = Number(tableParam) > 0 ? Number(tableParam) : 12;
 
   // Live menu managed by the admin's Inventory tab — same source of truth for every role
@@ -99,7 +110,8 @@ export default function CustomerDashboard() {
 
     // Small delay so the "sending to kitchen" state is visible, not just an instant jump
     setTimeout(() => {
-      const mode = isTakeaway ? 'takeaway' as const : isStandingDineIn ? 'standing' as const : 'table' as const;
+      const finalTakeaway = isTakeaway || cartIsTakeaway;
+      const mode = finalTakeaway ? 'takeaway' as const : isStandingDineIn ? 'standing' as const : 'table' as const;
       const sessionId = mode === 'table' ? getActiveSessionId(tableNumber, 'table') : undefined;
       const order = addOrder({
         table: mode === 'standing' || mode === 'takeaway' ? 0 : tableNumber,
@@ -113,7 +125,7 @@ export default function CustomerDashboard() {
         discount: discount > 0 ? discount : undefined,
         couponCode: appliedCoupon?.code,
         sessionId: sessionId || undefined,
-        standingLabel: isStandingDineIn ? `QR Walk-in` : undefined,
+        standingLabel: isStandingDineIn ? standingLabelId : undefined,
       });
       if (appliedCoupon) incrementCouponUsage(appliedCoupon.id);
       setLastOrderId(order.id);
@@ -129,33 +141,6 @@ export default function CustomerDashboard() {
     setLastOrderId(null);
     setIsCartOpen(false);
   };
-
-  if (isStandingQR && !standingChoice) {
-    return (
-      <div className="min-h-screen bg-brand-cream text-brand-ink font-sans flex flex-col items-center justify-center p-6">
-        <div className="max-w-sm w-full text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND.logo} alt={BRAND.fullName} className="h-20 w-auto mx-auto rounded-2xl mb-6 shadow-lg" />
-          <h1 className="text-3xl font-black mb-2">{BRAND.fullName}</h1>
-          <p className="text-brand-ink/50 font-medium mb-10">How would you like to order?</p>
-          <div className="flex flex-col gap-4">
-            <button
-              onClick={() => setStandingChoice('dine-in')}
-              className="w-full py-5 bg-brand-red text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-brand-red-dark transition-all shadow-lg shadow-brand-red/25 active:scale-95"
-            >
-              <MapPin size={22} /> Dine In
-            </button>
-            <button
-              onClick={() => setStandingChoice('takeaway')}
-              className="w-full py-5 bg-brand-ink text-white rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-black transition-all shadow-lg active:scale-95"
-            >
-              <ShoppingCart size={22} /> Takeaway
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-32">
@@ -198,9 +183,9 @@ export default function CustomerDashboard() {
         </div>
       </header>
 
-      {/* Hero Section — video plays when /hero.mp4 is added; poster image shows until then */}
+      {/* Hero Section — video plays when /redrose.webm is added; poster image shows until then */}
       <div className="max-w-5xl xl:max-w-6xl mx-auto px-4 md:px-6 pt-24 md:pt-32 mb-8 md:mb-12">
-        <div className="relative w-full h-[250px] md:h-[400px] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl shadow-brand-red/10 group bg-brand-sand">
+        <div className="relative w-full h-[400px] md:h-[600px] rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl shadow-brand-red/10 group bg-brand-sand">
           <video
             className="w-full h-full object-cover"
             autoPlay
@@ -209,7 +194,7 @@ export default function CustomerDashboard() {
             playsInline
             poster="https://images.unsplash.com/photo-1571115177098-24ec42ed204d?auto=format&fit=crop&q=80&w=1600"
           >
-            <source src="/hero.mp4" type="video/mp4" />
+            <source src="/redrose.webm" type="video/webm" />
           </video>
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-6 md:p-12 pointer-events-none">
             <div className="flex items-center gap-2 mb-3 md:hidden">
@@ -217,7 +202,7 @@ export default function CustomerDashboard() {
                 {isTakeaway ? <><ShoppingCart size={12} /> Takeaway</> : <><MapPin size={12} /> Table {tableNumber}</>}
               </div>
             </div>
-            <h2 className="text-4xl md:text-6xl font-black text-white mb-2 md:mb-4 tracking-tight">Our Sweets.</h2>
+            <h2 className="text-4xl md:text-6xl font-black text-white mb-2 md:mb-4 tracking-tight">{BRAND.fullName}</h2>
             <p className="text-white/80 font-medium flex items-center gap-2 text-sm md:text-lg">
               <Clock size={18} /> Freshly made, every day
             </p>
@@ -295,7 +280,7 @@ export default function CustomerDashboard() {
                 <div>
                   <h2 className="text-2xl md:text-3xl font-black text-brand-ink mb-2">Order Sent!</h2>
                   <p className="text-brand-ink/50 font-medium max-w-xs">
-                    {isTakeaway
+                    {(isTakeaway || cartIsTakeaway)
                       ? 'Your takeaway order has been sent to the kitchen. We’ll have it ready for pickup shortly.'
                       : `Your order has been sent straight to the kitchen for Table ${tableNumber}. We’ll get it to you shortly.`}
                   </p>
@@ -352,6 +337,24 @@ export default function CustomerDashboard() {
 
                 {cartItemCount > 0 && (
                   <div className="p-6 md:p-8 bg-brand-cream border-t border-brand-gold/20 rounded-b-[2rem] md:rounded-bl-[2rem] md:rounded-br-none pb-8 md:pb-8">
+                    {!isTakeaway && (
+                      <div className="mb-4">
+                        <label className="flex items-center gap-3 bg-white border border-brand-gold/20 p-3 rounded-xl cursor-pointer hover:border-brand-red/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={cartIsTakeaway}
+                            onChange={(e) => setCartIsTakeaway(e.target.checked)}
+                            className="w-5 h-5 accent-brand-red rounded focus:ring-brand-red"
+                          />
+                          <div className="flex-1">
+                            <span className="block font-bold text-sm">Make this a Takeaway order</span>
+                            <span className="block text-xs text-brand-ink/50 mt-0.5">Pack everything in takeaway boxes</span>
+                          </div>
+                          <PackageCheck size={20} className={cartIsTakeaway ? 'text-brand-red' : 'text-brand-ink/30'} />
+                        </label>
+                      </div>
+                    )}
+                    
                     {/* Coupon */}
                     <div className="mb-4">
                       {appliedCoupon ? (

@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Banknote,
   Users,
+  ShoppingBag,
 } from 'lucide-react';
 import type { Order } from '../lib/orderStore';
 import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, getActiveStandingSessions, getSessionOrders, billSession } from '../lib/orderStore';
@@ -100,6 +101,30 @@ export default function WaiterDashboard() {
   const standingEverCount = useMemo(() => placedOrders.filter(o => o.mode === 'standing').length, [placedOrders]);
 
   const activeStandingSessions = useMemo(() => getActiveStandingSessions(placedOrders), [placedOrders]);
+
+  const activeTableSessions = useMemo(() => {
+    const sessions = new Map<string, { table: number; count: number; total: number }>();
+    for (const o of placedOrders) {
+      if ((o.mode === 'table' || !o.mode) && !o.billed && o.sessionId) {
+        const cur = sessions.get(o.sessionId);
+        if (cur) { cur.count++; cur.total += o.total; }
+        else sessions.set(o.sessionId, { table: o.table, count: 1, total: o.total });
+      }
+    }
+    return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, table: v.table, orderCount: v.count, total: v.total }));
+  }, [placedOrders]);
+
+  const activeTakeawaySessions = useMemo(() => {
+    const sessions = new Map<string, { count: number; total: number; id: string }>();
+    for (const o of placedOrders) {
+      if (o.mode === 'takeaway' && !o.billed && o.sessionId) {
+        const cur = sessions.get(o.sessionId);
+        if (cur) { cur.count++; cur.total += o.total; }
+        else sessions.set(o.sessionId, { count: 1, total: o.total, id: o.id.split('-')[1] });
+      }
+    }
+    return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, orderCount: v.count, total: v.total, id: v.id }));
+  }, [placedOrders]);
 
   const currentSessionId = useMemo(() => {
     if (activeTable === 'standing') return undefined;
@@ -249,7 +274,7 @@ export default function WaiterDashboard() {
   const cardBase = 'bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm';
 
   return (
-    <div className="min-h-screen bg-brand-cream text-brand-ink font-sans pb-24 selection:bg-brand-red selection:text-white">
+    <div className="h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-sans pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white">
       {/* Toast */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-ink text-white px-5 py-2.5 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
@@ -258,7 +283,7 @@ export default function WaiterDashboard() {
         </div>
       )}
 
-      <div className="max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
+      <div className="flex-1 min-h-0 w-full max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
 
         {/* ============ TOP BAR ============ */}
         <header className={`${cardBase} p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0`}>
@@ -267,9 +292,9 @@ export default function WaiterDashboard() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={BRAND.logo} alt={BRAND.fullName} className="h-10 sm:h-12 w-auto rounded-lg border border-brand-gold/30 shrink-0" />
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-black tracking-tight flex items-center gap-2 truncate">
-                  {BRAND.name}
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-red text-white font-bold tracking-wide">WAITER</span>
+                <h1 className="text-lg sm:text-xl font-black tracking-tight flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className="truncate">{BRAND.name}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-red text-white font-bold tracking-wide shrink-0">WAITER</span>
                 </h1>
                 <p className="text-xs text-brand-ink/50 font-medium truncate">Floor service · Station 2</p>
               </div>
@@ -312,7 +337,7 @@ export default function WaiterDashboard() {
               )}
             </button>
 
-            <div className="hidden xl:flex items-center gap-2 bg-brand-sand p-1.5 rounded-xl border border-brand-gold/25 shrink-0">
+            <div className="hidden lg:flex items-center gap-2 bg-brand-sand p-1.5 rounded-xl border border-brand-gold/25 shrink-0">
               <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-lg">
                 <User size={15} className="text-brand-red" />
                 <span className="text-xs font-bold">Alex W.</span>
@@ -356,10 +381,10 @@ export default function WaiterDashboard() {
         ) : (
         <>
         {/* ============ MAIN LAYOUT — menu+ticket side by side on desktop ============ */}
-        <div className={`flex-1 flex flex-col ${activeTab === 'menu' ? 'lg:flex-row' : ''} gap-4`}>
+        <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'menu' ? 'lg:flex-row' : ''} gap-4`}>
 
           {/* LEFT: tables + kitchen feed */}
-          <aside className={`w-full gap-4 ${activeTab !== 'tables' ? 'hidden' : 'grid lg:grid-cols-2'}`}>
+          <aside className={`w-full gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-4 lg:pb-0 lg:overflow-hidden ${activeTab !== 'tables' ? 'hidden' : 'flex flex-col lg:grid lg:grid-cols-2'}`}>
             {/* Tables */}
             <div className={`${cardBase} p-4`}>
               <div className="flex items-center justify-between mb-3">
@@ -444,25 +469,118 @@ export default function WaiterDashboard() {
                 )}
               </button>
 
+              {canBill && activeTable !== 'standing' && (
+                <div className="mt-4">
+                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Hash size={11} /> Table {activeTable} Actions</p>
+                  <div className="w-full rounded-xl border border-brand-red/30 bg-brand-red/[0.03] p-3 flex flex-col gap-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-black text-brand-ink truncate">Table {activeTable}</h4>
+                        <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{activeOrdersForActiveTable.length} order{activeOrdersForActiveTable.length !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}</span></p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <button
+                        onClick={() => setActiveTab('menu')}
+                        className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Plus size={14} /> Add Items
+                      </button>
+                      <button
+                        onClick={() => setBillingSessionId(currentSessionId || null)}
+                        className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Banknote size={14} /> Bill
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeStandingSessions.length > 0 && (
                 <div className="mt-2.5">
                   <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users size={11} /> Active Standing Sessions</p>
                   <div className="flex flex-col gap-1.5">
                     {activeStandingSessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-lg border border-brand-gold/30 bg-brand-cream/50 px-3 py-2 flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => { setActiveTable('standing'); setStandingLabel(s.label); setActiveTab('menu'); triggerToast(`Resumed: ${s.label}`); }}
-                          className="flex-1 text-left text-xs font-bold truncate hover:text-brand-red transition-colors"
-                        >
-                          {s.label}
-                          <span className="block text-[10px] font-medium text-brand-ink/40">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · {formatKWD(s.total)}</span>
-                        </button>
-                        <button
-                          onClick={() => setBillingSessionId(s.sessionId)}
-                          className="shrink-0 px-2 py-1 rounded-lg bg-brand-ink text-white text-[10px] font-black hover:bg-black transition-colors flex items-center gap-1"
-                        >
-                          <Banknote size={11} /> Bill
-                        </button>
+                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-black text-brand-ink truncate">{s.label}</h4>
+                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            onClick={() => { setActiveTable('standing'); setStandingLabel(s.label); setActiveTab('menu'); triggerToast(`Resumed: ${s.label}`); }}
+                            className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Plus size={14} /> Add Items
+                          </button>
+                          <button
+                            onClick={() => setBillingSessionId(s.sessionId)}
+                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Banknote size={14} /> Bill
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTableSessions.length > 0 && (
+                <div className="mt-2.5">
+                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Hash size={11} /> Active Floor Tables</p>
+                  <div className="flex flex-col gap-1.5">
+                    {activeTableSessions.map(s => (
+                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-black text-brand-ink truncate">Table {s.table}</h4>
+                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            onClick={() => { setActiveTable(s.table); setActiveTab('menu'); }}
+                            className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Plus size={14} /> Add Items
+                          </button>
+                          <button
+                            onClick={() => setBillingSessionId(s.sessionId)}
+                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Banknote size={14} /> Bill
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeTakeawaySessions.length > 0 && (
+                <div className="mt-2.5">
+                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><ShoppingBag size={11} /> Active Takeaway Orders</p>
+                  <div className="flex flex-col gap-1.5">
+                    {activeTakeawaySessions.map(s => (
+                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-black text-brand-ink truncate">Takeaway #{s.id}</h4>
+                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <button
+                            onClick={() => setBillingSessionId(s.sessionId)}
+                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            <Banknote size={14} /> Bill
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -586,7 +704,7 @@ export default function WaiterDashboard() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
               {filteredMenu.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-brand-ink/30 py-12">
                   <Search size={44} className="mb-3 opacity-40" />
@@ -604,7 +722,7 @@ export default function WaiterDashboard() {
                         }`}
                       >
                         <div>
-                          <div className="w-full h-28 sm:h-32 rounded-xl overflow-hidden relative mb-2.5 bg-brand-sand">
+                          <div className="w-full aspect-[4/3] rounded-xl overflow-hidden relative mb-2.5 bg-brand-sand">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={item.image}
@@ -814,7 +932,7 @@ export default function WaiterDashboard() {
         />
       )}
 
-      {/* Section nav — visible on every screen size so desktop can jump straight to Alerts too */}
+      {/* Section nav — floating on desktop, fixed bottom on mobile */}
       <nav className="fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:bottom-4 lg:rounded-2xl lg:shadow-xl lg:border lg:px-2 bg-white border-t-2 border-brand-red/30 lg:border lg:border-brand-gold/25 flex items-center justify-around lg:justify-center lg:gap-1 p-2.5 z-50 shadow-[0_-6px_24px_rgba(0,0,0,0.1)]">
         {([
           { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
@@ -826,6 +944,8 @@ export default function WaiterDashboard() {
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-xl transition-all ${
+              tab.key === 'ticket' ? 'lg:hidden ' : ''
+            }${
               activeTab === tab.key ? 'text-brand-red bg-brand-red/10 font-bold' : 'text-brand-ink/50 hover:text-brand-ink'
             }`}
           >

@@ -90,16 +90,17 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63
 type Section = 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
 
 export default function AdminDashboard() {
-  const [section, setSection] = useState<Section>('analytics');
-  const orders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  const [section, setSection] = useState<Section>('billing');
+  const rawOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  const orders = useMemo(() => rawOrders.filter(o => o.billed), [rawOrders]);
   const menu = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
 
   const navItems: { key: Section; icon: typeof LayoutDashboard; label: string }[] = [
+    { key: 'billing', icon: Receipt, label: 'Billing' },
     { key: 'analytics', icon: LayoutDashboard, label: 'Analytics' },
     { key: 'orders', icon: ClipboardList, label: 'Orders' },
     { key: 'inventory', icon: Package, label: 'Inventory' },
     { key: 'tables', icon: LayoutGrid, label: 'Tables' },
-    { key: 'billing', icon: Receipt, label: 'Billing' },
     { key: 'coupons', icon: Ticket, label: 'Coupons' },
   ];
 
@@ -157,7 +158,7 @@ export default function AdminDashboard() {
 
         <main className="bg-[#f5f0f1] min-h-[calc(100vh-4rem)] text-black p-4 sm:p-6 md:p-8 flex flex-col">
           <div className="flex-1">
-            {section === 'analytics' && <AnalyticsSection orders={orders.filter(o => o.billed)} />}
+            {section === 'analytics' && <AnalyticsSection orders={orders} />}
             {section === 'orders' && <OrdersSection orders={orders} />}
             {section === 'inventory' && <InventorySection menu={menu} />}
             {section === 'tables' && <TablesSection />}
