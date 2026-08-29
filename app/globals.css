@@ -11,6 +11,10 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-poppins: var(--font-poppins-src), "Segoe UI", Arial, sans-serif;
+  /* Landing-page display voice: the hero wordmark and section headings. */
+  --font-display: var(--font-display-src), "Georgia", "Times New Roman", serif;
+  /* Numerals (stats, counters) — deliberately not the display face. */
+  --font-numeric: var(--font-numeric-src), "Garamond", "Times New Roman", serif;
 
   /* Red Rose brand palette (from the shop sign) */
   --color-brand-beige: #f3ecd2;
@@ -34,6 +38,170 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ===================================================================
+   Motion
+   The hero cake itself is deliberately still — it sits centred and level.
+   Everything else arrives on load or on scroll, and the ambient loops are
+   kept to light and petals so nothing competes with the cake.
+   =================================================================== */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translate3d(0, 28px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fade-down {
+  from { opacity: 0; transform: translate3d(0, -14px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translate3d(-9%, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translate3d(9%, 0, 0); }
+  to   { opacity: 1; transform: none; }
+}
+/* The cake settles into place once, then holds. */
+@keyframes cake-arrive {
+  from { opacity: 0; transform: scale(0.92) translate3d(0, 2.5%, 0); }
+  to   { opacity: 1; transform: none; }
+}
+/* Ambient: the plate of light behind the cake breathes. */
+@keyframes glow-breathe {
+  0%, 100% { opacity: 0.6;  transform: translate(-50%, -50%) scale(1); }
+  50%      { opacity: 0.88; transform: translate(-50%, -50%) scale(1.05); }
+}
+/* Ambient: petals drifting in the hero field. */
+@keyframes petal-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  33%  { transform: translate3d(14px, -22px, 0) rotate(14deg); }
+  66%  { transform: translate3d(-9px, -11px, 0) rotate(-9deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+
+.anim-fade-up      { animation: fade-up 0.95s cubic-bezier(0.22, 0.85, 0.28, 1) both; }
+.anim-fade-down    { animation: fade-down 0.8s cubic-bezier(0.22, 0.85, 0.28, 1) both; }
+.anim-fade-in      { animation: fade-in 1s ease both; }
+.anim-slide-left   { animation: slide-in-left 1.15s cubic-bezier(0.2, 0.85, 0.25, 1) both; }
+.anim-slide-right  { animation: slide-in-right 1.15s cubic-bezier(0.2, 0.85, 0.25, 1) both; }
+.anim-cake-arrive  { animation: cake-arrive 1.3s cubic-bezier(0.2, 0.9, 0.24, 1) both; }
+.anim-glow         { animation: glow-breathe 7s ease-in-out infinite; }
+.anim-petal        { animation: petal-drift 14s ease-in-out infinite; }
+
+/* Scroll-triggered reveal, driven by the Reveal client component. */
+.reveal {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0);
+  transition:
+    opacity 0.85s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.85s cubic-bezier(0.22, 0.85, 0.28, 1);
+  will-change: opacity, transform;
+}
+.reveal-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Children of a revealed block arrive one after another rather than as a slab. */
+.stagger > * {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.7s cubic-bezier(0.22, 0.85, 0.28, 1);
+}
+.reveal-in .stagger > * {
+  opacity: 1;
+  transform: none;
+}
+.stagger > *:nth-child(1) { transition-delay: 0.06s; }
+.stagger > *:nth-child(2) { transition-delay: 0.16s; }
+.stagger > *:nth-child(3) { transition-delay: 0.26s; }
+.stagger > *:nth-child(4) { transition-delay: 0.36s; }
+.stagger > *:nth-child(5) { transition-delay: 0.46s; }
+.stagger > *:nth-child(6) { transition-delay: 0.56s; }
+
+/* Scroll parallax. ScrollFx publishes --sy; layers move at different rates so
+   the hero separates into planes as the page moves. */
+/* Uses the independent `translate` property, NOT `transform`: these elements
+   also carry Tailwind transform utilities (-translate-x-1/2 etc.) and a
+   `transform` here would silently override that centring. */
+.px-slow { translate: 0 calc(var(--sy, 0) * 0.17px); }
+.px-fast { translate: 0 calc(var(--sy, 0) * 0.05px); }
+
+
+/* Hero cake sizing lives here rather than in arbitrary Tailwind utilities so
+   it cannot depend on those classes being generated. */
+/* Phone: the cake is a normal block ABOVE the stacked wordmark, because a
+   cake centred on stacked words simply covers them. From sm up it becomes the
+   zero-width anchor that rides the gap between ROSE and BLOOM.
+   max-width:none is load-bearing there: Preflight's `img { max-width:100% }`
+   would resolve against the zero-width anchor and collapse the cake to 0px. */
+.hero-cake-anchor { width: 100%; height: auto; }
+.hero-cake-pos    { position: static; translate: none; display: flex; justify-content: center; }
+.hero-cake-img    { width: 46vw; max-width: none; max-height: 25svh; height: auto; }
+.hero-cake-halo   { display: none; }
+
+/* Wordmark scale, also kept out of arbitrary utilities. */
+.hero-word { font-size: min(14vw, 9.5svh); }
+/* The cream wave rises into the stage's lower band; on phones the wordmark
+   has to clear it or BLOOM ends up cream-on-cream. Padding on the parent
+   cannot do this — an absolute `inset-0` child resolves against the padding
+   box — so the layer's own `bottom` is raised instead. */
+.hero-word-layer { position: absolute; inset: 0 0 13svh 0; }
+
+@media (min-width: 640px) {
+  .hero-word        { font-size: min(11.6vw, 19svh); }
+  .hero-word-layer  { inset: 0; }
+  .hero-cake-anchor { width: 0; height: 100%; }
+  .hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
+  .hero-cake-img    { width: 25vw; max-height: 66svh; }
+  .hero-cake-halo   { display: block; width: 34vw; height: 24vw; transform: translate(-50%, -50%); }
+}
+
+@keyframes text-shimmer {
+  0%        { background-position: -140% 0; }
+  55%, 100% { background-position: 240% 0; }
+}
+.hero-shimmer {
+  background-size: 250% 100%;
+  animation: text-shimmer 7s ease-in-out infinite;
+}
+
+/* Old-style figures make "50K+" read as "5oK+" in the numeral face. */
+.lining-nums {
+  font-variant-numeric: lining-nums;
+  font-feature-settings: 'lnum' 1, 'onum' 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up,
+  .anim-fade-down,
+  .anim-fade-in,
+  .anim-slide-left,
+  .anim-slide-right,
+  .anim-cake-arrive,
+  .anim-glow,
+  .anim-petal,
+  .hero-shimmer {
+    animation: none !important;
+  }
+  .reveal,
+  .stagger > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .px-slow,
+  .px-fast {
+    translate: none;
+  }
 }
 
 /* Shared utility scrollbars used across the staff dashboards */
