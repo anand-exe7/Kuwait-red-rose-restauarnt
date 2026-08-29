@@ -3,7 +3,7 @@ import {
   Geist,
   Geist_Mono,
   Poppins,
-  Fraunces,
+  Anton,
   Cormorant_Garamond,
 } from "next/font/google";
 import "./globals.css";
@@ -27,14 +27,11 @@ const poppins = Poppins({
   weight: ["300", "400", "500", "600", "700", "800"],
 });
 
-// The hero wordmark (ROSE / BLOOM). Fraunces is a display serif with soft,
-// warm terminals — it holds its weight at huge sizes where a hairline didone
-// goes thin and washed out against the red.
-const fraunces = Fraunces({
+// The hero wordmark (ROSE / BLOOM). Anton is a tall, bold display font.
+const anton = Anton({
   variable: "--font-display-src",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "900"],
-  style: ["normal", "italic"],
+  weight: "400",
 });
 
 // Numerals only ("50K+" and friends) — a different rhythm from the wordmark
@@ -76,7 +73,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${poppins.variable} ${fraunces.variable} ${cormorant.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${poppins.variable} ${anton.variable} ${cormorant.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

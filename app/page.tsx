@@ -293,22 +293,22 @@ export default function Home() {
                  NOT the container's centre; a zero-width flex item lands
                  exactly on it under `justify-between`, and the cake hangs off
                  that, overlapping both words evenly. --- */}
-            <div className="hero-word-layer flex flex-col sm:flex-row items-center justify-center sm:justify-between px-[1vw] sm:px-[2vw] leading-[0.76]">
-              <span className="anim-slide-left" style={{ animationDelay: '140ms' }}>
+            <div className="hero-word-layer grid grid-cols-2 items-center justify-center px-[2vw] leading-tight pt-[4svh]">
+              <div className="flex justify-end pr-[14vw] sm:pr-[11vw] anim-slide-left" style={{ animationDelay: '140ms' }}>
                 <span
                   className="px-slow block font-display font-bold tracking-[-0.022em] hero-word"
                   style={{
-                    color: '#8e101c',
+                    color: '#c21422', // Much brighter red so it's not hidden
                     textShadow:
-                      '0 1px 1px rgba(255,150,150,0.14), 0 22px 48px rgba(35,0,4,0.55)',
+                      '0 1px 1px rgba(255,255,255,0.2), 0 22px 48px rgba(35,0,4,0.55)',
                   }}
                 >
                   ROSE
                 </span>
-              </span>
+              </div>
 
-              {/* zero-width anchor: sits at the centre of the gap */}
-              <div className="hero-cake-anchor order-first sm:order-none relative z-20 shrink-0 flex items-center justify-center anim-cake-arrive">
+              {/* absolute center anchor for the cake, independent of text width */}
+              <div className="hero-cake-anchor absolute inset-0 m-auto z-20 flex items-center justify-center anim-cake-arrive pointer-events-none">
                 {/* The cake holds still; only the light behind it breathes. */}
                 <div
                   aria-hidden
@@ -330,7 +330,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <span className="anim-slide-right" style={{ animationDelay: '140ms' }}>
+              <div className="flex justify-start pl-[14vw] sm:pl-[11vw] anim-slide-right" style={{ animationDelay: '140ms' }}>
                 <span
                   className="px-slow hero-shimmer block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
                   style={{
@@ -340,7 +340,7 @@ export default function Home() {
                 >
                   BLOOM
                 </span>
-              </span>
+              </div>
             </div>
 
           </div>

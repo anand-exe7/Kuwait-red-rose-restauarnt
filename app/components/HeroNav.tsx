@@ -89,7 +89,7 @@ export default function HeroNav() {
           >
             <RoseSeal className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 drop-shadow-[0_3px_8px_rgba(35,0,4,0.45)] transition-transform duration-500 group-hover:rotate-[14deg]" />
             <span className="leading-none">
-              <span className="block font-display text-[16px] sm:text-[18px] font-semibold tracking-[0.01em] text-white">
+              <span className="block font-display uppercase text-[22px] sm:text-[26px] tracking-wide text-white" style={{ transform: 'scaleY(1.15)', transformOrigin: 'bottom' }}>
                 Red Rose
               </span>
               <span className="mt-0.5 block text-[7.5px] sm:text-[8px] font-semibold uppercase tracking-[0.42em] text-brand-gold/90">

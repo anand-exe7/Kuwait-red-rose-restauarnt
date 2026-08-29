@@ -138,31 +138,21 @@ body {
 
 /* Hero cake sizing lives here rather than in arbitrary Tailwind utilities so
    it cannot depend on those classes being generated. */
-/* Phone: the cake is a normal block ABOVE the stacked wordmark, because a
-   cake centred on stacked words simply covers them. From sm up it becomes the
-   zero-width anchor that rides the gap between ROSE and BLOOM.
-   max-width:none is load-bearing there: Preflight's `img { max-width:100% }`
-   would resolve against the zero-width anchor and collapse the cake to 0px. */
-.hero-cake-anchor { width: 100%; height: auto; }
-.hero-cake-pos    { position: static; translate: none; display: flex; justify-content: center; }
-.hero-cake-img    { width: 46vw; max-width: none; max-height: 25svh; height: auto; }
-.hero-cake-halo   { display: none; }
+/* Phone: The words are side-by-side and the cake is an absolute centered anchor. */
+.hero-cake-anchor { width: 0; height: 100%; }
+.hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
+.hero-cake-img    { width: 52vw; max-width: none; max-height: 28svh; height: auto; }
+.hero-cake-halo   { display: block; width: 60vw; height: 50vw; transform: translate(-50%, -50%); }
 
-/* Wordmark scale, also kept out of arbitrary utilities. */
-.hero-word { font-size: min(14vw, 9.5svh); }
-/* The cream wave rises into the stage's lower band; on phones the wordmark
-   has to clear it or BLOOM ends up cream-on-cream. Padding on the parent
-   cannot do this — an absolute `inset-0` child resolves against the padding
-   box — so the layer's own `bottom` is raised instead. */
-.hero-word-layer { position: absolute; inset: 0 0 13svh 0; }
+/* Wordmark scale, tall letters for Anton */
+.hero-word { font-size: min(18vw, 13svh); transform: scaleY(1.15); transform-origin: bottom; padding-top: 0.15em; }
+.hero-word-layer { position: absolute; inset: 0 0 10svh 0; }
 
 @media (min-width: 640px) {
-  .hero-word        { font-size: min(11.6vw, 19svh); }
+  .hero-word        { font-size: min(15vw, 24svh); transform: scaleY(1.2); transform-origin: bottom; padding-top: 0.15em; }
   .hero-word-layer  { inset: 0; }
-  .hero-cake-anchor { width: 0; height: 100%; }
-  .hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
-  .hero-cake-img    { width: 25vw; max-height: 66svh; }
-  .hero-cake-halo   { display: block; width: 34vw; height: 24vw; transform: translate(-50%, -50%); }
+  .hero-cake-img    { width: 32vw; max-height: 66svh; }
+  .hero-cake-halo   { width: 40vw; height: 32vw; }
 }
 
 @keyframes text-shimmer {
