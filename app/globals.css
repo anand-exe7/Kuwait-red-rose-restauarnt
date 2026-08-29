@@ -97,10 +97,10 @@ body {
 /* Scroll-triggered reveal, driven by the Reveal client component. */
 .reveal {
   opacity: 0;
-  transform: translate3d(0, 26px, 0);
+  transform: translate3d(0, 14px, 0);
   transition:
-    opacity 0.85s cubic-bezier(0.22, 0.85, 0.28, 1),
-    transform 0.85s cubic-bezier(0.22, 0.85, 0.28, 1);
+    opacity 0.5s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.5s cubic-bezier(0.22, 0.85, 0.28, 1);
   will-change: opacity, transform;
 }
 .reveal-in {
@@ -111,29 +111,25 @@ body {
 /* Children of a revealed block arrive one after another rather than as a slab. */
 .stagger > * {
   opacity: 0;
-  transform: translate3d(0, 22px, 0);
+  transform: translate3d(0, 12px, 0);
   transition:
-    opacity 0.7s cubic-bezier(0.22, 0.85, 0.28, 1),
-    transform 0.7s cubic-bezier(0.22, 0.85, 0.28, 1);
+    opacity 0.45s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.45s cubic-bezier(0.22, 0.85, 0.28, 1);
 }
 .reveal-in .stagger > * {
   opacity: 1;
   transform: none;
 }
-.stagger > *:nth-child(1) { transition-delay: 0.06s; }
-.stagger > *:nth-child(2) { transition-delay: 0.16s; }
-.stagger > *:nth-child(3) { transition-delay: 0.26s; }
-.stagger > *:nth-child(4) { transition-delay: 0.36s; }
-.stagger > *:nth-child(5) { transition-delay: 0.46s; }
-.stagger > *:nth-child(6) { transition-delay: 0.56s; }
+.stagger > *:nth-child(1) { transition-delay: 0.04s; }
+.stagger > *:nth-child(2) { transition-delay: 0.1s; }
+.stagger > *:nth-child(3) { transition-delay: 0.16s; }
+.stagger > *:nth-child(4) { transition-delay: 0.22s; }
+.stagger > *:nth-child(5) { transition-delay: 0.28s; }
+.stagger > *:nth-child(6) { transition-delay: 0.34s; }
 
-/* Scroll parallax. ScrollFx publishes --sy; layers move at different rates so
-   the hero separates into planes as the page moves. */
-/* Uses the independent `translate` property, NOT `transform`: these elements
-   also carry Tailwind transform utilities (-translate-x-1/2 etc.) and a
-   `transform` here would silently override that centring. */
-.px-slow { translate: 0 calc(var(--sy, 0) * 0.17px); }
-.px-fast { translate: 0 calc(var(--sy, 0) * 0.05px); }
+/* Scroll parallax removed: translating the wordmark and cake by a fraction of
+   scrollY made them trail the page on every scroll, which reads as lag rather
+   than as depth. The hero's separation now comes from scale and light alone. */
 
 
 /* Hero cake sizing lives here rather than in arbitrary Tailwind utilities so
@@ -173,6 +169,53 @@ body {
   .hero-word-gap-r  { padding-left:  calc(var(--cake) * 0.44); }
 }
 
+.hero-cake-bob { animation: cake-bob 6s ease-in-out infinite alternate; }
+.hero-cake-yaw {
+  position: relative; display: block;
+  transform-origin: 50% 62%;
+  animation: cake-yaw 9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  will-change: transform;
+}
+.hero-cake-sweep {
+  position: absolute; inset: 0; pointer-events: none;
+  mask-image: url('/cake-hero.webp');
+  -webkit-mask-image: url('/cake-hero.webp');
+  mask-size: contain; -webkit-mask-size: contain;
+  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
+  mask-position: center; -webkit-mask-position: center;
+  background: linear-gradient(102deg,
+    rgba(255,255,255,0) 34%,
+    rgba(255,255,255,0.30) 46%,
+    rgba(255,255,255,0.55) 50%,
+    rgba(255,255,255,0.30) 54%,
+    rgba(255,255,255,0) 66%);
+  background-size: 250% 100%;
+  mix-blend-mode: soft-light;
+  animation: cake-sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+/* Grounding shadow. Kept OUT of the animated subtree on purpose: a filter
+   anywhere above a transform animation forces a main-thread repaint per frame. */
+.hero-cake-shadow {
+  position: absolute; left: 50%; bottom: 4%; translate: -50% 0;
+  width: calc(var(--cake) * 0.62); height: calc(var(--cake) * 0.15);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(52,1,7,0.68), rgba(52,1,7,0) 74%);
+  filter: blur(9px);
+}
+
+@keyframes cake-yaw {
+  from { transform: perspective(1400px) rotateY(-10deg); }
+  to   { transform: perspective(1400px) rotateY(10deg); }
+}
+@keyframes cake-bob {
+  from { transform: translateY(-5px); }
+  to   { transform: translateY(5px); }
+}
+@keyframes cake-sweep {
+  from { background-position: 118% 0; }
+  to   { background-position: -18% 0; }
+}
+
 @keyframes text-shimmer {
   0%        { background-position: -140% 0; }
   55%, 100% { background-position: 240% 0; }
@@ -197,18 +240,18 @@ body {
   .anim-cake-arrive,
   .anim-glow,
   .anim-petal,
-  .hero-shimmer {
+  .hero-shimmer,
+  .hero-cake-bob,
+  .hero-cake-yaw,
+  .hero-cake-sweep {
     animation: none !important;
   }
+  .hero-cake-sweep { opacity: 0; }
   .reveal,
   .stagger > * {
     opacity: 1;
     transform: none;
     transition: none;
-  }
-  .px-slow,
-  .px-fast {
-    translate: none;
   }
 }
 

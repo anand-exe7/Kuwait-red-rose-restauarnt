@@ -18,7 +18,6 @@ import { BRAND } from './lib/brand';
 import { formatKWD } from './lib/currency';
 import HeroNav from './components/HeroNav';
 import Reveal from './components/Reveal';
-import ScrollFx from './components/ScrollFx';
 
 /**
  * Every photo on the landing page lives here so any of them can be swapped in
@@ -179,7 +178,6 @@ export default function Home() {
   return (
     <div className="min-h-screen w-full bg-brand-cream text-brand-ink font-poppins overflow-x-hidden">
       <HeroNav />
-      <ScrollFx />
 
       {/* The hero is sized to exactly one viewport at any screen size, so the
           tagline and CTA never fall below the fold. */}
@@ -295,7 +293,7 @@ export default function Home() {
             <div className="hero-word-layer grid grid-cols-2 items-center justify-center px-[2vw] leading-tight pb-[16svh]">
               <div className="hero-word-gap-l flex justify-end anim-slide-left" style={{ animationDelay: '140ms' }}>
                 <span
-                  className="px-slow block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
+                  className="block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
                   style={{
                     // The field behind this word is ~#cb2331, so a red of the
                     // same weight vanishes into it. This one is lit from above
@@ -322,21 +320,26 @@ export default function Home() {
                       'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)',
                   }}
                 />
-                <div className="px-fast">
-                  <div className="hero-cake-pos drop-shadow-[0_30px_36px_rgba(70,2,8,0.55)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/landing%20page%20cake%20cutout.png"
-                    alt="Red Rose signature red velvet layer cake"
-                      className="hero-cake-img object-contain"
-                    />
+                <div className="hero-cake-pos">
+                  {/* Shadow sits outside the animated wrapper — see globals.css. */}
+                  <div aria-hidden className="hero-cake-shadow" />
+                  <div className="hero-cake-bob">
+                    <div className="hero-cake-yaw">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src="/cake-hero.webp"
+                        alt="Red Rose signature red velvet layer cake"
+                        className="hero-cake-img object-contain"
+                      />
+                      <span aria-hidden className="hero-cake-sweep" />
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div className="hero-word-gap-r flex justify-start anim-slide-right" style={{ animationDelay: '140ms' }}>
                 <span
-                  className="px-slow hero-shimmer block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
+                  className="hero-shimmer block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
                   style={{
                     backgroundImage:
                       'linear-gradient(100deg, #fdeed6 0%, #f2d3a4 30%, #ffffff 45%, #fffdf8 51%, #f2d3a4 68%, #fdeed6 100%)',

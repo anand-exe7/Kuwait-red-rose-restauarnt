@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Menu, X, ArrowRight, ShoppingBag } from 'lucide-react';
+import { BRAND } from '../lib/brand';
 
 const LINKS = [
   { label: 'Menu', href: '/customer' },
@@ -10,28 +11,6 @@ const LINKS = [
   { label: 'Locations', href: '#locations' },
   { label: 'Contact', href: '#contact' },
 ];
-
-/** Gold seal with a rose spiral — the brand mark in the nav island. */
-function RoseSeal({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 40 40" className={className} aria-hidden>
-      <defs>
-        <linearGradient id="seal" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#f7e3b0" />
-          <stop offset="45%" stopColor="#d3af68" />
-          <stop offset="100%" stopColor="#a5843f" />
-        </linearGradient>
-      </defs>
-      <circle cx="20" cy="20" r="19" fill="url(#seal)" />
-      <circle cx="20" cy="20" r="16.5" fill="none" stroke="#6d0a11" strokeOpacity="0.28" />
-      {/* rose spiral */}
-      <g fill="none" stroke="#6d0a11" strokeWidth="1.9" strokeLinecap="round">
-        <path d="M20 12.6c-4.1 0-6.9 3-6.9 6.6 0 3.9 3.2 6.7 7 6.7 3.1 0 5.3-2 5.3-4.5 0-2.2-1.7-3.9-3.9-3.9-1.8 0-3.1 1.2-3.1 2.8 0 1.2.9 2.1 2.1 2.1" />
-        <path d="M20 27.9c-1.4 1-3 1.5-4.6 1.5" strokeOpacity="0.55" />
-      </g>
-    </svg>
-  );
-}
 
 /**
  * Floating glass nav island.
@@ -75,7 +54,7 @@ export default function HeroNav() {
     <>
       <header className="fixed top-0 inset-x-0 z-50 px-3 sm:px-5 pt-3 sm:pt-4 anim-fade-down">
         <div
-          className={`mx-auto flex items-center justify-between gap-3 rounded-full border backdrop-blur-2xl transition-all duration-500 ease-out ${
+          className={`mx-auto flex items-center justify-between gap-3 rounded-full border backdrop-blur-md transition-[max-width,padding,background-color,box-shadow,border-color] duration-200 ease-out ${
             scrolled
               ? 'max-w-5xl border-white/15 bg-[#5c070d]/78 py-1.5 pl-2.5 pr-2 shadow-[0_18px_50px_rgba(35,0,4,0.5)]'
               : 'max-w-6xl border-white/20 bg-white/[0.08] py-2 pl-3.5 pr-2.5 shadow-[0_14px_44px_rgba(35,0,4,0.28)]'
@@ -87,7 +66,14 @@ export default function HeroNav() {
             onClick={() => setOpen(false)}
             className="group flex shrink-0 items-center gap-2.5 pr-1"
           >
-            <RoseSeal className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 drop-shadow-[0_3px_8px_rgba(35,0,4,0.45)] transition-transform duration-500 group-hover:rotate-[14deg]" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/rose-mark.webp"
+              alt={BRAND.fullName}
+              width={40}
+              height={40}
+              className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/70 shadow-[0_3px_8px_rgba(35,0,4,0.45)] transition-transform duration-300 group-hover:scale-105"
+            />
             <span className="leading-none">
               <span className="block font-display uppercase text-[22px] sm:text-[26px] tracking-wide text-white" style={{ transform: 'scaleY(1.15)', transformOrigin: 'bottom' }}>
                 Red Rose
