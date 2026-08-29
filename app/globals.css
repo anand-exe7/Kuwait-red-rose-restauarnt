@@ -139,20 +139,38 @@ body {
 /* Hero cake sizing lives here rather than in arbitrary Tailwind utilities so
    it cannot depend on those classes being generated. */
 /* Phone: The words are side-by-side and the cake is an absolute centered anchor. */
+
+/* One number, --cake, drives the whole RED-cake-ROSE composition: the cake's
+   width, the halo behind it, and the gap the two words hold open for it. It is
+   capped on BOTH axes on purpose. A width-only size (the old 32vw) keeps
+   growing on a wide-but-short laptop screen until the cake swallows the eyebrow
+   above it and eats a letter off the wordmark. */
+/* ROSE is wider than RED, and the cake is pinned to the container's centre, so
+   the lockup's own centre lands right of the frame's. Sliding the layer back by
+   half that difference balances the margins; the constant is measured -- RED
+   runs 1.31em and ROSE 1.75em, so half the difference is 0.218em. */
+.hero-word-layer  { position: absolute; inset: 0 0 10svh 0; --cake: min(52vw, 30svh); --hero-font: min(18vw, 13svh);
+                    transform: translateX(calc(var(--hero-font) * -0.218)); }
 .hero-cake-anchor { width: 0; height: 100%; }
 .hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
-.hero-cake-img    { width: 52vw; max-width: none; max-height: 28svh; height: auto; }
-.hero-cake-halo   { display: block; width: 60vw; height: 50vw; transform: translate(-50%, -50%); }
+.hero-cake-img    { display: block; width: var(--cake); max-width: none; height: auto; }
+.hero-cake-halo   { display: block; width: calc(var(--cake) * 1.22); height: calc(var(--cake) * 1.02); transform: translate(-50%, -50%); }
+
+/* Each word holds back by a fixed share of the cake's width, so the cake
+   overlaps RED and ROSE by the same amount at every aspect ratio instead of
+   drifting from "barely touching" to "covering a whole letter". The shop's name
+   has to stay readable, so the cake only kisses the D and the R. */
+.hero-word-gap-l  { padding-right: calc(var(--cake) * 0.27); }
+.hero-word-gap-r  { padding-left:  calc(var(--cake) * 0.27); }
 
 /* Wordmark scale, tall letters for Anton */
-.hero-word { font-size: min(18vw, 13svh); transform: scaleY(1.15); transform-origin: bottom; padding-top: 0.15em; }
-.hero-word-layer { position: absolute; inset: 0 0 10svh 0; }
+.hero-word { font-size: var(--hero-font); transform: scaleY(1.15); transform-origin: bottom; padding-top: 0.15em; }
 
 @media (min-width: 640px) {
-  .hero-word        { font-size: min(15vw, 24svh); transform: scaleY(1.2); transform-origin: bottom; padding-top: 0.15em; }
-  .hero-word-layer  { inset: 0; }
-  .hero-cake-img    { width: 32vw; max-height: 66svh; }
-  .hero-cake-halo   { width: 40vw; height: 32vw; }
+  .hero-word        { transform: scaleY(1.2); transform-origin: bottom; padding-top: 0.15em; }
+  .hero-word-layer  { inset: 0; --cake: min(30vw, 48svh); --hero-font: min(17vw, 33svh); }
+  .hero-word-gap-l  { padding-right: calc(var(--cake) * 0.44); }
+  .hero-word-gap-r  { padding-left:  calc(var(--cake) * 0.44); }
 }
 
 @keyframes text-shimmer {

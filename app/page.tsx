@@ -15,6 +15,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { BRAND } from './lib/brand';
+import { formatKWD } from './lib/currency';
 import HeroNav from './components/HeroNav';
 import Reveal from './components/Reveal';
 import ScrollFx from './components/ScrollFx';
@@ -24,22 +25,20 @@ import ScrollFx from './components/ScrollFx';
  * one place. All URLs were checked to resolve before being used.
  */
 const IMAGES = {
-  hero: 'photo-1549931319-a545dcf3bc73', // assorted bakery pastries
-  banner: 'photo-1509365465985-25d11c17e812', // wide dessert table
-  macarons: 'photo-1558326567-98ae2405596b',
-  croissant: 'photo-1555507036-ab1f4038808a',
-  berryTart: 'photo-1488477181946-6428a0291777',
-  dates: 'photo-1609501676725-7186f017a4b7',
-  saffron: 'photo-1606313564200-e75d5e30476c',
-  pistachios: 'photo-1600271886742-f049cd451bba',
-  baklava: 'photo-1519676867240-f03562e64548',
-  gifting: 'photo-1512909006721-3d6018887383', // deep red ribboned gift
-  sweet1: 'photo-1464195244916-405fa0a82545',
-  sweet2: 'photo-1517686469429-8bdb88b9f907',
-  sweet3: 'photo-1571506165871-ee72a35bc9d4',
-  sweet4: 'photo-1495147466023-ac5c588e2e94',
-  sweet5: 'photo-1470337458703-46ad1756a187',
-  sweet6: 'photo-1551024506-0bccd828d307',
+  macarons: 'photo-1558326567-98ae2405596b', // macaron stack
+  croissant: 'photo-1555507036-ab1f4038808a', // butter croissant
+  berryTart: 'photo-1488477181946-6428a0291777', // strawberry cream glasses
+  dates: 'photo-1770617476915-7269d29d27dc', // rows of dates
+  saffron: 'photo-1643471672168-f4a4b6cfa440', // saffron threads from a jar
+  pistachios: 'photo-1610137512859-aa919f651a05', // pistachios in the shell
+  baklava: 'photo-1761828122856-8703baac8e86', // pistachio baklava
+  gifting: 'photo-1512909006721-3d6018887383', // ribboned parcel
+  sweet1: 'photo-1464195244916-405fa0a82545', // cookies in a cloth
+  sweet2: 'photo-1517686469429-8bdb88b9f907', // hands working dough
+  sweet3: 'photo-1571506165871-ee72a35bc9d4', // macarons
+  sweet4: 'photo-1495147466023-ac5c588e2e94', // fruit tartlets with flowers
+  sweet5: 'photo-1606313564200-e75d5e30476c', // chocolate cake slices
+  sweet6: 'photo-1551024506-0bccd828d307', // caramel sundae
 } as const;
 
 const img = (id: string, w = 700) =>
@@ -83,9 +82,9 @@ const AVATARS = [
 ];
 
 const BESTSELLERS = [
-  { name: 'Macaron Box', price: '$35.00', image: IMAGES.macarons },
-  { name: 'Butter Croissant', price: '$5.00', image: IMAGES.croissant },
-  { name: 'Berry Tart', price: '$8.00', image: IMAGES.berryTart },
+  { name: 'Macaron Box', price: 4.5, image: IMAGES.macarons },
+  { name: 'Butter Croissant', price: 0.75, image: IMAGES.croissant },
+  { name: 'Berry Tart', price: 1.75, image: IMAGES.berryTart },
 ];
 
 const FLAVOURS = [
@@ -270,7 +269,7 @@ export default function Home() {
         <div className="relative z-30 flex-1 min-h-[30svh] lg:min-h-0 w-full flex flex-col items-center justify-center px-[4vw] pt-[1%] select-none">
           {/* Eyebrow — anchors the wordmark and fills the dead band below the nav. */}
           <div
-            className="shrink-0 flex items-center gap-3 sm:gap-5 anim-fade-down"
+            className="relative z-40 shrink-0 flex items-center gap-3 sm:gap-5 anim-fade-down"
             style={{ animationDelay: '80ms' }}
           >
             <span className="hidden sm:block h-px w-10 sm:w-16 bg-gradient-to-r from-transparent to-brand-gold/70" />
@@ -293,17 +292,22 @@ export default function Home() {
                  NOT the container's centre; a zero-width flex item lands
                  exactly on it under `justify-between`, and the cake hangs off
                  that, overlapping both words evenly. --- */}
-            <div className="hero-word-layer grid grid-cols-2 items-center justify-center px-[2vw] leading-tight pt-[4svh]">
-              <div className="flex justify-end pr-[14vw] sm:pr-[11vw] anim-slide-left" style={{ animationDelay: '140ms' }}>
+            <div className="hero-word-layer grid grid-cols-2 items-center justify-center px-[2vw] leading-tight pb-[16svh]">
+              <div className="hero-word-gap-l flex justify-end anim-slide-left" style={{ animationDelay: '140ms' }}>
                 <span
-                  className="px-slow block font-display font-bold tracking-[-0.022em] hero-word"
+                  className="px-slow block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
                   style={{
-                    color: '#c21422', // Much brighter red so it's not hidden
-                    textShadow:
-                      '0 1px 1px rgba(255,255,255,0.2), 0 22px 48px rgba(35,0,4,0.55)',
+                    // The field behind this word is ~#cb2331, so a red of the
+                    // same weight vanishes into it. This one is lit from above
+                    // and stays LIGHTER than the field top to bottom, which is
+                    // what makes it read; the shadow only sharpens the edge.
+                    backgroundImage:
+                      'linear-gradient(180deg, #ffa8a6 0%, #ff7078 34%, #fb4d5b 70%, #ee3242 100%)',
+                    filter:
+                      'drop-shadow(0 2px 1px rgba(90,3,12,0.45)) drop-shadow(0 20px 44px rgba(28,0,4,0.55))',
                   }}
                 >
-                  ROSE
+                  RED
                 </span>
               </div>
 
@@ -323,14 +327,14 @@ export default function Home() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src="/landing%20page%20cake%20cutout.png"
-                    alt="Red velvet Rose Bloom layer cake"
+                    alt="Red Rose signature red velvet layer cake"
                       className="hero-cake-img object-contain"
                     />
                   </div>
                 </div>
               </div>
 
-              <div className="flex justify-start pl-[14vw] sm:pl-[11vw] anim-slide-right" style={{ animationDelay: '140ms' }}>
+              <div className="hero-word-gap-r flex justify-start anim-slide-right" style={{ animationDelay: '140ms' }}>
                 <span
                   className="px-slow hero-shimmer block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
                   style={{
@@ -338,7 +342,7 @@ export default function Home() {
                       'linear-gradient(100deg, #fdeed6 0%, #f2d3a4 30%, #ffffff 45%, #fffdf8 51%, #f2d3a4 68%, #fdeed6 100%)',
                   }}
                 >
-                  BLOOM
+                  ROSE
                 </span>
               </div>
             </div>
@@ -354,7 +358,7 @@ export default function Home() {
               curve, so the red side reads as flowing and the cream side stays
               calm under the text. */}
           <svg
-            className="absolute bottom-full left-0 w-full h-[clamp(84px,14svh,180px)]"
+            className="absolute bottom-[calc(100%-1px)] left-0 w-full h-[clamp(84px,14svh,180px)]"
             viewBox="0 0 1440 170"
             preserveAspectRatio="none"
             aria-hidden
@@ -631,7 +635,7 @@ export default function Home() {
                     </div>
                     <div className="px-4 py-5 flex flex-col items-center gap-3.5 text-center">
                       <h3 className="font-semibold text-[13px]">
-                        {p.name} - <span className="text-brand-red font-bold">{p.price}</span>
+                        {p.name} · <span className="text-brand-red font-bold">{formatKWD(p.price)}</span>
                       </h3>
                       <button className="px-6 py-2.5 bg-brand-red text-white rounded-full font-bold text-[10px] tracking-[0.15em] uppercase transition-all duration-300 hover:bg-brand-red-dark hover:shadow-lg hover:-translate-y-0.5 active:scale-95">
                         Add To Cart
@@ -751,7 +755,7 @@ export default function Home() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={img(IMAGES.gifting, 900)}
-              alt="Red Rose gift boxes tied with ribbon"
+              alt="A wrapped Red Rose parcel, hand-tied"
               loading="lazy"
               className="w-full h-[240px] sm:h-[300px] object-cover rounded-2xl shadow-2xl"
             />
@@ -850,19 +854,19 @@ export default function Home() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet1} alt="Piping cream onto a pastry" className="h-44" />
+                <Photo src={IMAGES.sweet1} alt="Cookies cooling in a cloth-lined basket" className="h-44" />
                 <ReviewCard {...REVIEWS[0]} />
-                <Photo src={IMAGES.sweet4} alt="Coffee and dessert" className="h-40" />
+                <Photo src={IMAGES.sweet4} alt="Fruit tartlets finished with edible flowers" className="h-40" />
               </div>
               <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet2} alt="Tarts on a plate" className="h-52" />
-                <Photo src={IMAGES.sweet5} alt="Fresh strawberries and cream" className="h-36" />
+                <Photo src={IMAGES.sweet2} alt="Dough being worked by hand" className="h-52" />
+                <Photo src={IMAGES.sweet5} alt="Slices of chocolate cake" className="h-36" />
                 <ReviewCard {...REVIEWS[1]} />
               </div>
               <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet3} alt="A slice of layered cake" className="h-40" />
+                <Photo src={IMAGES.sweet3} alt="A tray of macarons" className="h-40" />
                 <ReviewCard {...REVIEWS[2]} />
-                <Photo src={IMAGES.sweet6} alt="Dessert plated with rose petals" className="h-44" />
+                <Photo src={IMAGES.sweet6} alt="Caramel sundae" className="h-44" />
               </div>
             </div>
           </div>
