@@ -72,10 +72,11 @@ body {
   from { opacity: 0; transform: scale(0.92) translate3d(0, 2.5%, 0); }
   to   { opacity: 1; transform: none; }
 }
-/* Ambient: the plate of light behind the cake breathes. */
+/* Ambient: the plate of light behind the cake breathes. Opacity only — scaling
+   a blurred box makes the browser re-rasterise the blur on every frame. */
 @keyframes glow-breathe {
-  0%, 100% { opacity: 0.6;  transform: translate(-50%, -50%) scale(1); }
-  50%      { opacity: 0.88; transform: translate(-50%, -50%) scale(1.05); }
+  0%, 100% { opacity: 0.58; }
+  50%      { opacity: 0.9; }
 }
 /* Ambient: petals drifting in the hero field. */
 @keyframes petal-drift {
@@ -145,8 +146,21 @@ body {
    the lockup's own centre lands right of the frame's. Sliding the layer back by
    half that difference balances the margins; the constant is measured -- RED
    runs 1.31em and ROSE 1.75em, so half the difference is 0.218em. */
-.hero-word-layer  { position: absolute; inset: 0 0 10svh 0; --cake: min(52vw, 30svh); --hero-font: min(18vw, 13svh);
-                    transform: translateX(calc(var(--hero-font) * -0.218)); }
+/* PHONE. Side by side, 18vw type on a 390px screen is 70px — which is why the
+   hero read as mostly empty red with a small wordmark floating in it. Stacked,
+   the same screen carries ~115px, and the cake sits in the gap between the two
+   lines instead of shouldering them apart. */
+.hero-word-layer {
+  position: absolute;
+  inset: 0 0 11svh 0;
+  --cake: min(52vw, 24svh);
+  --hero-font: min(25vw, 10.5svh);
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: center;
+  padding: 0 5vw 2svh;
+  line-height: 0.95;
+}
 .hero-cake-anchor { width: 0; height: 100%; }
 .hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
 .hero-cake-img    { display: block; width: var(--cake); max-width: none; height: auto; }
@@ -156,17 +170,38 @@ body {
    overlaps RED and ROSE by the same amount at every aspect ratio instead of
    drifting from "barely touching" to "covering a whole letter". The shop's name
    has to stay readable, so the cake only kisses the D and the R. */
-.hero-word-gap-l  { padding-right: calc(var(--cake) * 0.27); }
-.hero-word-gap-r  { padding-left:  calc(var(--cake) * 0.27); }
+.hero-word-gap-l  { justify-content: flex-start; padding: 0; }
+.hero-word-gap-r  { justify-content: flex-end;   padding: 0; }
 
 /* Wordmark scale, tall letters for Anton */
-.hero-word { font-size: var(--hero-font); transform: scaleY(1.15); transform-origin: bottom; padding-top: 0.15em; }
+.hero-word { font-size: var(--hero-font); transform: none; padding-top: 0.06em; }
 
+/* TABLET. Jumping straight to the desktop numbers left the cake small against
+   type that had already gone large — 30vw of cake beside 17vw of type reads
+   wrong at 768. More cake, less type, until there is width to spare. */
 @media (min-width: 640px) {
   .hero-word        { transform: scaleY(1.2); transform-origin: bottom; padding-top: 0.15em; }
-  .hero-word-layer  { inset: 0; --cake: min(30vw, 48svh); --hero-font: min(17vw, 33svh); }
-  .hero-word-gap-l  { padding-right: calc(var(--cake) * 0.44); }
-  .hero-word-gap-r  { padding-left:  calc(var(--cake) * 0.44); }
+  .hero-word-layer  {
+    inset: 0;
+    --cake: min(38vw, 46svh, calc((100svh - 300px) * 0.78));
+    --hero-font: min(15vw, 30svh, calc((100svh - 460px) * 0.83));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: center;
+    align-items: center;
+    padding: 0 2vw 16svh;
+    line-height: 1.25;
+    transform: translateX(calc(var(--hero-font) * -0.218));
+  }
+  .hero-word-gap-l  { justify-content: flex-end;   padding: 0 calc(var(--cake) * 0.44) 0 0; }
+  .hero-word-gap-r  { justify-content: flex-start; padding: 0 0 0 calc(var(--cake) * 0.44); }
+}
+
+/* DESKTOP. Width stops being the binding constraint, so the type takes over. */
+@media (min-width: 1024px) {
+  .hero-word-layer  {
+    --cake: min(30vw, 48svh, calc((100svh - 300px) * 0.78));
+    --hero-font: min(17vw, 33svh, calc((100svh - 460px) * 0.83));
+  }
 }
 
 .hero-cake-bob { animation: cake-bob 6s ease-in-out infinite alternate; }
@@ -203,6 +238,17 @@ body {
   filter: blur(9px);
 }
 
+/* Once the real frames are running, the fake tilt and the fake highlight would
+   fight the actual rotation, so they stand down. The bob stays — it's the only
+   part the footage doesn't already provide. */
+.hero-cake-pos.has-frames .hero-cake-yaw {
+  animation: none;
+  transform: none;
+  will-change: auto;    /* stop pinning a compositor layer we no longer move */
+}
+.hero-cake-pos.has-frames .hero-cake-bob { animation: none; }
+.hero-cake-pos.has-frames .hero-cake-sweep { display: none; }
+
 @keyframes cake-yaw {
   from { transform: perspective(1400px) rotateY(-10deg); }
   to   { transform: perspective(1400px) rotateY(10deg); }
@@ -214,6 +260,31 @@ body {
 @keyframes cake-sweep {
   from { background-position: 118% 0; }
   to   { background-position: -18% 0; }
+}
+
+/* Sweet Words runs as a marquee. The list is rendered twice and the track is
+   pulled exactly -50%, so the seam lands on an identical item. The gap is a
+   right margin on each cell rather than `gap`, because a flex gap leaves the
+   two halves different widths and the loop visibly jumps. */
+.marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+.marquee-track {
+  display: flex;
+  align-items: stretch;
+  width: max-content;
+  padding-inline: 1rem;
+  animation: marquee-x 64s linear infinite;
+  will-change: transform;
+}
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track { animation-play-state: paused; }
+
+@keyframes marquee-x {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
 }
 
 @keyframes text-shimmer {
@@ -243,9 +314,12 @@ body {
   .hero-shimmer,
   .hero-cake-bob,
   .hero-cake-yaw,
-  .hero-cake-sweep {
+  .hero-cake-sweep,
+  .marquee-track {
     animation: none !important;
   }
+  /* the run is stopped, so let it be scrolled by hand instead */
+  .marquee { overflow-x: auto; }
   .hero-cake-sweep { opacity: 0; }
   .reveal,
   .stagger > * {

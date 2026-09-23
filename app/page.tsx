@@ -2,12 +2,9 @@ import Link from 'next/link';
 import {
   ShoppingCart,
   Truck,
-  Star,
   Phone,
+  Clock,
   MapPin,
-  Play,
-  ChevronLeft,
-  ChevronRight,
   Award,
   Wheat,
   Gift,
@@ -18,6 +15,8 @@ import { BRAND } from './lib/brand';
 import { formatKWD } from './lib/currency';
 import HeroNav from './components/HeroNav';
 import Reveal from './components/Reveal';
+import CakeSpin from './components/CakeSpin';
+import Reviews, { type Review } from './components/Reviews';
 
 /**
  * Every photo on the landing page lives here so any of them can be swapped in
@@ -87,24 +86,49 @@ const BESTSELLERS = [
 ];
 
 const FLAVOURS = [
-  { src: IMAGES.dates, alt: 'Medjool dates' },
-  { src: IMAGES.saffron, alt: 'Saffron threads' },
-  { src: IMAGES.pistachios, alt: 'Pistachios' },
-  { src: IMAGES.baklava, alt: 'Baklava' },
+  { src: IMAGES.dates, alt: 'Medjool dates', label: 'Medjool dates', from: 'The Gulf' },
+  { src: IMAGES.saffron, alt: 'Saffron threads', label: 'Saffron', from: 'Iran' },
+  { src: IMAGES.pistachios, alt: 'Pistachios', label: 'Pistachios', from: 'Aleppo' },
+  { src: IMAGES.baklava, alt: 'Baklava', label: 'Baklava', from: 'Our kitchen' },
 ];
 
-const REVIEWS = [
+/** Placeholder testimonials — swap these for real ones before launch. */
+const REVIEW_SEED: Review[] = [
   {
     name: 'Reem A.',
+    rating: 5,
+    photo: img(IMAGES.sweet3, 700),
     text: 'The macaron box arrived still cool and the ribbon was perfectly tied. Every shell was flawless — this is our standing order now.',
   },
   {
     name: 'Yousef K.',
+    rating: 5,
+    photo: img(IMAGES.sweet4, 700),
     text: 'Ordered a gifting hamper for my mother. The packaging alone made her week, and the baklava tasted like my grandmother made it.',
   },
   {
     name: 'Dana S.',
+    rating: 5,
+    photo: img(IMAGES.sweet1, 700),
     text: 'Same-day delivery actually meant same-day. Warm croissants at the office by nine. The whole floor now orders every Thursday.',
+  },
+  {
+    name: 'Fahad M.',
+    rating: 4,
+    photo: img(IMAGES.sweet2, 700),
+    text: 'The kunafa is the closest to my mother\u2019s that I have found in Salmiya. Only note is that it sells out early on Fridays.',
+  },
+  {
+    name: 'Noura B.',
+    rating: 5,
+    photo: img(IMAGES.sweet5, 700),
+    text: 'We ordered the signature cake for an engagement. It photographed beautifully and, more to the point, it was gone in ten minutes.',
+  },
+  {
+    name: 'Abdullah R.',
+    rating: 5,
+    photo: img(IMAGES.sweet6, 700),
+    text: 'Been buying date rolls here for two years. Same quality every single time, which is rarer than it should be.',
   },
 ];
 
@@ -131,46 +155,6 @@ function Whisk({ size = 40 }: { size?: number }) {
       <path d="M8.3 9.5c-1.4 3.6-1.4 8.6 0 11.4" />
       <path d="M15.7 9.5c1.4 3.6 1.4 8.6 0 11.4" />
     </svg>
-  );
-}
-
-function Stars() {
-  return (
-    <div className="flex gap-0.5 text-brand-gold">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Star key={i} size={12} className="fill-current" />
-      ))}
-    </div>
-  );
-}
-
-function ReviewCard({ name, text }: { name: string; text: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-brand-gold/15 shadow-sm p-4 flex flex-col gap-2">
-      <Stars />
-      <p className="text-[11.5px] text-brand-ink/65 leading-relaxed">{text}</p>
-      <p className="text-[11px] font-bold text-brand-red">{name}</p>
-    </div>
-  );
-}
-
-function Photo({
-  src,
-  alt,
-  className,
-}: {
-  src: string;
-  alt: string;
-  className?: string;
-}) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={img(src, 600)}
-      alt={alt}
-      loading="lazy"
-      className={`w-full object-cover rounded-xl shadow-sm transition-transform duration-700 ease-out hover:scale-[1.04] ${className ?? ''}`}
-    />
   );
 }
 
@@ -253,7 +237,7 @@ export default function Home() {
 
         {/* The nav is fixed (see HeroNav); this spacer reserves exactly the
             same height inside the hero so the layout maths are unchanged. */}
-        <div className="shrink-0 h-[clamp(78px,11svh,108px)]" aria-hidden />
+        <div className="shrink-0 h-[clamp(64px,9svh,108px)]" aria-hidden />
 
         {/* ---------- Stage: ROSE + cake + BLOOM as one scaling composition.
              Laying these out in a single flex row (rather than pinning the
@@ -290,7 +274,7 @@ export default function Home() {
                  NOT the container's centre; a zero-width flex item lands
                  exactly on it under `justify-between`, and the cake hangs off
                  that, overlapping both words evenly. --- */}
-            <div className="hero-word-layer grid grid-cols-2 items-center justify-center px-[2vw] leading-tight pb-[16svh]">
+            <div className="hero-word-layer">
               <div className="hero-word-gap-l flex justify-end anim-slide-left" style={{ animationDelay: '140ms' }}>
                 <span
                   className="block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
@@ -314,7 +298,7 @@ export default function Home() {
                 {/* The cake holds still; only the light behind it breathes. */}
                 <div
                   aria-hidden
-                  className="hero-cake-halo absolute left-1/2 top-1/2 rounded-full pointer-events-none blur-2xl anim-glow"
+                  className="hero-cake-halo absolute left-1/2 top-1/2 rounded-full pointer-events-none anim-glow"
                   style={{
                     background:
                       'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)',
@@ -325,13 +309,7 @@ export default function Home() {
                   <div aria-hidden className="hero-cake-shadow" />
                   <div className="hero-cake-bob">
                     <div className="hero-cake-yaw">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src="/cake-hero.webp"
-                        alt="Red Rose signature red velvet layer cake"
-                        className="hero-cake-img object-contain"
-                      />
-                      <span aria-hidden className="hero-cake-sweep" />
+                      <CakeSpin alt="Red Rose signature red velvet layer cake" />
                     </div>
                   </div>
                 </div>
@@ -407,10 +385,10 @@ export default function Home() {
           </svg>
 
           <div className="bg-brand-cream w-full">
-            <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-[clamp(14px,3svh,34px)]">
+            <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-[clamp(8px,2svh,34px)]">
               {/* Under lg the row folds to two columns with the CTA spanning
                   beneath both, so nothing is squeezed on a phone. */}
-              <div className="mx-auto max-w-5xl grid grid-cols-2 lg:grid-cols-3 items-center gap-x-4 gap-y-5 lg:gap-8">
+              <div className="mx-auto max-w-5xl grid grid-cols-2 lg:grid-cols-3 items-center gap-x-4 gap-y-3 sm:gap-y-5 lg:gap-8">
                 {/* Customize your box — the paper-and-knife doodle is gone;
                     the pastries themselves now carry the invitation. */}
                 <Link
@@ -545,7 +523,7 @@ export default function Home() {
               </div>
 
               <p
-                className="mt-[clamp(16px,3.4svh,44px)] mx-auto max-w-4xl text-center text-[#4a1515] font-semibold text-[clamp(18px,min(5.4vw,4.3svh),46px)] leading-[1.2] tracking-[-0.015em] px-2 anim-fade-up"
+                className="mt-[clamp(10px,2.2svh,44px)] mx-auto max-w-4xl text-center text-[#4a1515] font-semibold text-[clamp(16px,min(4.7vw,4.3svh),46px)] leading-[1.25] tracking-[-0.015em] px-2 anim-fade-up"
                 style={{ animationDelay: '820ms' }}
               >
                 Exquisite pastries crafted for those who appreciate{' '}
@@ -601,52 +579,61 @@ export default function Home() {
           </svg>
 
           <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl sm:text-4xl font-bold text-center mb-10 sm:mb-12 tracking-tight">
+            <p className="text-center text-[9.5px] font-semibold uppercase tracking-[0.26em] text-brand-gold-dark">
+              What Salmiya keeps ordering
+            </p>
+            <h2 className="mb-11 mt-3 text-center font-display text-[32px] leading-none tracking-tight text-[#4a1515] sm:mb-14 sm:text-[46px]">
               Our Signature Bestsellers
             </h2>
 
-            <div className="relative">
-              <button
-                aria-label="Previous"
-                className="hidden md:flex absolute -left-6 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white shadow-lg text-brand-red items-center justify-center hover:bg-brand-red hover:text-white transition-colors"
-              >
-                <ChevronLeft size={18} />
-              </button>
-              <button
-                aria-label="Next"
-                className="hidden md:flex absolute -right-6 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white shadow-lg text-brand-red items-center justify-center hover:bg-brand-red hover:text-white transition-colors"
-              >
-                <ChevronRight size={18} />
-              </button>
+            <div className="stagger grid gap-6 sm:grid-cols-3 sm:gap-7">
+              {BESTSELLERS.map((p, i) => (
+                <article
+                  key={p.name}
+                  className="group flex flex-col overflow-hidden rounded-[1.4rem] bg-white ring-1 ring-brand-gold/18 shadow-[0_12px_34px_rgba(74,21,21,0.09)] transition-[box-shadow,transform] duration-500 ease-out hover:-translate-y-1 hover:shadow-[0_26px_58px_rgba(74,21,21,0.2)]"
+                >
+                  <div className="relative aspect-[5/4] overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img(p.image, 1000)}
+                      alt={p.name}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.08]"
+                    />
+                    {i === 0 && (
+                      <span className="absolute left-3.5 top-3.5 rounded-full bg-white/90 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-brand-red shadow-sm backdrop-blur-sm">
+                        Most loved
+                      </span>
+                    )}
+                  </div>
 
-              <div className="stagger grid sm:grid-cols-3 gap-5 sm:gap-6">
-                {BESTSELLERS.map((p) => (
-                  <article
-                    key={p.name}
-                    className="group bg-white rounded-2xl shadow-xl border border-brand-gold/10 overflow-hidden flex flex-col transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:border-brand-gold/35"
-                  >
-                    <div className="p-3.5 pb-0">
-                      <div className="aspect-[4/3] rounded-xl overflow-hidden">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={img(p.image, 700)}
-                          alt={p.name}
-                          loading="lazy"
-                          className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
-                        />
-                      </div>
-                    </div>
-                    <div className="px-4 py-5 flex flex-col items-center gap-3.5 text-center">
-                      <h3 className="font-semibold text-[13px]">
-                        {p.name} · <span className="text-brand-red font-bold">{formatKWD(p.price)}</span>
-                      </h3>
-                      <button className="px-6 py-2.5 bg-brand-red text-white rounded-full font-bold text-[10px] tracking-[0.15em] uppercase transition-all duration-300 hover:bg-brand-red-dark hover:shadow-lg hover:-translate-y-0.5 active:scale-95">
-                        Add To Cart
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
+                  <div className="flex flex-1 flex-col items-center px-5 pb-6 pt-5 text-center">
+                    <h3 className="font-display text-[21px] leading-tight text-[#4a1515]">
+                      {p.name}
+                    </h3>
+                    <span
+                      aria-hidden
+                      className="my-3 block h-px w-10 bg-gradient-to-r from-transparent via-brand-gold to-transparent transition-[width] duration-500 group-hover:w-20"
+                    />
+                    <p className="font-semibold tabular-nums text-[16px] text-brand-red">
+                      {formatKWD(p.price)}
+                    </p>
+                    <button className="mt-5 w-full rounded-full bg-brand-red px-6 py-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors duration-300 hover:bg-brand-red-dark active:scale-[0.98]">
+                      Add to cart
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-12 flex justify-center">
+              <Link
+                href="/customer"
+                className="group inline-flex items-center gap-2 border-b border-brand-gold/50 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-brand-red transition-colors hover:border-brand-red"
+              >
+                See the full menu
+                <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
+              </Link>
             </div>
           </div>
         </section>
@@ -656,32 +643,74 @@ export default function Home() {
       <Reveal>
         <section id="story" className="relative py-12 sm:py-16">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid md:grid-cols-2 gap-10 items-center">
-            <div className="flex flex-col gap-5 text-center md:text-left items-center md:items-start">
-              <h2 className="text-2xl sm:text-4xl font-bold tracking-tight">
+            <div className="flex flex-col items-center gap-5 text-center md:items-start md:text-left">
+              <span className="text-[9.5px] font-semibold uppercase tracking-[0.26em] text-brand-gold-dark">
+                Sourced, not substituted
+              </span>
+              <h2 className="font-display text-[32px] leading-[1.02] tracking-tight text-[#4a1515] sm:text-[46px]">
                 Kuwait&apos;s Finest Flavors
               </h2>
-              <p className="text-[13px] text-brand-ink/60 leading-[1.9] max-w-md">
+              <p className="max-w-md text-[15px] leading-[1.85] text-brand-ink/70">
                 We source Medjool dates from the Gulf, saffron from Iran and
                 pistachios from Aleppo, then fold them into recipes our family has
                 baked for three generations. Nothing is frozen, and nothing leaves
                 the kitchen a day old.
               </p>
+              <ul className="flex w-full max-w-md flex-col gap-0 self-stretch">
+                {FLAVOURS.map((f) => (
+                  <li
+                    key={f.label}
+                    className="flex items-baseline justify-between gap-4 border-b border-brand-gold/25 py-2.5 last:border-b-0"
+                  >
+                    <span className="font-display text-[16px] text-[#4a1515]">{f.label}</span>
+                    <span
+                      aria-hidden
+                      className="mx-1 h-px flex-1 self-center bg-brand-gold/25"
+                    />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-ink/45">
+                      {f.from}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
               <Link
                 href="/customer"
-                className="inline-flex items-center gap-2 px-6 py-2.5 bg-brand-red text-white rounded-full font-bold text-[10px] tracking-[0.15em] uppercase hover:bg-brand-red-dark transition-colors"
+                className="group mt-1 inline-flex items-center gap-2 rounded-full bg-brand-red px-7 py-3.5 text-[10px] font-bold uppercase tracking-[0.15em] text-white transition-colors hover:bg-brand-red-dark"
               >
-                Explore Menu <ArrowRight size={13} />
+                Explore Menu
+                <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
               </Link>
             </div>
 
-            <div className="stagger grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="stagger grid grid-cols-2 gap-3.5 sm:gap-5">
               {FLAVOURS.map((f, i) => (
-                <Photo
+                <figure
                   key={f.alt}
-                  src={f.src}
-                  alt={f.alt}
-                  className={`h-32 sm:h-40 ${i % 2 === 1 ? 'sm:mt-6' : ''}`}
-                />
+                  className={`group/f relative overflow-hidden rounded-2xl ring-1 ring-brand-gold/18 shadow-[0_10px_28px_rgba(74,21,21,0.1)] transition-shadow duration-500 hover:shadow-[0_20px_44px_rgba(74,21,21,0.2)] ${i % 2 === 1 ? 'sm:mt-9' : ''}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img(f.src, 900)}
+                    alt={f.alt}
+                    loading="lazy"
+                    className={`w-full object-cover transition-transform duration-[900ms] ease-out group-hover/f:scale-[1.07] ${
+                      i === 0 || i === 3 ? 'h-44 sm:h-60' : 'h-36 sm:h-48'
+                    }`}
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/78 via-[#2a1108]/12 to-transparent"
+                  />
+                  <figcaption className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
+                    <span className="block text-[8.5px] font-semibold uppercase tracking-[0.24em] text-brand-gold">
+                      {f.from}
+                    </span>
+                    <span className="mt-0.5 block font-display text-[16px] leading-none text-white sm:text-[18px]">
+                      {f.label}
+                    </span>
+                  </figcaption>
+                </figure>
               ))}
             </div>
           </div>
@@ -695,22 +724,39 @@ export default function Home() {
             <h2 className="text-2xl sm:text-4xl font-bold text-center tracking-tight">
               Why Red Rose
             </h2>
-            <p className="mt-3 mb-10 text-center text-[13px] text-brand-ink/55 max-w-xl mx-auto leading-relaxed">
+            <p className="mx-auto mb-11 mt-3 max-w-xl text-center text-[15px] leading-relaxed text-brand-ink/65">
               Four things we refuse to compromise on, in every box that leaves the
               kitchen.
             </p>
 
-            <div className="stagger grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            <div className="stagger grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4">
               {PROMISES.map(({ icon: Icon, title, text }) => (
                 <div
                   key={title}
-                  className="group bg-white rounded-2xl border border-brand-gold/15 shadow-sm px-5 py-6 flex flex-col items-center text-center gap-3 transition-all duration-500 hover:shadow-xl hover:-translate-y-1.5 hover:border-brand-gold/40"
+                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl bg-white px-5 py-8 text-center ring-1 ring-brand-gold/18 shadow-[0_8px_24px_rgba(74,21,21,0.07)] transition-[box-shadow] duration-500 hover:shadow-[0_20px_44px_rgba(74,21,21,0.16)]"
                 >
-                  <div className="w-12 h-12 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center transition-all duration-500 group-hover:bg-brand-red group-hover:text-white group-hover:scale-110">
-                    <Icon size={21} strokeWidth={1.7} />
+                  {/* warm wash rises from the base instead of the card jumping */}
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-x-0 bottom-0 h-0 bg-gradient-to-t from-brand-red/8 to-transparent transition-[height] duration-500 ease-out group-hover:h-full"
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute -right-3 -top-3 text-brand-red/[0.055] transition-transform duration-700 ease-out group-hover:-translate-y-1 group-hover:rotate-6"
+                  >
+                    <Icon size={104} strokeWidth={1.1} />
+                  </span>
+                  <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-brand-red/10 text-brand-red transition-[background-color,color,transform] duration-500 group-hover:scale-[1.08] group-hover:bg-brand-red group-hover:text-white">
+                    <Icon size={23} strokeWidth={1.7} />
                   </div>
-                  <h3 className="font-semibold text-[13.5px] tracking-tight">{title}</h3>
-                  <p className="text-[11.5px] text-brand-ink/55 leading-relaxed">{text}</p>
+                  <h3 className="relative font-display text-[17px] leading-none tracking-tight text-[#4a1515]">
+                    {title}
+                  </h3>
+                  <span
+                    aria-hidden
+                    className="relative block h-px w-6 bg-brand-gold/70 transition-[width] duration-500 group-hover:w-14"
+                  />
+                  <p className="relative text-[12.5px] leading-relaxed text-brand-ink/60">{text}</p>
                 </div>
               ))}
             </div>
@@ -720,10 +766,17 @@ export default function Home() {
 
       {/* ========= RED BAND: GIFTING + HOW IT WORKS + GUARANTEE ========= */}
       <Reveal>
-        <section id="gifting" className="relative bg-brand-red text-white overflow-hidden">
+        <section
+          id="gifting"
+          className="relative overflow-hidden text-white"
+          style={{
+            backgroundImage:
+              'linear-gradient(168deg, #b81a27 0%, #9d1420 34%, #7c0e19 68%, #5f070f 100%)',
+          }}
+        >
           {/* Massive elegant sweeping top wave matching the reference */}
           <svg
-            className="absolute top-0 left-0 w-full h-[140px] sm:h-[280px] text-brand-cream pointer-events-none"
+            className="absolute -top-px left-0 w-full h-[140px] sm:h-[280px] text-brand-cream pointer-events-none"
             viewBox="0 0 1440 280"
             preserveAspectRatio="none"
             aria-hidden
@@ -737,22 +790,27 @@ export default function Home() {
           {/* ---- Luxury Gifting ---- */}
           <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-36 sm:pt-48 pb-14 grid md:grid-cols-2 gap-10 items-center">
             <div className="flex flex-col gap-5 text-center md:text-left items-center md:items-start">
-              <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 ring-1 ring-white/20 text-brand-gold text-[10px] font-bold tracking-[0.18em] uppercase">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#fbeec6]/12 px-4 py-1.5 text-[10.5px] font-bold uppercase tracking-[0.18em] text-[#f0d9a4] ring-1 ring-[#f0d9a4]/35">
                 <Gift size={13} /> Gifting
               </span>
-              <h2 className="text-2xl sm:text-4xl font-bold tracking-tight leading-[1.15]">
+              <h2 className="font-display text-[34px] leading-[1.05] tracking-tight sm:text-[52px]">
                 Luxury Gifting
               </h2>
-              <p className="text-[13px] text-white/75 leading-[1.9] max-w-md">
+              <p className="max-w-md text-[17px] leading-[1.75] text-[#fbe6d8] sm:text-[19px]">
                 Hand-tied silk ribbon, a hand-written card, and a box built to
                 survive the drive. Corporate orders, wedding favours and Eid
                 hampers — delivered anywhere in Kuwait, on the day you name.
               </p>
               <Link
                 href="#gifting"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-brand-red rounded-full font-bold text-[10px] tracking-[0.15em] uppercase hover:bg-brand-cream transition-colors shadow-lg"
+                className="group inline-flex items-center gap-2.5 rounded-full px-8 py-4 text-[11px] font-bold uppercase tracking-[0.16em] text-[#4a1515] shadow-[0_14px_32px_rgba(30,0,4,0.4)] transition-transform duration-300 hover:-translate-y-0.5"
+                style={{
+                  backgroundImage:
+                    'linear-gradient(135deg, #fbeec6 0%, #dcbb79 48%, #b9924b 100%)',
+                }}
               >
-                View Gifting Collection <ArrowRight size={13} />
+                View Gifting Collection
+                <ArrowRight size={14} className="transition-transform duration-300 group-hover:translate-x-1" />
               </Link>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -760,7 +818,7 @@ export default function Home() {
               src={img(IMAGES.gifting, 900)}
               alt="A wrapped Red Rose parcel, hand-tied"
               loading="lazy"
-              className="w-full h-[240px] sm:h-[300px] object-cover rounded-2xl shadow-2xl"
+              className="h-[260px] w-full rounded-2xl object-cover shadow-[0_28px_60px_rgba(30,0,4,0.45)] ring-1 ring-brand-gold/25 sm:h-[340px]"
             />
           </div>
 
@@ -772,14 +830,14 @@ export default function Home() {
             <h2 className="text-2xl sm:text-4xl font-bold text-center tracking-tight">
               How It Works
             </h2>
-            <p className="mt-3 mb-12 text-center text-[13px] text-white/60">
+            <p className="mx-auto mb-14 mt-3 max-w-sm text-center text-[15px] leading-relaxed text-white/70">
               From your screen to your door in three steps.
             </p>
             <div className="relative grid sm:grid-cols-3 gap-10 sm:gap-6">
               {/* rule connecting the three steps */}
               <div
                 aria-hidden
-                className="hidden sm:block absolute top-[35px] left-[17%] right-[17%] h-px bg-white/20"
+                className="absolute left-[17%] right-[17%] top-[38px] hidden h-px bg-gradient-to-r from-transparent via-brand-gold/55 to-transparent sm:block"
               />
               {[
                 {
@@ -801,14 +859,22 @@ export default function Home() {
                   icon: Truck,
                 },
               ].map((s) => (
-                <div key={s.title} className="relative flex flex-col items-center text-center gap-3.5">
-                  <div className="w-[70px] h-[70px] rounded-full bg-brand-red-dark/60 ring-1 ring-white/25 text-white flex items-center justify-center shadow-lg">
-                    {s.icon ? <s.icon size={30} strokeWidth={1.6} /> : <Whisk size={30} />}
+                <div
+                  key={s.title}
+                  className="group relative flex flex-col items-center gap-3.5 text-center"
+                >
+                  <div className="relative">
+                    <div className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#5f070f] text-white shadow-[0_12px_28px_rgba(30,0,4,0.5)] ring-1 ring-brand-gold/40 transition-transform duration-500 group-hover:scale-[1.06]">
+                      {s.icon ? <s.icon size={31} strokeWidth={1.6} /> : <Whisk size={31} />}
+                    </div>
+                    <span className="absolute -right-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full bg-brand-gold font-numeric lining-nums text-[14px] font-semibold text-[#4a1515] shadow-md">
+                      {s.n.replace('.', '')}
+                    </span>
                   </div>
-                  <h3 className="font-semibold text-[15px] mt-1">
-                    <span className="text-brand-gold font-bold">{s.n}</span> {s.title}
+                  <h3 className="mt-1 font-display text-[20px] leading-none tracking-tight">
+                    {s.title}
                   </h3>
-                  <p className="text-[11.5px] text-white/70 leading-relaxed max-w-[210px]">
+                  <p className="max-w-[230px] text-[13px] leading-relaxed text-white/72">
                     {s.text}
                   </p>
                 </div>
@@ -834,7 +900,7 @@ export default function Home() {
           </div>
 
           <svg
-            className="absolute bottom-0 left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
+            className="absolute -bottom-px left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
             viewBox="0 0 1440 120"
             preserveAspectRatio="none"
             aria-hidden
@@ -850,70 +916,89 @@ export default function Home() {
       {/* ==================== SWEET WORDS ==================== */}
       <Reveal>
         <section className="relative py-14 sm:py-20">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl sm:text-4xl font-bold text-center mb-10 sm:mb-12 tracking-tight">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <h2 className="mb-3 text-center font-display text-[32px] leading-none tracking-tight sm:text-[46px]">
               Sweet Words
             </h2>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet1} alt="Cookies cooling in a cloth-lined basket" className="h-44" />
-                <ReviewCard {...REVIEWS[0]} />
-                <Photo src={IMAGES.sweet4} alt="Fruit tartlets finished with edible flowers" className="h-40" />
-              </div>
-              <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet2} alt="Dough being worked by hand" className="h-52" />
-                <Photo src={IMAGES.sweet5} alt="Slices of chocolate cake" className="h-36" />
-                <ReviewCard {...REVIEWS[1]} />
-              </div>
-              <div className="flex flex-col gap-4">
-                <Photo src={IMAGES.sweet3} alt="A tray of macarons" className="h-40" />
-                <ReviewCard {...REVIEWS[2]} />
-                <Photo src={IMAGES.sweet6} alt="Caramel sundae" className="h-44" />
-              </div>
-            </div>
+            <p className="mx-auto mb-11 max-w-sm text-center text-[14px] text-brand-ink/55">
+              Hover to hold it still — and add your own below.
+            </p>
           </div>
+
+          {/* full-bleed, so the run has somewhere to come from and go to */}
+          <Reviews seed={REVIEW_SEED} />
         </section>
       </Reveal>
 
       {/* ==================== FIND OUR BOUTIQUES ==================== */}
       <Reveal>
-        <section id="locations" className="relative pb-14 sm:pb-20">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl sm:text-4xl font-bold text-center mb-10 tracking-tight">
-              Find Our Boutiques
+        <section id="locations" className="relative pb-16 sm:pb-24">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+            <h2 className="text-center font-display text-[32px] leading-none tracking-tight sm:text-[46px]">
+              Find Our Shop
             </h2>
+            <p className="mx-auto mb-11 mt-3 max-w-sm text-center text-[15px] text-brand-ink/60">
+              One kitchen, one counter, in Salmiya.
+            </p>
 
-            <div className="rounded-2xl overflow-hidden shadow-lg border border-brand-gold/15 bg-white grid md:grid-cols-3">
-              <div className="md:col-span-2 h-64 md:h-80">
+            <div className="grid overflow-hidden rounded-[1.5rem] bg-white shadow-[0_18px_46px_rgba(74,21,21,0.13)] ring-1 ring-brand-gold/20 md:grid-cols-5">
+              <div className="relative h-72 md:col-span-3 md:h-[420px]">
                 <iframe
-                  title="Red Rose Pastry — Salmiya"
-                  src="https://www.google.com/maps?q=Salmiya+Kuwait&output=embed"
-                  className="w-full h-full border-0"
+                  title="Red Rose Sweets — Salmiya, Kuwait"
+                  src="https://www.google.com/maps?q=29.3339,48.0777&z=16&output=embed"
+                  className="h-full w-full border-0"
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                 />
+                {/* Seals the embed: the wheel scrolls the page instead of
+                    zooming the map, and the view stays where we put it. The
+                    Get directions button is the way out to the real map. */}
+                <span aria-hidden className="absolute inset-0 cursor-default" />
               </div>
-              <div className="p-6 flex flex-col justify-center gap-3">
-                <div className="flex items-center gap-2 text-brand-red">
-                  <MapPin size={18} />
-                  <h3 className="font-bold text-base">Salmiya</h3>
+
+              <div className="flex flex-col justify-center gap-5 p-7 sm:p-9 md:col-span-2">
+                <div>
+                  <span className="text-[9.5px] font-semibold uppercase tracking-[0.24em] text-brand-gold-dark">
+                    Our shop
+                  </span>
+                  <h3 className="mt-1.5 font-display text-[28px] leading-none text-[#4a1515]">
+                    Salmiya
+                  </h3>
                 </div>
-                <p className="text-[12px] text-brand-ink/65 leading-relaxed">
-                  179 Street, Salmiya 123
-                  <br />
-                  Kuwait City
-                </p>
-                <p className="text-[11px] text-brand-ink/45">
-                  Open daily · 8:00 — 23:00
-                </p>
+
+                <div className="flex flex-col gap-3.5 text-[14px] leading-relaxed text-brand-ink/70">
+                  <p className="flex items-start gap-3">
+                    <MapPin size={17} className="mt-0.5 shrink-0 text-brand-red" />
+                    <span>
+                      179 Street, Salmiya 123
+                      <br />
+                      Kuwait City
+                    </span>
+                  </p>
+                  <p className="flex items-start gap-3">
+                    <Clock size={17} className="mt-0.5 shrink-0 text-brand-red" />
+                    <span>
+                      Open daily
+                      <br />
+                      <span className="tabular-nums">8:00 — 23:00</span>
+                    </span>
+                  </p>
+                  <p className="flex items-start gap-3">
+                    <Phone size={17} className="mt-0.5 shrink-0 text-brand-red" />
+                    <a href="tel:+96522000000" className="tabular-nums transition-colors hover:text-brand-red">
+                      +965 2200 0000
+                    </a>
+                  </p>
+                </div>
+
                 <a
                   href="https://www.google.com/maps?q=Salmiya+Kuwait"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 self-start inline-flex items-center gap-2 px-5 py-2.5 bg-brand-red text-white rounded-full font-bold text-[10px] tracking-[0.15em] uppercase hover:bg-brand-red-dark transition-colors"
+                  className="group mt-1 inline-flex items-center justify-center gap-2 self-start rounded-full bg-brand-red px-7 py-3.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white transition-colors hover:bg-brand-red-dark"
                 >
-                  Get Directions <ArrowRight size={13} />
+                  Get directions
+                  <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
                 </a>
               </div>
             </div>
@@ -924,7 +1009,7 @@ export default function Home() {
       {/* ==================== FOOTER ==================== */}
       <footer id="contact" className="relative bg-brand-red text-white overflow-hidden">
         <svg
-          className="absolute top-0 left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
+          className="absolute -top-px left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
           viewBox="0 0 1440 120"
           preserveAspectRatio="none"
           aria-hidden
