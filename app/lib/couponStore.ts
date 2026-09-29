@@ -1,8 +1,10 @@
 "use client";
 
-// Discount coupons — created in the admin, applied at customer checkout and in
-// the POS billing panel. Discount applies to the product subtotal only (never to
-// delivery). Same localStorage + custom-event sync pattern as the other stores.
+// Discount coupons — Supabase + Realtime backed. Public API unchanged from the
+// old localStorage version. Discount applies to the product subtotal only.
+
+import { createRealtimeStore } from './createRealtimeStore';
+import { getSupabase } from './supabase';
 
 export interface Coupon {
   id: string;
@@ -16,40 +18,45 @@ export interface Coupon {
   createdAt: number;
 }
 
-const STORAGE_KEY = 'cenexa_coupons_v1';
-const EVENT_NAME = 'cenexa-coupons-updated';
-const EMPTY: Coupon[] = [];
-
-const SEED: Coupon[] = [
-  { id: 'c1', code: 'SWEET10', discountPercent: 10, minOrder: 5, expiry: '2027-12-31', usageLimit: 100, usedCount: 0, active: true, createdAt: Date.now() },
-  { id: 'c2', code: 'REDROSE15', discountPercent: 15, minOrder: 10, expiry: '2027-12-31', usageLimit: 50, usedCount: 0, active: true, createdAt: Date.now() + 1 },
-];
-
-let cachedRaw: string | null | undefined;
-let cached: Coupon[] = EMPTY;
-
-function read(): Coupon[] {
-  if (typeof window === 'undefined') return EMPTY;
-  let raw: string | null;
-  try { raw = window.localStorage.getItem(STORAGE_KEY); } catch { return EMPTY; }
-  if (raw === null) { write(SEED); return cached; }
-  if (raw === cachedRaw) return cached;
-  cachedRaw = raw;
-  try { cached = JSON.parse(raw); } catch { cached = EMPTY; }
-  return cached;
+function fromRow(r: Record<string, unknown>): Coupon {
+  return {
+    id: r.id as string,
+    code: r.code as string,
+    discountPercent: Number(r.discount_percent),
+    minOrder: Number(r.min_order),
+    expiry: (r.expiry as string) ?? '',
+    usageLimit: Number(r.usage_limit ?? 0),
+    usedCount: Number(r.used_count ?? 0),
+    active: (r.active as boolean) ?? true,
+    createdAt: Number(r.created_at),
+  };
 }
 
-function write(coupons: Coupon[]) {
-  cachedRaw = JSON.stringify(coupons);
-  cached = coupons;
-  window.localStorage.setItem(STORAGE_KEY, cachedRaw);
-  window.dispatchEvent(new CustomEvent(EVENT_NAME));
+function toRow(c: Partial<Coupon>): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  if (c.id !== undefined) row.id = c.id;
+  if (c.code !== undefined) row.code = c.code;
+  if (c.discountPercent !== undefined) row.discount_percent = c.discountPercent;
+  if (c.minOrder !== undefined) row.min_order = c.minOrder;
+  if (c.expiry !== undefined) row.expiry = c.expiry;
+  if (c.usageLimit !== undefined) row.usage_limit = c.usageLimit;
+  if (c.usedCount !== undefined) row.used_count = c.usedCount;
+  if (c.active !== undefined) row.active = c.active;
+  if (c.createdAt !== undefined) row.created_at = c.createdAt;
+  return row;
 }
 
-export function getCouponsSnapshot(): Coupon[] { return read(); }
-export function getCouponsServerSnapshot(): Coupon[] { return EMPTY; }
+const store = createRealtimeStore<Coupon>({ table: 'coupons', fromRow });
+
+export function getCouponsSnapshot(): Coupon[] {
+  return store.getSnapshot();
+}
+export function getCouponsServerSnapshot(): Coupon[] {
+  return store.getServerSnapshot();
+}
 export function getCoupons(): Coupon[] {
-  return [...read()].sort((a, b) => b.createdAt - a.createdAt);
+  store.ensureHydrated();
+  return [...store.get()].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function isExpired(c: Coupon): boolean {
@@ -63,7 +70,6 @@ export function remainingUses(c: Coupon): number | null {
 }
 
 export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> & { usedCount?: number }): Coupon {
-  const coupons = read();
   const coupon: Coupon = {
     ...input,
     code: input.code.trim().toUpperCase(),
@@ -71,25 +77,44 @@ export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> 
     id: `c${Date.now().toString(36)}`,
     createdAt: Date.now(),
   };
-  write([coupon, ...coupons]);
+  store.patchLocal((cur) => [coupon, ...cur]);
+  const sb = getSupabase();
+  if (sb) void sb.from('coupons').insert(toRow(coupon)).then(({ error }) => {
+    if (error) console.error('[coupons] add failed', error.message);
+  });
   return coupon;
 }
 
 export function updateCoupon(id: string, patch: Partial<Omit<Coupon, 'id' | 'createdAt'>>) {
-  write(read().map(c => (c.id === id ? { ...c, ...patch, code: (patch.code ?? c.code).trim().toUpperCase() } : c)));
+  const norm = patch.code !== undefined ? { ...patch, code: patch.code.trim().toUpperCase() } : patch;
+  store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, ...norm } : c)));
+  const sb = getSupabase();
+  if (sb) void sb.from('coupons').update(toRow(norm)).eq('id', id).then(({ error }) => {
+    if (error) console.error('[coupons] update failed', error.message);
+  });
 }
 
 export function deleteCoupon(id: string) {
-  write(read().filter(c => c.id !== id));
+  store.patchLocal((cur) => cur.filter((c) => c.id !== id));
+  const sb = getSupabase();
+  if (sb) void sb.from('coupons').delete().eq('id', id).then(({ error }) => {
+    if (error) console.error('[coupons] delete failed', error.message);
+  });
 }
 
 export function incrementCouponUsage(id: string) {
-  write(read().map(c => (c.id === id ? { ...c, usedCount: c.usedCount + 1 } : c)));
+  const current = store.get().find((c) => c.id === id);
+  const next = (current?.usedCount ?? 0) + 1;
+  store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, usedCount: c.usedCount + 1 } : c)));
+  const sb = getSupabase();
+  if (sb) void sb.from('coupons').update({ used_count: next }).eq('id', id).then(({ error }) => {
+    if (error) console.error('[coupons] increment failed', error.message);
+  });
 }
 
 export function codeExists(code: string, exceptId?: string): boolean {
   const c = code.trim().toUpperCase();
-  return read().some(x => x.code === c && x.id !== exceptId);
+  return store.get().some((x) => x.code === c && x.id !== exceptId);
 }
 
 export interface CouponResult {
@@ -101,7 +126,7 @@ export interface CouponResult {
 
 /** Validate a code against a product subtotal (KD). Discount = subtotal × %. */
 export function validateCoupon(code: string, subtotal: number): CouponResult {
-  const c = read().find(x => x.code === code.trim().toUpperCase());
+  const c = store.get().find((x) => x.code === code.trim().toUpperCase());
   if (!c) return { ok: false, reason: 'Invalid coupon code' };
   if (!c.active) return { ok: false, reason: 'This coupon is no longer active' };
   if (isExpired(c)) return { ok: false, reason: 'This coupon has expired' };
@@ -113,11 +138,5 @@ export function validateCoupon(code: string, subtotal: number): CouponResult {
 }
 
 export function subscribeToCoupons(callback: () => void): () => void {
-  const handler = () => callback();
-  window.addEventListener('storage', handler);
-  window.addEventListener(EVENT_NAME, handler);
-  return () => {
-    window.removeEventListener('storage', handler);
-    window.removeEventListener(EVENT_NAME, handler);
-  };
+  return store.subscribe(callback);
 }

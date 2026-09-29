@@ -1,5 +1,26 @@
 "use client";
 
+// Orders — Supabase + Realtime backed. Public API is unchanged from the old
+// localStorage version, so every role's UI works without edits. Line items are
+// stored as JSONB (the OrderItem[] shape). Writes are optimistic; the Realtime
+// echo reconciles all devices.
+//
+// Orders are tied to a Session (guest tab): the first order at an empty table
+// opens one, later orders reuse it, and billing settles it (see sessionStore /
+// billStore). The order-derived session helpers below are kept for the waiter
+// UI, which groups un-billed orders by sessionId.
+
+import { createRealtimeStore } from './createRealtimeStore';
+import { getSupabase } from './supabase';
+import {
+  getOpenSessionForTable,
+  getOpenStandingSession,
+  openSession,
+  closeSession,
+  settleSessionId,
+} from './sessionStore';
+import { createBill } from './billStore';
+
 export type OrderStatus = 'pending' | 'cooking' | 'ready' | 'served';
 
 export interface OrderItem {
@@ -40,60 +61,73 @@ export function orderLabel(o: Pick<Order, 'mode' | 'table' | 'standingLabel'>): 
   return `Table ${o.table}`;
 }
 
-const STORAGE_KEY = 'cenexa_orders_v1';
-const EVENT_NAME = 'cenexa-orders-updated';
-const EMPTY_ORDERS: Order[] = [];
-
-// Cache keyed on the raw localStorage string so useSyncExternalStore gets a
-// stable array reference when nothing has actually changed (required to
-// avoid an infinite re-render loop).
-let cachedRaw: string | null | undefined;
-let cachedOrders: Order[] = EMPTY_ORDERS;
-
-function readOrders(): Order[] {
-  if (typeof window === 'undefined') return EMPTY_ORDERS;
-  let raw: string | null;
-  try {
-    raw = window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return EMPTY_ORDERS;
-  }
-  if (raw === cachedRaw) return cachedOrders;
-  cachedRaw = raw;
-  try {
-    cachedOrders = raw ? JSON.parse(raw) : EMPTY_ORDERS;
-  } catch {
-    cachedOrders = EMPTY_ORDERS;
-  }
-  return cachedOrders;
+function fromRow(r: Record<string, unknown>): Order {
+  return {
+    id: r.id as string,
+    table: Number(r.table_number ?? 0),
+    items: Array.isArray(r.items) ? (r.items as OrderItem[]) : [],
+    status: (r.status as OrderStatus) ?? 'pending',
+    priority: (r.priority as Order['priority']) ?? 'normal',
+    subtotal: Number(r.subtotal),
+    tax: Number(r.tax),
+    total: Number(r.total),
+    createdAt: Number(r.created_at),
+    source: (r.source as Order['source']) ?? 'customer',
+    mode: (r.mode as OrderMode) ?? 'table',
+    discount: r.discount == null ? undefined : Number(r.discount),
+    couponCode: (r.coupon_code as string) ?? undefined,
+    standingLabel: (r.standing_label as string) ?? undefined,
+    sessionId: (r.session_id as string) ?? undefined,
+    billed: (r.billed as boolean) ?? false,
+  };
 }
 
-function writeOrders(orders: Order[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-  window.dispatchEvent(new CustomEvent(EVENT_NAME));
+function toRow(o: Order): Record<string, unknown> {
+  return {
+    id: o.id,
+    table_number: o.table,
+    items: o.items,
+    status: o.status,
+    priority: o.priority,
+    subtotal: o.subtotal,
+    tax: o.tax,
+    total: o.total,
+    source: o.source,
+    mode: o.mode ?? 'table',
+    discount: o.discount ?? null,
+    coupon_code: o.couponCode ?? null,
+    standing_label: o.standingLabel ?? null,
+    session_id: o.sessionId ?? null,
+    billed: o.billed ?? false,
+    created_at: o.createdAt,
+  };
 }
+
+const store = createRealtimeStore<Order>({ table: 'orders', fromRow });
 
 export function getOrders(): Order[] {
-  return [...readOrders()].sort((a, b) => b.createdAt - a.createdAt);
+  store.ensureHydrated();
+  return [...store.get()].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** Stable snapshot for useSyncExternalStore — sorted newest-first, cached until the store changes. */
+/** Stable snapshot for useSyncExternalStore. */
 export function getOrdersSnapshot(): Order[] {
-  return readOrders();
+  return store.getSnapshot();
 }
 
 export function getOrdersServerSnapshot(): Order[] {
-  return EMPTY_ORDERS;
+  return store.getServerSnapshot();
 }
 
 export function getActiveOrdersForTable(table: number): Order[] {
-  return readOrders().filter(o => o.table === table && o.status !== 'served');
+  store.ensureHydrated();
+  return store.get().filter((o) => o.table === table && o.status !== 'served');
 }
 
 /** Find the active (un-billed) session ID for a table or standing label. */
 export function getActiveSessionId(table: number, mode?: OrderMode, standingLabel?: string): string | undefined {
-  const orders = readOrders();
-  const active = orders.find(o => {
+  const orders = store.get();
+  const active = orders.find((o) => {
     if (o.billed || !o.sessionId) return false;
     const m = o.mode || 'table';
     if (mode === 'standing') return m === 'standing' && o.standingLabel === standingLabel;
@@ -118,19 +152,58 @@ export function getActiveStandingSessions(orders: Order[]): { sessionId: string;
 
 /** Get all orders belonging to a session (for billing). */
 export function getSessionOrders(orders: Order[], sessionId: string): Order[] {
-  return orders.filter(o => o.sessionId === sessionId);
+  return orders.filter((o) => o.sessionId === sessionId);
 }
 
-/** Mark all orders in a session as billed and served. */
+/** Mark all orders in a session as billed and served, write a Bill, and close the Session. */
 export function billSession(sessionId: string) {
-  const orders = readOrders().map(o =>
-    o.sessionId === sessionId ? { ...o, billed: true, status: 'served' as OrderStatus } : o
+  const sessionOrders = store.get().filter((o) => o.sessionId === sessionId);
+  const totals = sessionOrders.reduce(
+    (acc, o) => {
+      acc.subtotal += o.subtotal;
+      acc.tax += o.tax;
+      acc.discount += o.discount ?? 0;
+      acc.total += o.total;
+      return acc;
+    },
+    { subtotal: 0, tax: 0, discount: 0, total: 0 }
   );
-  writeOrders(orders);
+  const couponCode = sessionOrders.find((o) => o.couponCode)?.couponCode ?? null;
+
+  // Optimistic: flip the orders locally.
+  store.patchLocal((cur) =>
+    cur.map((o) => (o.sessionId === sessionId ? { ...o, billed: true, status: 'served' as OrderStatus } : o))
+  );
+
+  const sb = getSupabase();
+  if (sb) void sb.from('orders').update({ billed: true, status: 'served' }).eq('session_id', sessionId).then(({ error }) => {
+    if (error) console.error('[orders] bill failed', error.message);
+  });
+
+  // Record the bill and close the guest tab.
+  const bill = createBill({ sessionId, ...totals, couponCode });
+  closeSession(sessionId, bill.id);
 }
 
-function generateSessionId(): string {
-  return `SN-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+/** Resolve (or open) the session an order belongs to, honoring an explicit id. */
+function resolveSessionId(input: {
+  table: number;
+  mode: OrderMode;
+  standingLabel?: string;
+  sessionId?: string;
+}): string {
+  if (input.sessionId) return input.sessionId;
+  if (input.mode === 'standing') {
+    const label = input.standingLabel ?? '';
+    return (getOpenStandingSession(label)?.id
+      ?? openSession({ tableNumber: null, mode: 'standing', standingLabel: label }).id);
+  }
+  if (input.mode === 'takeaway') {
+    return openSession({ tableNumber: null, mode: 'takeaway' }).id;
+  }
+  // dine-in
+  return (getOpenSessionForTable(input.table)?.id
+    ?? openSession({ tableNumber: input.table, mode: 'table' }).id);
 }
 
 export function addOrder(input: {
@@ -148,19 +221,8 @@ export function addOrder(input: {
   standingLabel?: string;
   sessionId?: string;
 }): Order {
-  const orders = readOrders();
   const mode = input.mode ?? 'table';
-  let sessionId = input.sessionId;
-  if (!sessionId) {
-    const existing = orders.find(o => {
-      if (o.billed || !o.sessionId) return false;
-      const m = o.mode || 'table';
-      if (mode === 'standing') return m === 'standing' && o.standingLabel === input.standingLabel;
-      if (mode === 'takeaway') return false;
-      return o.table === input.table && m === 'table';
-    });
-    sessionId = existing?.sessionId || generateSessionId();
-  }
+  const sessionId = resolveSessionId({ table: input.table, mode, standingLabel: input.standingLabel, sessionId: input.sessionId });
   const newOrder: Order = {
     id: `TK-${Math.floor(1000 + Math.random() * 9000)}`,
     table: input.table,
@@ -178,21 +240,30 @@ export function addOrder(input: {
     standingLabel: input.standingLabel,
     sessionId,
   };
-  writeOrders([newOrder, ...orders]);
+  store.patchLocal((cur) => [newOrder, ...cur]);
+  const sb = getSupabase();
+  if (sb) {
+    void settleSessionId(sessionId).then((finalId) => {
+      if (finalId !== sessionId) {
+        // Session was de-duplicated against an already-open one for this table.
+        store.patchLocal((cur) => cur.map((o) => (o.id === newOrder.id ? { ...o, sessionId: finalId } : o)));
+      }
+      return sb.from('orders').insert(toRow({ ...newOrder, sessionId: finalId })).then(({ error }) => {
+        if (error) console.error('[orders] add failed', error.message);
+      });
+    });
+  }
   return newOrder;
 }
 
 export function updateOrderStatus(id: string, status: OrderStatus) {
-  const orders = readOrders().map(o => (o.id === id ? { ...o, status } : o));
-  writeOrders(orders);
+  store.patchLocal((cur) => cur.map((o) => (o.id === id ? { ...o, status } : o)));
+  const sb = getSupabase();
+  if (sb) void sb.from('orders').update({ status }).eq('id', id).then(({ error }) => {
+    if (error) console.error('[orders] status update failed', error.message);
+  });
 }
 
 export function subscribeToOrders(callback: () => void): () => void {
-  const handler = () => callback();
-  window.addEventListener('storage', handler);
-  window.addEventListener(EVENT_NAME, handler);
-  return () => {
-    window.removeEventListener('storage', handler);
-    window.removeEventListener(EVENT_NAME, handler);
-  };
+  return store.subscribe(callback);
 }

@@ -1,5 +1,11 @@
 "use client";
 
+// Waiter calls — Supabase + Realtime backed. Public API unchanged. A customer
+// taps "call waiter" and it pops up on the waiter dashboard on another device.
+
+import { createRealtimeStore } from './createRealtimeStore';
+import { getSupabase } from './supabase';
+
 export interface WaiterCall {
   id: string;
   table: number;
@@ -7,64 +13,46 @@ export interface WaiterCall {
   resolved: boolean;
 }
 
-const STORAGE_KEY = 'cenexa_waiter_calls_v1';
-const EVENT_NAME = 'cenexa-waiter-calls-updated';
-const EMPTY_CALLS: WaiterCall[] = [];
-
-let cachedRaw: string | null | undefined;
-let cachedCalls: WaiterCall[] = EMPTY_CALLS;
-
-function readCalls(): WaiterCall[] {
-  if (typeof window === 'undefined') return EMPTY_CALLS;
-  let raw: string | null;
-  try {
-    raw = window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return EMPTY_CALLS;
-  }
-  if (raw === cachedRaw) return cachedCalls;
-  cachedRaw = raw;
-  try {
-    cachedCalls = raw ? JSON.parse(raw) : EMPTY_CALLS;
-  } catch {
-    cachedCalls = EMPTY_CALLS;
-  }
-  return cachedCalls;
+function fromRow(r: Record<string, unknown>): WaiterCall {
+  return {
+    id: r.id as string,
+    table: Number(r.table_number),
+    createdAt: Number(r.created_at),
+    resolved: (r.resolved as boolean) ?? false,
+  };
 }
 
-function writeCalls(calls: WaiterCall[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(calls));
-  window.dispatchEvent(new CustomEvent(EVENT_NAME));
-}
+const store = createRealtimeStore<WaiterCall>({ table: 'waiter_calls', fromRow });
 
 export function getWaiterCallsSnapshot(): WaiterCall[] {
-  return readCalls();
+  return store.getSnapshot();
 }
 
 export function getWaiterCallsServerSnapshot(): WaiterCall[] {
-  return EMPTY_CALLS;
+  return store.getServerSnapshot();
 }
 
-/** Call for a table — reuses any existing unresolved call for that table instead of stacking duplicates. */
+/** Call for a table — reuses any existing unresolved call for that table. */
 export function callWaiter(table: number): WaiterCall {
-  const calls = readCalls();
-  const existing = calls.find(c => c.table === table && !c.resolved);
+  const existing = store.get().find((c) => c.table === table && !c.resolved);
   if (existing) return existing;
-  const newCall: WaiterCall = { id: `WC-${Date.now().toString(36)}`, table, createdAt: Date.now(), resolved: false };
-  writeCalls([newCall, ...calls]);
-  return newCall;
+  const call: WaiterCall = { id: `WC-${Date.now().toString(36)}`, table, createdAt: Date.now(), resolved: false };
+  store.patchLocal((cur) => [call, ...cur]);
+  const sb = getSupabase();
+  if (sb) void sb.from('waiter_calls')
+    .insert({ id: call.id, table_number: table, resolved: false, created_at: call.createdAt })
+    .then(({ error }) => { if (error) console.error('[waiter_calls] add failed', error.message); });
+  return call;
 }
 
 export function resolveWaiterCall(id: string) {
-  writeCalls(readCalls().map(c => (c.id === id ? { ...c, resolved: true } : c)));
+  store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, resolved: true } : c)));
+  const sb = getSupabase();
+  if (sb) void sb.from('waiter_calls').update({ resolved: true }).eq('id', id).then(({ error }) => {
+    if (error) console.error('[waiter_calls] resolve failed', error.message);
+  });
 }
 
 export function subscribeToWaiterCalls(callback: () => void): () => void {
-  const handler = () => callback();
-  window.addEventListener('storage', handler);
-  window.addEventListener(EVENT_NAME, handler);
-  return () => {
-    window.removeEventListener('storage', handler);
-    window.removeEventListener(EVENT_NAME, handler);
-  };
+  return store.subscribe(callback);
 }
