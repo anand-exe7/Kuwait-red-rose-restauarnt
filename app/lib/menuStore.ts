@@ -6,7 +6,7 @@
 // device to the server's truth.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 
 export type MenuCategory = 'Arabic Sweets' | 'Cakes' | 'Pastries' | 'Drinks';
 
@@ -97,8 +97,7 @@ export function getMenuServerSnapshot(): MenuItem[] {
 export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem {
   const item: MenuItem = { ...input, id: `p${Date.now().toString(36)}`, createdAt: Date.now() };
   store.patchLocal((cur) => [item, ...cur]);
-  const sb = getSupabase();
-  if (sb) void sb.from('menu_items').insert(toRow(item)).then(({ error }) => {
+  void write({ table: 'menu_items', op: 'insert', values: toRow(item) }).then(({ error }) => {
     if (error) console.error('[menu] add failed', error.message);
   });
   return item;
@@ -106,16 +105,14 @@ export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem
 
 export function updateMenuItem(id: string, patch: Partial<Omit<MenuItem, 'id' | 'createdAt'>>) {
   store.patchLocal((cur) => cur.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-  const sb = getSupabase();
-  if (sb) void sb.from('menu_items').update(toRow(patch)).eq('id', id).then(({ error }) => {
+  void write({ table: 'menu_items', op: 'update', values: toRow(patch), match: { id: id } }).then(({ error }) => {
     if (error) console.error('[menu] update failed', error.message);
   });
 }
 
 export function deleteMenuItem(id: string) {
   store.patchLocal((cur) => cur.filter((i) => i.id !== id));
-  const sb = getSupabase();
-  if (sb) void sb.from('menu_items').delete().eq('id', id).then(({ error }) => {
+  void write({ table: 'menu_items', op: 'delete', match: { id: id } }).then(({ error }) => {
     if (error) console.error('[menu] delete failed', error.message);
   });
 }

@@ -33,7 +33,7 @@ import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersSe
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { WaiterCall, resolveWaiterCall, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
 import { getTablesSnapshot, getTablesServerSnapshot, subscribeToTables } from '../lib/tableStore';
-import { formatKWD } from '../lib/currency';
+import { formatKWD, round3 } from '../lib/currency';
 import { BRAND } from '../lib/brand';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
@@ -219,9 +219,8 @@ export default function WaiterDashboard() {
     const item = menu.find(m => m.id === id);
     return acc + (item?.price || 0) * qty;
   }, 0);
-  const tax = subtotal * 0.1;
-  const serviceCharge = subtotal * 0.05;
-  const orderTotal = subtotal + tax + serviceCharge;
+  const tax = round3(subtotal * 0.1);
+  const orderTotal = round3(subtotal + tax);
   const orderItemCount = useMemo(() => Object.values(order).reduce((a, b) => a + b, 0), [order]);
 
   const submitOrder = () => {
@@ -237,7 +236,7 @@ export default function WaiterDashboard() {
       items: itemsList,
       priority: isPriorityRush ? 'high' : 'normal',
       subtotal,
-      tax: tax + serviceCharge,
+      tax,
       total: orderTotal,
       source: 'waiter',
       standingLabel: isStanding ? (standingLabel.trim() || `Walk-in #${standingEverCount + 1}`) : undefined,
@@ -873,7 +872,6 @@ export default function WaiterDashboard() {
               <div className="space-y-1.5 mb-3 text-xs font-medium text-brand-ink/60">
                 <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
                 <div className="flex justify-between"><span>Tax (10%)</span><span className="text-brand-ink font-bold">{formatKWD(tax)}</span></div>
-                <div className="flex justify-between"><span>Service (5%)</span><span className="text-brand-ink font-bold">{formatKWD(serviceCharge)}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
                   <span className="font-black text-brand-ink">Total</span>
                   <span className="font-black text-xl text-brand-red">{formatKWD(orderTotal)}</span>
@@ -1059,7 +1057,7 @@ function BillingModal({
 
         <div className="bg-brand-ink/[0.03] rounded-2xl p-4 space-y-2 mb-5">
           <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Subtotal</span><span className="font-bold">{formatKWD(grandSubtotal)}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Tax & Fees</span><span className="font-bold">{formatKWD(grandTax)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Tax (10%)</span><span className="font-bold">{formatKWD(grandTax)}</span></div>
           {grandDiscount > 0 && (
             <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-black">−{formatKWD(grandDiscount)}</span></div>
           )}

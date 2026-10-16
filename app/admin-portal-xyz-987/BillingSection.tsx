@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import { Plus, Minus, Trash2, X, ListPlus, MessageCircle, ShoppingCart, Search } from 'lucide-react';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
-import { getCouponsSnapshot, getCouponsServerSnapshot, subscribeToCoupons, validateCoupon, incrementCouponUsage, isExpired, remainingUses } from '../lib/couponStore';
+import { getCouponsSnapshot, getCouponsServerSnapshot, subscribeToCoupons, validateCoupon, isExpired, remainingUses } from '../lib/couponStore';
 import { addOrder } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
 import { BRAND } from '../lib/brand';
@@ -79,8 +79,8 @@ export default function BillingSection() {
       total: grandTotal,
       discount: totalDiscount > 0 ? totalDiscount : undefined,
       couponCode: couponResult?.ok ? couponCode : undefined,
+      billImmediately: true, // paid at the counter: bill + close so it counts in Orders & Analytics
     });
-    if (couponResult?.ok && couponResult.coupon) incrementCouponUsage(couponResult.coupon.id);
 
     // Build a WhatsApp draft for the cashier to review & send.
     const lineText = lines.map(l => `• ${l.qty}× ${l.name || 'Item'} — ${formatKWD(l.price * l.qty)}`).join('%0A');

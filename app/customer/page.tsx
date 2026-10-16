@@ -4,8 +4,8 @@ import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, Check
 import { addOrder, getActiveSessionId } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { callWaiter, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
-import { formatKWD } from '../lib/currency';
-import { validateCoupon, incrementCouponUsage } from '../lib/couponStore';
+import { formatKWD, round3 } from '../lib/currency';
+import { validateCoupon, getCouponsSnapshot, getCouponsServerSnapshot, subscribeToCoupons } from '../lib/couponStore';
 import { BRAND } from '../lib/brand';
 
 // In production each table's QR code links straight to /customer?table=N.
@@ -55,6 +55,9 @@ export default function CustomerDashboard() {
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
 
+  // Subscribing loads the coupons table; without it every code reads as "invalid".
+  useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
+
   const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
   const activeWaiterCall = waiterCalls.find(c => c.table === tableNumber && !c.resolved);
   const handleCallWaiter = () => callWaiter(tableNumber);
@@ -78,10 +81,10 @@ export default function CustomerDashboard() {
   const cartItemCount = Object.values(cart).reduce((a, b) => a + b, 0);
 
   // Coupon discount applies to the product subtotal only
-  const discount = appliedCoupon ? (cartTotal * appliedCoupon.discountPercent) / 100 : 0;
+  const discount = appliedCoupon ? round3((cartTotal * appliedCoupon.discountPercent) / 100) : 0;
   const taxable = Math.max(0, cartTotal - discount);
-  const taxAmt = taxable * 0.1;
-  const grandTotal = taxable + taxAmt;
+  const taxAmt = round3(taxable * 0.1);
+  const grandTotal = round3(taxable + taxAmt);
 
   const applyCoupon = () => {
     const res = validateCoupon(couponInput, cartTotal);
@@ -127,7 +130,6 @@ export default function CustomerDashboard() {
         sessionId: sessionId || undefined,
         standingLabel: isStandingDineIn ? standingLabelId : undefined,
       });
-      if (appliedCoupon) incrementCouponUsage(appliedCoupon.id);
       setLastOrderId(order.id);
       setCart({});
       setAppliedCoupon(null);

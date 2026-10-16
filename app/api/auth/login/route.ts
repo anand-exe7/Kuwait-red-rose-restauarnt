@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSessionToken, passwordForRole, ROLES, SESSION_COOKIE, type Role } from '../../../lib/session';
+import { createSessionToken, passwordForRole, passwordMatches, ROLES, SESSION_COOKIE, SESSION_TTL_MS, type Role } from '../../../lib/session';
 import { getServerSupabase } from '../../../lib/supabaseServer';
 
 // Validates a role password server-side (passwords come from env vars only) and,
@@ -76,20 +76,26 @@ export async function POST(request: Request) {
     );
   }
 
-  if (password !== expected) {
+  if (!(await passwordMatches(password, expected))) {
     await logAttempt(ip, role, false);
     return NextResponse.json({ ok: false, error: 'Incorrect password' }, { status: 401 });
   }
 
-  await logAttempt(ip, role, true);
   const token = await createSessionToken(role);
+  if (!token) {
+    return NextResponse.json(
+      { ok: false, error: 'Login is not configured on the server. Set AUTH_SECRET in .env.' },
+      { status: 500 }
+    );
+  }
+  await logAttempt(ip, role, true);
   const res = NextResponse.json({ ok: true, role });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    maxAge: 60 * 60 * 12, // 12h shift
+    maxAge: SESSION_TTL_MS / 1000, // one shift
   });
   return res;
 }

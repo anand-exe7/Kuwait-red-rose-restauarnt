@@ -4,7 +4,7 @@
 // old localStorage version. Discount applies to the product subtotal only.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 
 export interface Coupon {
   id: string;
@@ -78,8 +78,7 @@ export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> 
     createdAt: Date.now(),
   };
   store.patchLocal((cur) => [coupon, ...cur]);
-  const sb = getSupabase();
-  if (sb) void sb.from('coupons').insert(toRow(coupon)).then(({ error }) => {
+  void write({ table: 'coupons', op: 'insert', values: toRow(coupon) }).then(({ error }) => {
     if (error) console.error('[coupons] add failed', error.message);
   });
   return coupon;
@@ -88,27 +87,15 @@ export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> 
 export function updateCoupon(id: string, patch: Partial<Omit<Coupon, 'id' | 'createdAt'>>) {
   const norm = patch.code !== undefined ? { ...patch, code: patch.code.trim().toUpperCase() } : patch;
   store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, ...norm } : c)));
-  const sb = getSupabase();
-  if (sb) void sb.from('coupons').update(toRow(norm)).eq('id', id).then(({ error }) => {
+  void write({ table: 'coupons', op: 'update', values: toRow(norm), match: { id: id } }).then(({ error }) => {
     if (error) console.error('[coupons] update failed', error.message);
   });
 }
 
 export function deleteCoupon(id: string) {
   store.patchLocal((cur) => cur.filter((c) => c.id !== id));
-  const sb = getSupabase();
-  if (sb) void sb.from('coupons').delete().eq('id', id).then(({ error }) => {
+  void write({ table: 'coupons', op: 'delete', match: { id: id } }).then(({ error }) => {
     if (error) console.error('[coupons] delete failed', error.message);
-  });
-}
-
-export function incrementCouponUsage(id: string) {
-  const current = store.get().find((c) => c.id === id);
-  const next = (current?.usedCount ?? 0) + 1;
-  store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, usedCount: c.usedCount + 1 } : c)));
-  const sb = getSupabase();
-  if (sb) void sb.from('coupons').update({ used_count: next }).eq('id', id).then(({ error }) => {
-    if (error) console.error('[coupons] increment failed', error.message);
   });
 }
 

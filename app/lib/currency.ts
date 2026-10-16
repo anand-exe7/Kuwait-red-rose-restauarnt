@@ -19,3 +19,8 @@ export function formatKWDNumber(amount: number): string {
   const n = Number.isFinite(amount) ? amount : 0;
   return n.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 }
+
+/** Round to whole fils (3 decimals) so stored money never has sub-fil digits. */
+export function round3(amount: number): number {
+  return Math.round((Number.isFinite(amount) ? amount : 0) * 1000) / 1000;
+}
