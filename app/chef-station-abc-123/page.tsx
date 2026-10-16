@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExtern
 import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkles, PackageCheck, Volume2, VolumeX } from 'lucide-react';
 import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
+import { Pagination, usePagination } from '../components/Pagination';
 import { BRAND } from '../lib/brand';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
@@ -65,6 +66,8 @@ export default function ChefDashboard() {
     () => orders.filter(o => o.status === 'served').sort((a, b) => b.createdAt - a.createdAt),
     [orders]
   );
+
+  const historyPager = usePagination(servedOrders, 15);
 
   const waitMinutes = (createdAt: number) => Math.max(0, Math.floor((now - createdAt) / 60000));
   const waitColor = (mins: number) => (mins >= 20 ? 'text-red-400' : mins >= 10 ? 'text-brand-gold' : 'text-gray-400');
@@ -155,7 +158,7 @@ export default function ChefDashboard() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {servedOrders.map(order => (
+                {historyPager.items.map(order => (
                   <div key={order.id} className="bg-[#111] rounded-2xl p-4 md:p-5 border border-white/5 flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-[#1a1a1a] flex flex-col items-center justify-center font-black text-sm shrink-0 border border-white/5 text-center leading-none px-1">
                       {order.mode === 'standing' ? (
@@ -192,6 +195,7 @@ export default function ChefDashboard() {
                     </div>
                   </div>
                 ))}
+                <Pagination p={historyPager} label="served orders" dark />
               </div>
             )}
           </div>

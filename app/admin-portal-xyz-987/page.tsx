@@ -1,6 +1,7 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { Pagination, usePagination } from '../components/Pagination';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -209,6 +210,8 @@ function OrdersSection({ orders }: { orders: Order[] }) {
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [orders, typeFilter, dateFilter, customFrom, customTo, search]);
 
+  const pager = usePagination(filtered, 15, `${typeFilter}|${dateFilter}|${customFrom}|${customTo}|${search}`);
+
   const clearDates = () => {
     setDateFilter('all');
     setCustomFrom('');
@@ -328,7 +331,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o => (
+              {pager.items.map(o => (
                 <React.Fragment key={o.id}>
                   <tr className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors cursor-pointer" onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}>
                     <td className="px-5 py-4 font-bold text-brand-red">{o.id}</td>
@@ -423,6 +426,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
             </tbody>
           </table>
         </div>
+        <Pagination p={pager} label="orders" />
       </div>
     </div>
   );
@@ -445,6 +449,8 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
     const matchesCat = categoryFilter === 'All' || m.category === categoryFilter;
     return matchesSearch && matchesCat;
   });
+
+  const pager = usePagination(filtered, 10, `${search}|${categoryFilter}`);
 
   const totalProducts = menu.length;
   const activeCount = menu.filter(m => m.status === 'active').length;
@@ -507,7 +513,7 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(item => {
+              {pager.items.map(item => {
                 return (
                   <tr key={item.id} className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors">
                     <td className="px-5 py-4">
@@ -558,6 +564,7 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
             </tbody>
           </table>
         </div>
+        <Pagination p={pager} label="products" />
       </div>
 
       {formOpen && <ProductFormModal item={editing} onClose={() => setFormOpen(false)} />}

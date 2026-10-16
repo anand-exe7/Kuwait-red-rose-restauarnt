@@ -1,5 +1,6 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
+import { Pagination, usePagination } from '../components/Pagination';
 import { RefreshCw, Search, Sparkles, Info } from 'lucide-react';
 import {
   Coupon,
@@ -34,6 +35,8 @@ export default function CouponsSection() {
     () => [...coupons].sort((a, b) => b.createdAt - a.createdAt).filter(c => c.code.toLowerCase().includes(search.trim().toLowerCase())),
     [coupons, search]
   );
+
+  const pager = usePagination(sorted, 6, search);
 
   const resetForm = () => { setForm(blankForm); setEditingId(null); setError(null); };
 
@@ -148,7 +151,7 @@ export default function CouponsSection() {
             {sorted.length === 0 ? (
               <p className="text-sm text-black/40 font-bold py-8 text-center">No coupons found.</p>
             ) : (
-              sorted.map(c => {
+              pager.items.map(c => {
                 const expired = isExpired(c);
                 const rem = remainingUses(c);
                 return (
@@ -176,6 +179,7 @@ export default function CouponsSection() {
               })
             )}
           </div>
+          <Pagination p={pager} label="coupons" />
         </div>
       </div>
     </div>
