@@ -70,7 +70,7 @@ export default function ChefDashboard() {
   const waitColor = (mins: number) => (mins >= 20 ? 'text-red-400' : mins >= 10 ? 'text-brand-gold' : 'text-gray-400');
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 font-sans">
+    <div className="staff-themed min-h-screen bg-[#050505] text-white p-4 md:p-6 font-sans">
       {/* New Ticket Toast */}
       {toastMessage && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-red-500 to-brand-red text-white px-6 py-3 rounded-full font-bold shadow-[0_10px_30px_rgba(239,68,68,0.4)] flex items-center gap-2 animate-bounce">

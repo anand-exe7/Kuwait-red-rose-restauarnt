@@ -105,7 +105,7 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0d0809] text-white font-sans">
+    <div className="staff-themed min-h-screen bg-[#0d0809] text-white font-sans">
       {/* Sidebar Navigation */}
       <div className="fixed left-0 top-0 h-full w-16 sm:w-20 md:w-64 bg-[#1a0a10] border-r border-brand-red/10 flex flex-col p-3 sm:p-4 z-50 transition-all">
         <div className="flex items-center gap-3 mb-6 sm:mb-10 pl-1 sm:pl-2">

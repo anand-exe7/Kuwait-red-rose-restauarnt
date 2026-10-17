@@ -274,7 +274,7 @@ export default function WaiterDashboard() {
   const cardBase = 'bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm';
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-sans pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white">
+    <div className="staff-themed h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-sans pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white">
       {/* Toast */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-ink text-white px-5 py-2.5 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
