@@ -1,11 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import {
-  Geist,
-  Geist_Mono,
-  Poppins,
-  Anton,
-  Cormorant_Garamond,
-} from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PwaRegister from "./components/PwaRegister";
 
@@ -19,28 +13,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Poppins is scoped to the marketing landing page via the `font-poppins`
-// utility; the staff dashboards keep Geist.
-const poppins = Poppins({
-  variable: "--font-poppins-src",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
-});
-
-// The hero wordmark (ROSE / BLOOM). Anton is a tall, bold display font.
-const anton = Anton({
-  variable: "--font-display-src",
-  subsets: ["latin"],
-  weight: "400",
-});
-
-// Numerals only ("50K+" and friends) — a different rhythm from the wordmark
-// so the stat reads as its own voice instead of shrunken heading text.
-const cormorant = Cormorant_Garamond({
-  variable: "--font-numeric-src",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-});
+// The landing page's own faces (wordmark, serif, body) live in app/fonts.ts and
+// are applied on that page only, so the dashboards don't preload them.
 
 export const metadata: Metadata = {
   applicationName: "Red Rose",
@@ -73,7 +47,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${poppins.variable} ${anton.variable} ${cormorant.variable} h-full antialiased`}
+      data-scroll-behavior="smooth"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}
