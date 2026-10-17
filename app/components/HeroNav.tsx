@@ -1,34 +1,31 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Menu, X, ArrowRight, ShoppingBag } from 'lucide-react';
 import { BRAND } from '../lib/brand';
 
 const LINKS = [
   { label: 'Menu', href: '/customer' },
-  { label: 'About', href: '#story' },
-  { label: 'Locations', href: '#locations' },
+  { label: 'Our Story', href: '#story' },
+  { label: 'Gifting', href: '#gifting' },
+  { label: 'Visit', href: '#locations' },
   { label: 'Contact', href: '#contact' },
 ];
 
 /**
  * Floating glass nav island.
  *
- * It sits detached from the page edges over the hero, tightens and darkens
- * once the page scrolls, and carries a gold pill that slides between links on
- * hover. Under `lg` it collapses to mark + hamburger with a full-screen sheet.
+ * It sits detached from the page edges over the hero and settles into a
+ * deeper, more opaque wine once the page scrolls. Under `lg` it collapses to
+ * the mark and a menu button that opens a full-height sheet.
  */
 export default function HeroNav() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
-  // Sliding hover indicator behind the desktop links.
-  const linkWrapRef = useRef<HTMLDivElement>(null);
-  const [pill, setPill] = useState({ left: 0, width: 0, on: false });
-
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
+    const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
@@ -46,18 +43,14 @@ export default function HeroNav() {
     };
   }, [open]);
 
-
-  const movePill = (el: HTMLElement) =>
-    setPill({ left: el.offsetLeft, width: el.offsetWidth, on: true });
-
   return (
     <>
-      <header className="fixed top-0 inset-x-0 z-50 px-3 sm:px-5 pt-3 sm:pt-4 anim-fade-down">
+      <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4 anim-fade-down">
         <div
-          className={`mx-auto flex items-center justify-between gap-3 rounded-full border backdrop-blur-md transition-[max-width,padding,background-color,box-shadow,border-color] duration-200 ease-out ${
+          className={`mx-auto flex items-center justify-between gap-3 rounded-full border transition-[max-width,padding,background-color,box-shadow,border-color] duration-300 ease-out ${
             scrolled
-              ? 'max-w-5xl border-white/15 bg-[#5c070d]/78 py-1.5 pl-2.5 pr-2 shadow-[0_18px_50px_rgba(35,0,4,0.5)]'
-              : 'max-w-6xl border-white/20 bg-white/[0.08] py-2 pl-3.5 pr-2.5 shadow-[0_14px_44px_rgba(35,0,4,0.28)]'
+              ? 'max-w-5xl border-brand-gold/25 bg-[#4f070c]/90 py-1.5 pl-2 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md'
+              : 'max-w-6xl border-white/15 bg-white/[0.07] py-2 pl-2.5 pr-2 shadow-[0_14px_40px_-16px_rgba(35,0,4,0.45)] backdrop-blur-sm'
           }`}
         >
           {/* ---- Mark ---- */}
@@ -69,96 +62,79 @@ export default function HeroNav() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/rose-mark.webp"
-              alt={BRAND.fullName}
+              alt=""
               width={40}
               height={40}
-              className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/70 shadow-[0_3px_8px_rgba(35,0,4,0.45)] transition-transform duration-300 group-hover:scale-105"
+              className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/60 transition-transform duration-500 group-hover:scale-105 sm:h-10 sm:w-10"
             />
             <span className="leading-none">
-              <span className="block font-display uppercase text-[22px] sm:text-[26px] tracking-wide text-white" style={{ transform: 'scaleY(1.15)', transformOrigin: 'bottom' }}>
+              <span className="sr-only">{BRAND.fullName}</span>
+              <span
+                aria-hidden
+                className="block font-wordmark text-[21px] uppercase tracking-[0.04em] text-white sm:text-[24px]"
+                style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
+              >
                 Red Rose
               </span>
-              <span className="mt-0.5 block text-[7.5px] sm:text-[8px] font-semibold uppercase tracking-[0.42em] text-brand-gold/90">
-                Pastry
+              <span
+                aria-hidden
+                className="mt-1 block font-body text-[7.5px] font-medium uppercase tracking-[0.5em] text-brand-gold-light/85"
+              >
+                Pastry · Kuwait
               </span>
             </span>
           </Link>
 
-          {/* ---- Links with the sliding pill ---- */}
-          <div
-            ref={linkWrapRef}
-            onMouseLeave={() => setPill((p) => ({ ...p, on: false }))}
-            className="relative hidden lg:flex items-center"
-          >
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 my-auto h-8 rounded-full transition-all duration-400 ease-out"
-              style={{
-                left: pill.left,
-                width: pill.width,
-                opacity: pill.on ? 1 : 0,
-                backgroundImage:
-                  'linear-gradient(135deg, rgba(247,227,176,0.22), rgba(201,169,97,0.14))',
-                boxShadow: 'inset 0 0 0 1px rgba(247,227,176,0.28)',
-              }}
-            />
+          {/* ---- Links ---- */}
+          <nav aria-label="Main" className="hidden items-center lg:flex">
             {LINKS.map((l) => (
               <Link
                 key={l.label}
                 href={l.href}
-                onMouseEnter={(e) => movePill(e.currentTarget)}
-                onFocus={(e) => movePill(e.currentTarget)}
-                className="relative z-10 px-5 py-2 text-[13.5px] font-medium tracking-[0.01em] text-white/85 transition-colors duration-300 hover:text-white"
+                className="group relative px-4 py-2 font-body text-[11px] font-medium uppercase tracking-[0.22em] text-white/80 transition-colors duration-300 hover:text-white xl:px-5"
               >
                 {l.label}
+                <span
+                  aria-hidden
+                  className="absolute inset-x-4 bottom-1 h-px origin-left scale-x-0 bg-brand-gold-light transition-transform duration-500 ease-out group-hover:scale-x-100 xl:inset-x-5"
+                />
               </Link>
             ))}
-          </div>
+          </nav>
 
           {/* ---- Actions ---- */}
           <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/customer"
               aria-label="Your bag"
-              className="hidden sm:flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition-all duration-300 hover:bg-white/20 hover:-translate-y-0.5"
+              className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 text-white/90 transition-colors duration-300 hover:border-brand-gold-light/60 hover:text-white sm:flex"
             >
-              <ShoppingBag size={16} strokeWidth={1.9} />
+              <ShoppingBag size={16} strokeWidth={1.6} />
             </Link>
 
-            <Link
-              href="/customer"
-              className="group relative hidden sm:inline-flex items-center gap-2 overflow-hidden rounded-full px-6 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#4a1515] shadow-[0_8px_22px_rgba(35,0,4,0.35)] transition-transform duration-300 hover:-translate-y-0.5"
-              style={{
-                backgroundImage:
-                  'linear-gradient(135deg, #fbeec6 0%, #dcbb79 48%, #b9924b 100%)',
-              }}
-            >
-              <span
-                aria-hidden
-                className="absolute inset-y-0 -left-1/3 w-1/3 -skew-x-[22deg] bg-white/45 transition-all duration-700 ease-out group-hover:left-full"
-              />
-              <span className="relative">Order Now</span>
-              <ArrowRight
-                size={13}
-                className="relative transition-transform duration-300 group-hover:translate-x-1"
-              />
+            <Link href="/customer" className="btn btn-gold hidden px-6 py-3 text-[10.5px] sm:inline-flex">
+              Order Now
+              <ArrowRight size={13} strokeWidth={1.8} />
             </Link>
 
-            {/* ---- Hamburger ---- */}
+            {/* ---- Menu button ---- */}
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
               aria-label={open ? 'Close menu' : 'Open menu'}
               aria-expanded={open}
-              className="lg:hidden relative flex h-10 w-10 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white transition-colors duration-300 hover:bg-white/20 active:scale-95"
+              aria-controls="mobile-menu"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/25 text-white transition-colors duration-300 hover:bg-white/10 active:scale-95 lg:hidden"
             >
               <Menu
                 size={18}
-                className={`absolute transition-all duration-300 ${open ? 'scale-75 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'}`}
+                strokeWidth={1.6}
+                className={`absolute transition-all duration-300 ${open ? 'rotate-90 scale-75 opacity-0' : 'rotate-0 scale-100 opacity-100'}`}
               />
               <X
                 size={18}
-                className={`absolute transition-all duration-300 ${open ? 'scale-100 rotate-0 opacity-100' : 'scale-75 -rotate-90 opacity-0'}`}
+                strokeWidth={1.6}
+                className={`absolute transition-all duration-300 ${open ? 'rotate-0 scale-100 opacity-100' : '-rotate-90 scale-75 opacity-0'}`}
               />
             </button>
           </div>
@@ -167,7 +143,8 @@ export default function HeroNav() {
 
       {/* ---- Mobile sheet ---- */}
       <div
-        className={`lg:hidden fixed inset-0 z-40 transition-opacity duration-400 ${
+        id="mobile-menu"
+        className={`fixed inset-0 z-40 transition-opacity duration-500 lg:hidden ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       >
@@ -176,60 +153,72 @@ export default function HeroNav() {
           aria-label="Close menu"
           tabIndex={open ? 0 : -1}
           onClick={() => setOpen(false)}
-          className="absolute inset-0 h-full w-full cursor-default bg-[#3d0509]/65 backdrop-blur-md"
+          className="absolute inset-0 h-full w-full cursor-default bg-[#2a0306]/60 backdrop-blur-sm"
         />
 
         <nav
-          className={`absolute inset-x-3 top-3 overflow-hidden rounded-[2rem] border border-white/15 px-6 pb-8 pt-[clamp(78px,13svh,110px)] shadow-[0_30px_70px_rgba(30,0,4,0.55)] transition-all duration-500 ease-[cubic-bezier(.22,.9,.25,1)] ${
+          aria-label="Mobile"
+          className={`absolute inset-x-3 top-3 flex max-h-[calc(100svh-24px)] flex-col overflow-y-auto rounded-[28px] border border-brand-gold/20 px-7 pb-8 pt-[92px] shadow-[0_30px_70px_rgba(30,0,4,0.55)] transition-all duration-500 ease-[cubic-bezier(.22,.9,.25,1)] sm:inset-x-5 sm:top-4 ${
             open ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0'
           }`}
           style={{
-            backgroundImage:
-              'linear-gradient(165deg, #8c1119 0%, #690a10 55%, #470509 100%)',
+            backgroundImage: 'linear-gradient(165deg, #8c1119 0%, #690a10 55%, #470509 100%)',
           }}
         >
-          <ul className="flex flex-col divide-y divide-white/10">
+          <ul className="flex flex-col">
             {LINKS.map((l, i) => (
-              <li key={l.label}>
+              <li key={l.label} className="border-b border-white/10 last:border-b-0">
                 <Link
                   href={l.href}
                   onClick={() => setOpen(false)}
                   tabIndex={open ? 0 : -1}
-                  className="group flex items-center justify-between py-4 text-white transition-all duration-500"
+                  className="group flex items-baseline gap-5 py-4 text-white transition-all duration-500"
                   style={{
-                    transitionDelay: open ? `${130 + i * 70}ms` : '0ms',
+                    transitionDelay: open ? `${120 + i * 60}ms` : '0ms',
                     opacity: open ? 1 : 0,
-                    transform: open ? 'translateX(0)' : 'translateX(-16px)',
+                    transform: open ? 'translateX(0)' : 'translateX(-14px)',
                   }}
                 >
-                  <span className="font-display text-[28px] leading-none">
+                  <span className="w-6 font-display text-[15px] italic text-brand-gold-light/70">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="flex-1 font-display text-[32px] font-medium leading-none">
                     {l.label}
                   </span>
                   <ArrowRight
-                    size={17}
-                    className="text-brand-gold transition-transform duration-300 group-hover:translate-x-1.5"
+                    size={16}
+                    strokeWidth={1.5}
+                    className="text-brand-gold-light transition-transform duration-300 group-hover:translate-x-1.5"
                   />
                 </Link>
               </li>
             ))}
           </ul>
 
-          <Link
-            href="/customer"
-            onClick={() => setOpen(false)}
-            tabIndex={open ? 0 : -1}
-            className="mt-7 flex items-center justify-center gap-2 rounded-full px-7 py-4 text-[11.5px] font-bold uppercase tracking-[0.18em] text-[#4a1515] shadow-xl transition-all duration-500 active:scale-95"
+          <div
+            className="mt-8 flex flex-col gap-5 transition-all duration-500"
             style={{
-              backgroundImage:
-                'linear-gradient(135deg, #fbeec6 0%, #dcbb79 48%, #b9924b 100%)',
-              transitionDelay: open ? `${130 + LINKS.length * 70}ms` : '0ms',
+              transitionDelay: open ? `${120 + LINKS.length * 60}ms` : '0ms',
               opacity: open ? 1 : 0,
-              transform: open ? 'translateY(0)' : 'translateY(-12px)',
+              transform: open ? 'translateY(0)' : 'translateY(-10px)',
             }}
           >
-            Order Now
-            <ArrowRight size={14} />
-          </Link>
+            <Link
+              href="/customer"
+              onClick={() => setOpen(false)}
+              tabIndex={open ? 0 : -1}
+              className="btn btn-gold w-full"
+            >
+              Order Now
+              <ArrowRight size={14} strokeWidth={1.8} />
+            </Link>
+            <p className="text-center font-body text-[11px] font-light tracking-[0.12em] text-white/60">
+              Salmiya · Open daily 8:00 – 23:00 ·{' '}
+              <a href="tel:+96522000000" tabIndex={open ? 0 : -1} className="text-white/85 underline-offset-4 hover:underline">
+                +965 2200 0000
+              </a>
+            </p>
+          </div>
         </nav>
       </div>
     </>
