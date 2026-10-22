@@ -32,8 +32,9 @@ export interface OrderItem {
 }
 
 /** Where the order is served. 'table' = seated dine-in (uses `table`),
- *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go. */
-export type OrderMode = 'table' | 'standing' | 'takeaway';
+ *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go,
+ *  'delivery' = driven to the customer (handled by /api/delivery/*, not the waiter). */
+export type OrderMode = 'table' | 'standing' | 'takeaway' | 'delivery';
 
 export interface Order {
   id: string;
@@ -58,6 +59,7 @@ export interface Order {
 export function orderLabel(o: Pick<Order, 'mode' | 'table' | 'standingLabel'>): string {
   if (o.mode === 'standing') return o.standingLabel ? `Standing · ${o.standingLabel}` : 'Standing';
   if (o.mode === 'takeaway') return 'Takeaway';
+  if (o.mode === 'delivery') return 'Delivery';
   return `Table ${o.table}`;
 }
 
