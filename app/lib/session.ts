@@ -58,6 +58,14 @@ async function hmac(message: string): Promise<string | null> {
   return toHex(await crypto.subtle.sign('HMAC', key, enc.encode(message)));
 }
 
+/** The signing secret for server-only code (OTP derivation, driver cookies). Null if unusable. */
+export function getAuthSecret(): string | null {
+  return authSecret();
+}
+
+/** HMAC-SHA256 hex of any message with the auth secret (null if the secret is unusable). */
+export const signMessage = hmac;
+
 /** Constant-time string comparison. */
 export function safeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;

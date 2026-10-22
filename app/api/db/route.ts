@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SESSION_COOKIE, verifySessionToken, type Role } from '../../lib/session';
 import { getServerSupabase } from '../../lib/supabaseServer';
+import { HttpError, bad, deny, throttle, isObj, str, int, money, round3, clientIp } from '../../lib/server/http';
+import { priceItems, checkCoupon, consumeCoupon, TAX_RATE } from '../../lib/server/pricing';
 
 // Single guarded door for every database WRITE made by the browser.
 //
@@ -20,8 +22,6 @@ type Values = Record<string, unknown>;
 type Match = Record<string, string | number | boolean>;
 interface Body { table?: string; op?: Op; values?: Values; match?: Match }
 
-const TAX_RATE = 0.1;
-
 const COLUMNS: Record<string, string[]> = {
   menu_items: ['id', 'name', 'category', 'price', 'description', 'image', 'prep_time', 'status', 'is_popular',
     'is_chef_special', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'created_at'],
@@ -35,44 +35,6 @@ const COLUMNS: Record<string, string[]> = {
   waiter_calls: ['id', 'table_number', 'resolved', 'created_at'],
 };
 
-class HttpError extends Error {
-  constructor(public status: number, message: string, public code?: string) {
-    super(message);
-  }
-}
-const deny = (message = 'Not allowed') => new HttpError(403, message);
-const bad = (message: string) => new HttpError(400, message);
-
-// ---- tiny in-memory throttle for anonymous writes (best effort per instance) ----
-const hits = new Map<string, { n: number; reset: number }>();
-function throttle(key: string, max = 40, windowMs = 60_000) {
-  const now = Date.now();
-  const cur = hits.get(key);
-  if (!cur || cur.reset < now) {
-    hits.set(key, { n: 1, reset: now + windowMs });
-    if (hits.size > 5000) for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
-    return;
-  }
-  if (++cur.n > max) throw new HttpError(429, 'Too many requests. Slow down.');
-}
-
-// ---- validation helpers ----
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const str = (v: unknown, max: number, name: string): string => {
-  if (typeof v !== 'string' || v.length > max) throw bad(`Invalid ${name}`);
-  return v;
-};
-const int = (v: unknown, min: number, max: number, name: string): number => {
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) throw bad(`Invalid ${name}`);
-  return n;
-};
-const money = (v: unknown, name: string, max = 1_000_000): number => {
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0 || n > max) throw bad(`Invalid ${name}`);
-  return n;
-};
-const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
 const isFloor = (r: Role | null) => r === 'admin' || r === 'waiter'; // may bill / serve
 
@@ -184,55 +146,10 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   }
   const priority = staff && v.priority === 'high' ? 'high' : 'normal';
 
-  // ---- items & prices: taken from the menu table, not from the client ----
-  if (!Array.isArray(v.items) || v.items.length === 0 || v.items.length > 50) throw bad('Invalid items');
-  const ids = v.items.map((i) => (isObj(i) ? String(i.id ?? '') : ''));
-  const { data: menuRows, error: menuErr } = await sb.from('menu_items').select('id,name,price,status').in('id', ids);
-  if (menuErr) throw new HttpError(500, 'Menu lookup failed');
-  const menu = new Map((menuRows ?? []).map((m) => [m.id as string, m]));
-  let subtotal = 0;
-  const items = v.items.map((raw) => {
-    if (!isObj(raw)) throw bad('Invalid item');
-    const qty = int(raw.qty, 1, 99, 'quantity');
-    const m = menu.get(String(raw.id));
-    let price: number;
-    let name: string;
-    if (m) {
-      if (m.status !== 'active' && role !== 'admin') throw bad(`"${m.name}" is not available`);
-      price = Number(m.price);
-      name = String(m.name);
-    } else if (role === 'admin') {
-      // POS custom lines (free-form name + price) are admin-only.
-      price = money(raw.price, 'price');
-      name = str(raw.name ?? 'Item', 80, 'name') || 'Item';
-    } else {
-      throw bad('Unknown menu item');
-    }
-    subtotal += price * qty;
-    const out: Record<string, unknown> = { id: String(raw.id), name, price, qty };
-    if (typeof raw.notes === 'string' && raw.notes.trim()) out.notes = raw.notes.slice(0, 200);
-    return out;
-  });
-  subtotal = round3(subtotal);
-
-  // ---- coupon: validated and consumed here ----
-  let couponCode: string | null = null;
-  let couponId: string | null = null;
-  let couponUsed = 0;
-  let discount = 0;
-  if (typeof v.coupon_code === 'string' && v.coupon_code.trim()) {
-    const code = v.coupon_code.trim().toUpperCase().slice(0, 40);
-    const { data: c } = await sb.from('coupons').select('*').eq('code', code).maybeSingle();
-    if (!c) throw bad('Invalid coupon code');
-    if (!c.active) throw bad('This coupon is no longer active');
-    if (c.expiry && Date.now() > new Date(`${c.expiry}T23:59:59`).getTime()) throw bad('This coupon has expired');
-    if (c.usage_limit && c.used_count >= c.usage_limit) throw bad('This coupon has reached its usage limit');
-    if (subtotal < Number(c.min_order)) throw bad(`Minimum order of KD ${Number(c.min_order).toFixed(3)} required`);
-    couponCode = c.code;
-    couponId = c.id;
-    couponUsed = Number(c.used_count) || 0;
-    discount = round3((subtotal * Number(c.discount_percent)) / 100);
-  }
+  // ---- items, prices and coupon: checked against the database, not the client ----
+  const { items, subtotal } = await priceItems(sb, v.items, { admin: role === 'admin' });
+  const coupon = await checkCoupon(sb, v.coupon_code, subtotal);
+  let discount = coupon?.discount ?? 0;
 
   let tax: number;
   let total: number;
@@ -250,14 +167,12 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   const row = {
     id, table_number: tableNumber, items, status, priority, subtotal, tax, total, source, mode,
     discount: discount > 0 ? round3(discount) : null,
-    coupon_code: couponCode,
+    coupon_code: coupon?.code ?? null,
     standing_label: typeof v.standing_label === 'string' ? v.standing_label.slice(0, 40) : null,
     session_id: sessionId, billed, created_at: Date.now(),
   };
   const res = await sb.from('orders').insert(row);
-  if (!res.error && couponId) {
-    await sb.from('coupons').update({ used_count: couponUsed + 1 }).eq('id', couponId);
-  }
+  if (!res.error && coupon) await consumeCoupon(sb, coupon);
   return res;
 }
 
@@ -297,11 +212,6 @@ async function waiterCallsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   assertKeys(v, ['resolved'], 'call');
   if (typeof match.id !== 'string' || Object.keys(match).length !== 1) throw bad('match must be { id }');
   return ctx.sb.from('waiter_calls').update({ resolved: v.resolved === true }).eq('id', match.id);
-}
-
-function clientIp(request: NextRequest): string {
-  const xff = request.headers.get('x-forwarded-for');
-  return (xff ? xff.split(',')[0].trim() : request.headers.get('x-real-ip')) || 'unknown';
 }
 
 export async function POST(request: NextRequest) {
