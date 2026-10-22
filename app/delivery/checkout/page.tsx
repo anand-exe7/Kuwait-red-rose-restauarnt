@@ -50,6 +50,10 @@ export default function DeliveryCheckout() {
   const [areas, setAreas] = useState<AreaOption[]>([]);
   const [areaId, setAreaId] = useState('');
   const [pos, setPos] = useState<LatLng | null>(null);
+  // Areas mode: the customer's exact GPS position, shared with the driver (the fee still comes from the area).
+  const [here, setHere] = useState<(LatLng & { accuracy?: number }) | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
   const [form, setForm] = useState(blank);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -108,7 +112,23 @@ export default function DeliveryCheckout() {
     if (mode === 'areas') {
       const match = areas.find((x) => x.id === a.area_id) ?? areas.find((x) => x.name === a.area);
       setAreaId(match ? match.id : '');
+      setHere(a.lat !== null && a.lng !== null ? { lat: a.lat, lng: a.lng } : null);
     } else if (a.lat !== null && a.lng !== null) setPos({ lat: a.lat, lng: a.lng });
+  };
+
+  // Uses the phone's own GPS (no Google service involved).
+  const useMyLocation = () => {
+    setLocError(null);
+    if (!navigator.geolocation) { setLocError('Your browser cannot share its location.'); return; }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setHere({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); setLocating(false); },
+      (e) => {
+        setLocating(false);
+        setLocError(e.code === 1 ? 'Location permission was denied. Allow it in your browser settings, or continue without it.' : 'Could not get your location. Please try again.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   };
 
   const place = async () => {
@@ -118,7 +138,7 @@ export default function DeliveryCheckout() {
       const r = await call<{ deliveryId: string; redirectUrl?: string }>('checkout', {
         items: lines.map((l) => ({ id: l.id, qty: l.qty })),
         couponCode: saved?.coupon ?? undefined,
-        address: form, ...target, paymentMethod: method, saveAddress, note,
+        address: form, ...target, ...(mode === 'areas' && here ? { lat: here.lat, lng: here.lng } : {}), paymentMethod: method, saveAddress, note,
       });
       try { sessionStorage.removeItem('rr_delivery_cart'); } catch { /* ignore */ }
       if (r.redirectUrl) window.location.assign(r.redirectUrl); // PAYMENT: gateway's hosted page
@@ -198,6 +218,22 @@ export default function DeliveryCheckout() {
                           <option key={a.id} value={a.id}>{a.name} — {a.fee > 0 ? formatKWD(a.fee) : 'Free delivery'}</option>
                         ))}
                       </select>
+                      <div className="mt-4 rounded-2xl border border-brand-gold/30 p-4">
+                        <p className="text-sm font-bold mb-1">Share your exact location <span className="font-medium text-brand-ink/50">(recommended)</span></p>
+                        <p className="text-xs text-brand-ink/60 mb-3">Helps the driver find your door. Your fee is still based on the area you chose.</p>
+                        <button type="button" onClick={useMyLocation} disabled={locating}
+                          className="px-4 py-2.5 rounded-xl border border-brand-red/40 text-brand-red font-bold text-sm flex items-center gap-2 disabled:opacity-60">
+                          {locating ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+                          {here ? 'Update my location' : 'Use my current location'}
+                        </button>
+                        {here && (
+                          <p className="mt-2 text-sm font-bold text-emerald-700">
+                            Location saved{here.accuracy ? ` (accurate to about ${Math.round(here.accuracy)} m)` : ''}.{' '}
+                            <button type="button" onClick={() => setHere(null)} className="underline font-medium text-brand-ink/50">Remove</button>
+                          </p>
+                        )}
+                        {locError && <p className="mt-2 text-sm font-bold text-brand-red">{locError}</p>}
+                      </div>
                     </>
                   )
               )}

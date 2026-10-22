@@ -92,7 +92,7 @@ export default function DeliveriesSection() {
                   <a href={`tel:${d.customerPhone}`} className="inline-flex items-center gap-1 text-black/60 hover:text-brand-red"><Phone size={13} /> {d.customerPhone}</a>
                   <p className="mt-1 text-black/70">{addressLine(d.address as never)}</p>
                   {typeof d.address.landmark === 'string' && d.address.landmark && <p className="text-xs text-black/50">Landmark: {d.address.landmark}</p>}
-                  <a href={`https://www.google.com/maps/search/?api=1&query=${d.lat !== null && d.lng !== null ? `${d.lat},${d.lng}` : encodeURIComponent(`${addressLine(d.address as never)}, Kuwait`)}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-blue-600"><ExternalLink size={12} /> Open in Google Maps</a>
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${d.lat !== null && d.lng !== null ? `${d.lat},${d.lng}` : encodeURIComponent(`${addressLine(d.address as never)}, Kuwait`)}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-blue-600"><ExternalLink size={12} /> {d.lat !== null && d.lng !== null ? 'Open exact location' : 'Search address in Google Maps'}</a>
                 </div>
                 <div>
                   <p className="text-black/70">{d.items.map((i) => `${i.qty}× ${i.name}`).join(', ')}</p>

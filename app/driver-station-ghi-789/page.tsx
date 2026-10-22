@@ -120,7 +120,7 @@ export default function DriverStation() {
               {typeof d.address.landmark === 'string' && d.address.landmark && <p className="text-sm text-black/60">Landmark: {d.address.landmark}</p>}
               {d.note && <p className="text-sm text-black/60">Note: {d.note}</p>}
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <a href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat !== null && d.lng !== null ? `${d.lat},${d.lng}` : encodeURIComponent(`${addressLine(d.address as never)}, Kuwait`)}`} target="_blank" rel="noreferrer" className="py-3 rounded-xl bg-blue-600 text-white font-bold text-center flex items-center justify-center gap-2"><ExternalLink size={16} /> Navigate</a>
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${d.lat !== null && d.lng !== null ? `${d.lat},${d.lng}` : encodeURIComponent(`${addressLine(d.address as never)}, Kuwait`)}`} target="_blank" rel="noreferrer" className="py-3 rounded-xl bg-blue-600 text-white font-bold text-center flex items-center justify-center gap-2"><ExternalLink size={16} /> {d.lat !== null && d.lng !== null ? 'Navigate to exact location' : 'Navigate (search address)'}</a>
                 <a href={`tel:${d.customerPhone}`} className="py-3 rounded-xl bg-emerald-600 text-white font-bold text-center flex items-center justify-center gap-2"><Phone size={16} /> {d.customerPhone}</a>
               </div>
 
