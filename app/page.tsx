@@ -1,95 +1,134 @@
 import Link from 'next/link';
 import {
-  ShoppingCart,
-  Truck,
   Phone,
   Clock,
   MapPin,
   Award,
   Wheat,
   Gift,
-  BadgeCheck,
+  Truck,
+  Star,
   ArrowRight,
+  type LucideIcon,
 } from 'lucide-react';
 import { BRAND } from './lib/brand';
 import { formatKWD } from './lib/currency';
+import { landingFonts } from './fonts';
 import HeroNav from './components/HeroNav';
 import Reveal from './components/Reveal';
-import CakeSpin from './components/CakeSpin';
+import HeroCake from './components/HeroCake';
+import CountUp from './components/CountUp';
+import Tilt from './components/Tilt';
 import Reviews, { type Review } from './components/Reviews';
 
 /**
  * Every photo on the landing page lives here so any of them can be swapped in
- * one place. All URLs were checked to resolve before being used.
+ * one place. All IDs were checked to resolve before being used.
  */
 const IMAGES = {
   macarons: 'photo-1558326567-98ae2405596b', // macaron stack
   croissant: 'photo-1555507036-ab1f4038808a', // butter croissant
-  berryTart: 'photo-1488477181946-6428a0291777', // strawberry cream glasses
+  berryCream: 'photo-1488477181946-6428a0291777', // strawberry cream glasses
+  tartlets: 'photo-1495147466023-ac5c588e2e94', // fruit tartlets with flowers
+  baklava: 'photo-1761828122856-8703baac8e86', // pistachio baklava
+  baklavaTray: 'photo-1598110750624-207050c4f28c', // a tray of baklava
   dates: 'photo-1770617476915-7269d29d27dc', // rows of dates
   saffron: 'photo-1643471672168-f4a4b6cfa440', // saffron threads from a jar
   pistachios: 'photo-1610137512859-aa919f651a05', // pistachios in the shell
-  baklava: 'photo-1761828122856-8703baac8e86', // pistachio baklava
-  gifting: 'photo-1512909006721-3d6018887383', // ribboned parcel
-  sweet1: 'photo-1464195244916-405fa0a82545', // cookies in a cloth
-  sweet2: 'photo-1517686469429-8bdb88b9f907', // hands working dough
-  sweet3: 'photo-1571506165871-ee72a35bc9d4', // macarons
-  sweet4: 'photo-1495147466023-ac5c588e2e94', // fruit tartlets with flowers
-  sweet5: 'photo-1606313564200-e75d5e30476c', // chocolate cake slices
-  sweet6: 'photo-1551024506-0bccd828d307', // caramel sundae
+  giftBoxes: 'photo-1607344645866-009c320b63e0', // black boxes, gold ribbon
+  chocolates: 'photo-1481391319762-47dff72954d9', // an open box of chocolates
 } as const;
 
 const img = (id: string, w = 700) =>
-  `https://images.unsplash.com/${id}?auto=format&fit=crop&q=80&w=${w}`;
+  `https://images.unsplash.com/${id}?auto=format&fit=crop&q=85&w=${w}`;
 
-const NAV_LINKS = [
-  { label: 'Shop', href: '/customer' },
+/** Several widths of one photo, so high-density screens get a sharp copy. */
+const srcSet = (id: string, widths: number[]) => widths.map((w) => `${img(id, w)} ${w}w`).join(', ');
+
+const CONTAINER = 'mx-auto w-full max-w-6xl px-5 sm:px-8';
+
+const FOOTER_LINKS = [
+  { label: 'Menu', href: '/customer' },
   { label: 'Our Story', href: '#story' },
   { label: 'Gifting', href: '#gifting' },
-  { label: 'Locations', href: '#locations' },
-];
-
-const PROMISES = [
-  {
-    icon: Wheat,
-    title: 'Baked Daily',
-    text: 'Nothing is sold the day after it is baked. Ever.',
-  },
-  {
-    icon: Award,
-    title: 'Real Ingredients',
-    text: 'French butter, Iranian saffron, no preservatives.',
-  },
-  {
-    icon: Truck,
-    title: 'Same-Day Delivery',
-    text: 'Order before noon, at your door by evening.',
-  },
-  {
-    icon: Gift,
-    title: 'Gift Ready',
-    text: 'Every box hand-tied, with a card if you want one.',
-  },
-];
-
-/** Placeholder customer portraits for the "50K+" card. */
-const AVATARS = [
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=120',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=120',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&q=80&w=120',
+  { label: 'Visit Us', href: '#locations' },
+  { label: 'Order Online', href: '/customer' },
 ];
 
 const BESTSELLERS = [
-  { name: 'Macaron Box', price: 4.5, image: IMAGES.macarons },
-  { name: 'Butter Croissant', price: 0.75, image: IMAGES.croissant },
-  { name: 'Berry Tart', price: 1.75, image: IMAGES.berryTart },
+  {
+    name: 'Macaron Box',
+    kind: 'Pâtisserie',
+    note: 'Twelve shells in the season’s flavours, boxed and ribboned by hand.',
+    price: 4.5,
+    image: IMAGES.macarons,
+    badge: 'Most loved',
+  },
+  {
+    name: 'Pistachio Baklava',
+    kind: 'Arabic Sweets',
+    note: 'Paper-thin filo, Aleppo pistachio and a whisper of orange blossom.',
+    price: 3.25,
+    image: IMAGES.baklava,
+  },
+  {
+    name: 'Butter Croissant',
+    kind: 'Viennoiserie',
+    note: 'French butter, laminated by hand and out of the oven at dawn.',
+    price: 0.75,
+    image: IMAGES.croissant,
+  },
+  {
+    name: 'Fruit Tartlets',
+    kind: 'Pâtisserie',
+    note: 'Vanilla crème pâtissière under the morning’s freshest fruit.',
+    price: 1.75,
+    image: IMAGES.tartlets,
+  },
 ];
 
 const FLAVOURS = [
-  { src: IMAGES.dates, alt: 'Medjool dates', label: 'Medjool dates', from: 'The Gulf' },
-  { src: IMAGES.saffron, alt: 'Saffron threads', label: 'Saffron', from: 'Iran' },
-  { src: IMAGES.pistachios, alt: 'Pistachios', label: 'Pistachios', from: 'Aleppo' },
-  { src: IMAGES.baklava, alt: 'Baklava', label: 'Baklava', from: 'Our kitchen' },
+  { src: IMAGES.dates, label: 'Medjool dates', from: 'The Gulf' },
+  { src: IMAGES.saffron, label: 'Saffron', from: 'Iran' },
+  { src: IMAGES.pistachios, label: 'Pistachios', from: 'Aleppo' },
+  { src: IMAGES.baklavaTray, label: 'Baklava', from: 'Our kitchen' },
+];
+
+const PROMISES: { icon: LucideIcon; title: string; text: string }[] = [
+  { icon: Wheat, title: 'Baked Daily', text: 'Nothing is sold the day after it is baked. Ever.' },
+  { icon: Award, title: 'Real Ingredients', text: 'French butter, Iranian saffron, no preservatives.' },
+  { icon: Truck, title: 'Same-Day Delivery', text: 'Order before noon, at your door by evening.' },
+  { icon: Gift, title: 'Gift Ready', text: 'Every box hand-tied, with a card if you want one.' },
+];
+
+const OCCASIONS = [
+  {
+    title: 'Eid & Ramadan hampers',
+    text: 'Dates, maamoul and baklava in keepsake boxes, ready for every visit.',
+  },
+  {
+    title: 'Weddings & engagements',
+    text: 'Favours and celebration cakes, finished to match your colours.',
+  },
+  {
+    title: 'Corporate gifting',
+    text: 'Boxes for clients and teams, with a card message for every one.',
+  },
+];
+
+const STEPS = [
+  {
+    title: 'You Order',
+    text: 'Pick your favourites and place your order online in under a minute.',
+  },
+  {
+    title: 'We Bake',
+    text: 'Our pastry chefs whisk, proof and bake your box fresh that morning.',
+  },
+  {
+    title: 'We Deliver',
+    text: 'Same-day delivery across Kuwait City, boxed and beautifully sealed.',
+  },
 ];
 
 /** Placeholder testimonials — swap these for real ones before launch. */
@@ -97,81 +136,93 @@ const REVIEW_SEED: Review[] = [
   {
     name: 'Reem A.',
     rating: 5,
-    photo: img(IMAGES.sweet3, 700),
     text: 'The macaron box arrived still cool and the ribbon was perfectly tied. Every shell was flawless — this is our standing order now.',
   },
   {
     name: 'Yousef K.',
     rating: 5,
-    photo: img(IMAGES.sweet4, 700),
     text: 'Ordered a gifting hamper for my mother. The packaging alone made her week, and the baklava tasted like my grandmother made it.',
   },
   {
     name: 'Dana S.',
     rating: 5,
-    photo: img(IMAGES.sweet1, 700),
     text: 'Same-day delivery actually meant same-day. Warm croissants at the office by nine. The whole floor now orders every Thursday.',
   },
   {
     name: 'Fahad M.',
     rating: 4,
-    photo: img(IMAGES.sweet2, 700),
-    text: 'The kunafa is the closest to my mother\u2019s that I have found in Salmiya. Only note is that it sells out early on Fridays.',
+    text: 'The kunafa is the closest to my mother’s that I have found in Salmiya. Only note is that it sells out early on Fridays.',
   },
   {
     name: 'Noura B.',
     rating: 5,
-    photo: img(IMAGES.sweet5, 700),
     text: 'We ordered the signature cake for an engagement. It photographed beautifully and, more to the point, it was gone in ten minutes.',
   },
   {
     name: 'Abdullah R.',
     rating: 5,
-    photo: img(IMAGES.sweet6, 700),
     text: 'Been buying date rolls here for two years. Same quality every single time, which is rarer than it should be.',
   },
 ];
 
-/** A whisk — lucide has no whisk icon, so it is drawn inline. */
-function Whisk({ size = 40 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.7}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {/* handle */}
-      <path d="M12 2.2v6.1" />
-      {/* outer basket */}
-      <path d="M12 8.3c-4.6 0-7 3.5-7 7.1 0 3.5 3.1 6.2 7 6.2s7-2.7 7-6.2c0-3.6-2.4-7.1-7-7.1z" />
-      {/* inner wires */}
-      <path d="M12 8.3v13.3" />
-      <path d="M8.3 9.5c-1.4 3.6-1.4 8.6 0 11.4" />
-      <path d="M15.7 9.5c1.4 3.6 1.4 8.6 0 11.4" />
-    </svg>
-  );
-}
+const ROMAN = ['I', 'II', 'III', 'IV'];
+
+/**
+ * What bursts out from behind the cake when it lands. x/y/s are in cake
+ * widths from the cake's centre; mx/my/ms are the phone layout, where the
+ * cake sits under the wordmark. Items without mx are desktop-only.
+ */
+const BURST: {
+  src: string;
+  x: number; y: number; s: number;
+  mx?: number; my?: number; ms?: number;
+  r: number; d: number; f: number;
+}[] = [
+  { src: 'cherries', x: -0.8, y: -0.5, s: 0.34, mx: -0.44, my: 0.24, ms: 0.3, r: -12, d: 0, f: 6.5 },
+  { src: 'raspberry', x: 0.72, y: -0.56, s: 0.15, mx: 0.44, my: -0.18, ms: 0.15, r: 16, d: 60, f: 5.5 },
+  { src: 'strawberry', x: 0.92, y: 0.3, s: 0.26, mx: 0.41, my: 0.38, ms: 0.24, r: -14, d: 120, f: 7 },
+  { src: 'cherry', x: -0.96, y: 0.32, s: 0.13, mx: -0.46, my: -0.24, ms: 0.12, r: 12, d: 90, f: 5 },
+  { src: 'petal-a', x: -0.4, y: -0.82, s: 0.11, r: 24, d: 30, f: 6 },
+  { src: 'petal-b', x: 0.36, y: -0.84, s: 0.11, r: -30, d: 150, f: 7 },
+  { src: 'petal-c', x: 1.2, y: -0.12, s: 0.1, mx: 0.47, my: 0.04, ms: 0.09, r: 40, d: 200, f: 6.5 },
+  { src: 'petal-a', x: -1.22, y: -0.02, s: 0.09, mx: -0.5, my: 0.04, ms: 0.09, r: -50, d: 240, f: 5.8 },
+];
+
+/** Petals drifting down through the hero, some behind the cream, some in front. */
+const FALLING = [
+  { src: 'petal-b', left: '7%', w: 34, dur: 17, delay: -3, sway: 60, front: false, phone: true },
+  { src: 'petal-a', left: '24%', w: 24, dur: 21, delay: -11, sway: -40, front: true, phone: false },
+  { src: 'petal-c', left: '79%', w: 28, dur: 19, delay: -6, sway: -50, front: false, phone: true },
+  { src: 'petal-a', left: '92%', w: 34, dur: 23, delay: -15, sway: 40, front: true, phone: false },
+  { src: 'petal-b', left: '57%', w: 22, dur: 26, delay: -19, sway: 30, front: false, phone: false },
+];
+
+const RIBBON = [
+  'Baked fresh every morning',
+  'Hand-tied gift boxes',
+  'Same-day delivery across Kuwait',
+  'Arabic & French pâtisserie',
+  'Since 2012',
+];
 
 export default function Home() {
   return (
-    <div className="min-h-screen w-full bg-brand-cream text-brand-ink font-poppins overflow-x-hidden">
+    <div
+      className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
+    >
+      <div aria-hidden className="scroll-progress" />
       <HeroNav />
 
-      {/* The hero is sized to exactly one viewport at any screen size, so the
-          tagline and CTA never fall below the fold. */}
-      <section className="relative bg-brand-red text-white overflow-hidden min-h-[100svh] lg:h-[100svh] lg:min-h-[430px] lg:max-h-[1000px] flex flex-col">
-        {/* Three stacked light layers rather than one flat radial: a warm core
-            behind the cake, a rose bloom low in the frame that lifts the wave,
+      {/* ==================== HERO ====================
+          On tablet and desktop the hero is exactly one viewport, so the
+          tagline and CTA never fall below the fold. On a phone it grows to
+          fit: the wordmark, cake and CTA come first, the cards follow. */}
+      <section className="hero-tl relative flex min-h-[100svh] flex-col overflow-clip bg-brand-red text-white lg:h-[100svh] lg:min-h-[430px] lg:max-h-[1000px]">
+        {/* Light: a warm core behind the cake, a rose bloom low in the frame,
             and a vignette that darkens the corners so the wordmark holds. */}
         <div
           aria-hidden
-          className="absolute inset-0 pointer-events-none"
+          className="pointer-events-none absolute inset-0"
           style={{
             background:
               'radial-gradient(120% 88% at 50% 14%, #f2404f 0%, #dc2a38 26%, #b81a27 56%, #8e1019 80%, #6d0810 100%)',
@@ -179,110 +230,72 @@ export default function Home() {
         />
         <div
           aria-hidden
-          className="absolute inset-0 pointer-events-none"
+          className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'radial-gradient(65% 42% at 50% 66%, rgba(255,152,160,0.26) 0%, rgba(255,120,132,0.10) 45%, transparent 72%)',
+              'radial-gradient(65% 42% at 50% 66%, rgba(255,152,160,0.22) 0%, rgba(255,120,132,0.08) 45%, transparent 72%)',
           }}
         />
         <div
           aria-hidden
-          className="absolute inset-0 pointer-events-none"
+          className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'linear-gradient(180deg, rgba(58,3,9,0.42) 0%, transparent 20%, transparent 68%, rgba(58,3,9,0.34) 100%)',
+              'linear-gradient(180deg, rgba(58,3,9,0.42) 0%, transparent 20%, transparent 68%, rgba(58,3,9,0.30) 100%)',
           }}
         />
+        <div aria-hidden className="grain pointer-events-none absolute inset-0 opacity-[0.055] mix-blend-overlay" />
 
-        {/* Fine grain over the flat gradients — stops the red reading as a
-            plastic fill and gives the hero some depth. */}
-        <div
-          aria-hidden
-          className="absolute inset-0 pointer-events-none opacity-[0.055] mix-blend-overlay"
-          style={{
-            backgroundImage:
-              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E\")",
-            backgroundSize: '180px 180px',
-          }}
-        />
-
-        {/* Drifting petals — ambient life in the field around the still cake. */}
-        {[
-          { top: '18%', left: '7%', size: 26, delay: '0s', dur: '15s', op: 0.16 },
-          { top: '34%', left: '15%', size: 17, delay: '2.5s', dur: '18s', op: 0.13 },
-          { top: '62%', left: '10%', size: 21, delay: '5s', dur: '16s', op: 0.11 },
-          { top: '22%', left: '88%', size: 23, delay: '1.2s', dur: '17s', op: 0.15 },
-          { top: '48%', left: '93%', size: 15, delay: '4s', dur: '14s', op: 0.12 },
-          { top: '70%', left: '84%', size: 19, delay: '6.5s', dur: '19s', op: 0.1 },
-        ].map((p, i) => (
-          <svg
+        {/* Petals drifting down through the scene. */}
+        {FALLING.map((p, i) => (
+          <span
             key={i}
             aria-hidden
-            viewBox="0 0 24 24"
-            fill="#ffd9dc"
-            className="hidden sm:block absolute pointer-events-none anim-petal z-[1]"
-            style={{
-              top: p.top,
-              left: p.left,
-              width: p.size,
-              height: p.size,
-              opacity: p.op,
-              animationDelay: p.delay,
-              animationDuration: p.dur,
-            }}
+            className={`petal-fall pointer-events-none absolute top-0 ${p.front ? 'z-40' : 'z-10'} ${p.phone ? '' : 'max-sm:hidden'}`}
+            style={
+              {
+                left: p.left,
+                width: p.w,
+                '--dur': `${p.dur}s`,
+                '--delay': `${p.delay}s`,
+                '--sway': `${p.sway}px`,
+              } as React.CSSProperties
+            }
           >
-            <path d="M12 2C8 2 4 6 4 12c0 6 8 10 8 10s8-4 8-10c0-6-4-10-8-10z" />
-          </svg>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/cutouts/${p.src}.webp`} alt="" className="block h-auto w-full drop-shadow-[0_8px_8px_rgba(40,0,6,0.35)]" />
+          </span>
         ))}
 
-        {/* The nav is fixed (see HeroNav); this spacer reserves exactly the
-            same height inside the hero so the layout maths are unchanged. */}
-        <div className="shrink-0 h-[clamp(64px,9svh,108px)]" aria-hidden />
+        {/* The nav is fixed (see HeroNav); this spacer reserves its height. */}
+        <div className="h-[clamp(86px,11svh,108px)] shrink-0 sm:h-[clamp(76px,10svh,108px)]" aria-hidden />
 
-        {/* ---------- Stage: ROSE + cake + BLOOM as one scaling composition.
-             Laying these out in a single flex row (rather than pinning the
-             words to the viewport edges) keeps the cake overlapping both words
-             at every aspect ratio, including short/wide laptop screens. ---- */}
-        {/* pt gives the spinning cake clearance under the nav at its widest sweep */}
-        {/* px-[3vw] plus the sizes below keep the whole ROSE–cake–BLOOM row
-            inside the viewport. The type is capped on BOTH axes: 11vw stops it
-            running off the sides on wide screens, 18.5svh stops it eating the
-            hero's height on short ones. */}
-        <div className="relative z-30 flex-1 min-h-[30svh] lg:min-h-0 w-full flex flex-col items-center justify-center px-[4vw] pt-[1%] select-none">
-          {/* Eyebrow — anchors the wordmark and fills the dead band below the nav. */}
+        {/* ---------- Stage: RED + cake + ROSE ---------- */}
+        <div className="relative z-30 flex w-full flex-1 select-none flex-col items-center justify-center px-[4vw] pt-[1%] sm:min-h-[30svh] lg:min-h-0">
           <div
-            className="relative z-40 shrink-0 flex items-center gap-3 sm:gap-5 anim-fade-down"
+            className="relative z-40 flex shrink-0 items-center gap-3 sm:gap-5 anim-fade-down"
             style={{ animationDelay: '80ms' }}
           >
-            <span className="hidden sm:block h-px w-10 sm:w-16 bg-gradient-to-r from-transparent to-brand-gold/70" />
-            <span className="text-[7px] sm:text-[9.5px] font-semibold uppercase tracking-[0.2em] sm:tracking-[0.34em] text-brand-gold/95 whitespace-nowrap">
+            <span className="h-px w-8 bg-gradient-to-r from-transparent to-brand-gold/70 sm:w-16" />
+            <span className="whitespace-nowrap font-body text-[9px] font-medium uppercase tracking-[0.34em] text-brand-gold-light/90 sm:text-[10px] sm:tracking-[0.42em]">
               <span className="sm:hidden">Kuwait · Since 2012</span>
-              <span className="hidden sm:inline">
-                Handcrafted in Kuwait · Since 2012
-              </span>
+              <span className="hidden sm:inline">Handcrafted in Kuwait · Since 2012</span>
             </span>
-            <span className="hidden sm:block h-px w-10 sm:w-16 bg-gradient-to-l from-transparent to-brand-gold/70" />
+            <span className="h-px w-8 bg-gradient-to-l from-transparent to-brand-gold/70 sm:w-16" />
           </div>
 
-          {/* Reference layout: the wordmark is anchored to the outer edges and
-              the cake floats centred ON TOP of it. Taking the cake out of the
-              flow is what lets the type run far bigger than it could when the
-              three sat side by side. Under sm the words stack instead. */}
-          <div className="relative flex-1 min-h-0 w-full mt-[1svh]">
-            {/* --- wordmark layer, with the cake riding the gap between the
-                 two words. BLOOM is wider than ROSE, so the gap's centre is
-                 NOT the container's centre; a zero-width flex item lands
-                 exactly on it under `justify-between`, and the cake hangs off
-                 that, overlapping both words evenly. --- */}
+          <div className="relative mt-[2.5svh] flex min-h-0 w-full flex-1 flex-col justify-center sm:mt-[1svh]">
+            {/* Phone: RED ROSE on one line with the cake beneath.
+                Tablet up: the words hold the edges and the cake floats over
+                the gap between them. Layout lives in globals.css. */}
             <div className="hero-word-layer">
-              <div className="hero-word-gap-l flex justify-end anim-slide-left" style={{ animationDelay: '140ms' }}>
+              <div className="hero-word-gap-l flex anim-slide-left" style={{ animationDelay: '140ms' }}>
+                <span className="hx hx-left block">
                 <span
-                  className="block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
+                  className="hero-word block bg-clip-text font-wordmark tracking-[-0.022em] text-transparent"
                   style={{
-                    // The field behind this word is ~#cb2331, so a red of the
-                    // same weight vanishes into it. This one is lit from above
-                    // and stays LIGHTER than the field top to bottom, which is
-                    // what makes it read; the shadow only sharpens the edge.
+                    // Lit from above and lighter than the field behind it,
+                    // which is what lets a red word read on a red ground.
                     backgroundImage:
                       'linear-gradient(180deg, #ffa8a6 0%, #ff7078 34%, #fb4d5b 70%, #ee3242 100%)',
                     filter:
@@ -291,65 +304,89 @@ export default function Home() {
                 >
                   RED
                 </span>
+                </span>
               </div>
 
-              {/* absolute center anchor for the cake, independent of text width */}
-              <div className="hero-cake-anchor absolute inset-0 m-auto z-20 flex items-center justify-center anim-cake-arrive pointer-events-none">
-                {/* The cake holds still; only the light behind it breathes. */}
+              <div className="hero-cake-anchor">
                 <div
                   aria-hidden
-                  className="hero-cake-halo absolute left-1/2 top-1/2 rounded-full pointer-events-none anim-glow"
+                  className="hero-cake-halo anim-glow"
                   style={{
                     background:
                       'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)',
                   }}
                 />
-                <div className="hero-cake-pos">
-                  {/* Shadow sits outside the animated wrapper — see globals.css. */}
-                  <div aria-hidden className="hero-cake-shadow" />
-                  <div className="hero-cake-bob">
-                    <div className="hero-cake-yaw">
-                      <CakeSpin alt="Red Rose signature red velvet layer cake" />
-                    </div>
+                {/* The cake drops in and holds a slow 3D spin.
+                    Fruit and petals burst out on impact. */}
+                <div className="hero-cake-pos hx hx-cake">
+                  <div className="hero-cake-drop anim-cake-drop">
+                    <div aria-hidden className="hero-cake-shadow" />
+                    <HeroCake alt="Red Rose signature red velvet layer cake" />
                   </div>
+
+                  {BURST.map((b, i) => (
+                    <span
+                      key={i}
+                      aria-hidden
+                      className={`burst ${b.mx === undefined ? 'max-sm:hidden' : ''}`}
+                      style={
+                        {
+                          '--x': b.x,
+                          '--y': b.y,
+                          '--s': b.s,
+                          '--mx': b.mx ?? 0,
+                          '--my': b.my ?? 0,
+                          '--ms': b.ms ?? 0,
+                          '--r': `${b.r}deg`,
+                          '--d': `${b.d}ms`,
+                          '--f': `${b.f}s`,
+                          '--fd': `${-i * 0.7}s`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <span className="hx hx-burst block">
+                        <span className="burst-fly">
+                          <span className="float">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/cutouts/${b.src}.webp`} alt="" />
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                  ))}
                 </div>
               </div>
 
-              <div className="hero-word-gap-r flex justify-start anim-slide-right" style={{ animationDelay: '140ms' }}>
+              <div className="hero-word-gap-r flex anim-slide-right" style={{ animationDelay: '140ms' }}>
+                <span className="hx hx-right block">
                 <span
-                  className="hero-shimmer block font-display font-bold tracking-[-0.022em] hero-word text-transparent bg-clip-text"
+                  className="hero-word hero-shimmer block bg-clip-text font-wordmark tracking-[-0.022em] text-transparent"
                   style={{
                     backgroundImage:
                       'linear-gradient(100deg, #fdeed6 0%, #f2d3a4 30%, #ffffff 45%, #fffdf8 51%, #f2d3a4 68%, #fdeed6 100%)',
+                    filter: 'drop-shadow(0 18px 40px rgba(28,0,4,0.35))',
                   }}
                 >
                   ROSE
                 </span>
+                </span>
               </div>
             </div>
-
           </div>
         </div>
 
         {/* ---------- Bottom block on the cream ---------- */}
-        <div className="relative shrink-0 z-20">
-          {/* The red meets the cream on three offset crests rather than one
-              edge: a dark under-swell, a lit rose swell, then the cream itself,
-              with a gold hairline riding the top crest. Each layer runs its own
-              curve, so the red side reads as flowing and the cream side stays
-              calm under the text. */}
+        <div className="relative z-20 shrink-0">
+          {/* The red meets the cream on a soft swell with a gold hairline on
+              the crest. The lit under-swell only shows from tablet up; on a
+              phone it read as a thick red stripe. */}
           <svg
-            className="absolute bottom-[calc(100%-1px)] left-0 w-full h-[clamp(84px,14svh,180px)]"
+            className="absolute bottom-[calc(100%-1px)] left-0 h-[clamp(46px,7svh,64px)] w-full sm:h-[clamp(84px,14svh,180px)]"
             viewBox="0 0 1440 170"
             preserveAspectRatio="none"
             aria-hidden
           >
             <defs>
-              <linearGradient id="waveDeep" x1="0" y1="0" x2="1" y2="0.4">
-                <stop offset="0%" stopColor="#5f060d" />
-                <stop offset="48%" stopColor="#94121d" />
-                <stop offset="100%" stopColor="#5f060d" />
-              </linearGradient>
               <linearGradient id="waveLit" x1="0" y1="0" x2="1" y2="0.5">
                 <stop offset="0%" stopColor="#b5182a" />
                 <stop offset="42%" stopColor="#e8455a" />
@@ -363,37 +400,41 @@ export default function Home() {
                 <stop offset="100%" stopColor="#c9a961" stopOpacity="0" />
               </linearGradient>
             </defs>
-
-            {/* one soft swell only — three tight crests read as a hard stripe */}
             <path
+              className="max-sm:hidden"
               fill="url(#waveLit)"
-              opacity="0.38"
+              opacity="0.3"
               d="M0,54 C200,-18 470,-24 760,32 C1020,82 1238,90 1440,34 L1440,170 L0,170 Z"
             />
-            {/* the cream shore */}
             <path
               fill="#fbf8ee"
               d="M0,112 C200,44 468,28 754,78 C1012,123 1234,128 1440,80 L1440,170 L0,170 Z"
             />
-            {/* gold hairline riding the cream crest */}
             <path
               fill="none"
               stroke="url(#waveGold)"
               strokeWidth="1.5"
+              vectorEffect="non-scaling-stroke"
               d="M0,112 C200,44 468,28 754,78 C1012,123 1234,128 1440,80"
             />
           </svg>
 
-          <div className="bg-brand-cream w-full">
-            <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-[clamp(8px,2svh,34px)]">
-              {/* Under lg the row folds to two columns with the CTA spanning
-                  beneath both, so nothing is squeezed on a phone. */}
-              <div className="mx-auto max-w-5xl grid grid-cols-2 lg:grid-cols-3 items-center gap-x-4 gap-y-3 sm:gap-y-5 lg:gap-8">
-                {/* Customize your box — the paper-and-knife doodle is gone;
-                    the pastries themselves now carry the invitation. */}
+          <div className="w-full bg-brand-cream text-brand-ink">
+            <div className="mx-auto flex w-full max-w-6xl flex-col px-5 pb-12 sm:px-6 sm:pb-[clamp(8px,2svh,34px)] lg:px-8">
+              {/* Phone: tagline first, straight under the cake. */}
+              <p
+                className="order-1 mx-auto mt-1 max-w-4xl text-balance px-1 text-center font-display text-[clamp(25px,min(5.6vw,5svh),52px)] font-medium leading-[1.12] tracking-[-0.01em] text-brand-wine anim-fade-up sm:order-2 sm:mt-[clamp(10px,2.2svh,40px)]"
+                style={{ animationDelay: '820ms' }}
+              >
+                Exquisite pastries crafted for those who appreciate{' '}
+                <em className="font-normal italic text-brand-red">the art of sweet indulgence.</em>
+              </p>
+
+              <div className="order-2 mx-auto mt-7 grid w-full max-w-5xl grid-cols-2 items-center gap-x-4 gap-y-9 sm:order-1 sm:mt-0 sm:gap-y-5 lg:grid-cols-3 lg:gap-8">
+                {/* Customize your box */}
                 <Link
                   href="/customer"
-                  className="group order-1 flex flex-col sm:flex-row items-center text-center sm:text-left justify-center lg:justify-start gap-3 sm:gap-4 anim-fade-up"
+                  className="group order-2 flex flex-col items-center justify-center gap-3 text-center anim-fade-up sm:order-1 sm:flex-row sm:gap-5 sm:text-left lg:justify-start"
                   style={{ animationDelay: '520ms' }}
                 >
                   <div className="relative shrink-0">
@@ -402,316 +443,271 @@ export default function Home() {
                       <img
                         src={img(IMAGES.macarons, 320)}
                         alt=""
-                        className="w-[76px] h-[76px] sm:w-[92px] sm:h-[92px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.3)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-2 group-hover:rotate-[-4deg]"
+                        width={92}
+                        height={92}
+                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-1.5 group-hover:rotate-[-4deg] sm:h-[88px] sm:w-[88px]"
                       />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={img(IMAGES.berryTart, 320)}
+                        src={img(IMAGES.berryCream, 320)}
                         alt=""
-                        className="w-[76px] h-[76px] sm:w-[92px] sm:h-[92px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.3)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-2 group-hover:rotate-[4deg]"
+                        width={92}
+                        height={92}
+                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-1.5 group-hover:rotate-[4deg] sm:h-[88px] sm:w-[88px]"
                       />
                     </div>
-                    <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-[#4a1515] text-brand-cream flex items-center justify-center text-[17px] leading-none font-light ring-[3px] ring-brand-cream shadow-md transition-transform duration-500 group-hover:scale-110 group-hover:rotate-90 z-10">
+                    <span className="absolute -bottom-1 -right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-brand-wine font-body text-[16px] font-light leading-none text-brand-cream shadow-md ring-[3px] ring-brand-cream transition-transform duration-500 group-hover:rotate-90 sm:h-8 sm:w-8">
                       +
                     </span>
                   </div>
 
                   <div>
-                    <p className="text-[9px] sm:text-[9.5px] font-semibold uppercase tracking-[0.24em] text-brand-red/75">
+                    <p className="font-body text-[9px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark sm:text-[9.5px]">
                       Build your own
                     </p>
-                    <p className="font-display text-[21px] sm:text-[30px] leading-[1.05] text-[#4a1515]">
+                    <p className="mt-1.5 font-display text-[25px] font-medium leading-[0.95] text-brand-wine sm:text-[32px]">
                       Customize
-                      <span className="block italic text-brand-red">
-                        your box
-                      </span>
+                      <em className="block font-normal italic text-brand-red">your box</em>
                     </p>
-                    <span className="mt-1 inline-flex items-center gap-1.5 text-[9.5px] sm:text-[10.5px] font-semibold uppercase tracking-[0.14em] text-brand-red">
+                    <span className="mt-2 inline-flex items-center gap-1.5 font-body text-[9.5px] font-medium uppercase tracking-[0.22em] text-brand-red sm:text-[10px]">
                       Start building
-                      <ArrowRight
-                        size={12}
-                        className="transition-transform duration-300 group-hover:translate-x-1"
-                      />
+                      <ArrowRight size={12} strokeWidth={1.8} className="transition-transform duration-300 group-hover:translate-x-1" />
                     </span>
                   </div>
                 </Link>
 
                 {/* Order now */}
                 <div
-                  className="order-3 col-span-2 lg:order-2 lg:col-span-1 flex justify-center anim-fade-up"
+                  className="order-1 col-span-2 flex justify-center anim-fade-up sm:order-3 lg:order-2 lg:col-span-1"
                   style={{ animationDelay: '680ms' }}
                 >
-                  <Link
-                    href="/customer"
-                    className="group relative inline-flex items-center gap-3 overflow-hidden rounded-full px-9 sm:px-12 py-3.5 sm:py-4 text-brand-cream font-semibold text-[11.5px] sm:text-[12.5px] tracking-[0.18em] shadow-[0_16px_38px_rgba(74,21,21,0.45)] transition-transform duration-300 hover:-translate-y-0.5 active:scale-95"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(135deg, #75201f 0%, #4a1515 48%, #2b0a0a 100%)',
-                    }}
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute inset-0 rounded-full ring-1 ring-inset ring-brand-gold/45"
-                    />
+                  <Link href="/customer" className="btn btn-wine group overflow-hidden px-11 py-[19px] text-[11.5px] sm:px-12">
                     {/* sheen sweeps across on hover */}
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 -left-1/3 w-1/3 -skew-x-[22deg] bg-gradient-to-r from-transparent via-white/28 to-transparent transition-all duration-700 ease-out group-hover:left-full"
+                      className="absolute inset-y-0 -left-1/3 w-1/3 -skew-x-[22deg] bg-gradient-to-r from-transparent via-white/25 to-transparent transition-all duration-700 ease-out group-hover:left-full"
                     />
-                    <span className="relative">ORDER NOW</span>
-                    <ArrowRight
-                      size={15}
-                      className="relative transition-transform duration-300 group-hover:translate-x-1"
-                    />
+                    <span className="relative">Order Now</span>
+                    <ArrowRight size={15} strokeWidth={1.8} className="relative" />
                   </Link>
                 </div>
 
-                {/* 50K+ card */}
+                {/* 50K+ */}
                 <div
-                  className="order-2 lg:order-3 flex justify-center lg:justify-end anim-fade-up"
+                  className="order-3 flex justify-center anim-fade-up sm:order-2 lg:order-3 lg:justify-end"
                   style={{ animationDelay: '600ms' }}
                 >
                   <div
-                    className="group relative w-full max-w-[196px] sm:max-w-[236px] rounded-[1.5rem] sm:rounded-[1.75rem] px-5 sm:px-7 py-4 sm:py-5 text-white overflow-hidden shadow-[0_20px_46px_rgba(74,21,21,0.42)] transition-transform duration-500 hover:-translate-y-1"
+                    className="relative w-full max-w-[188px] overflow-hidden rounded-[1.5rem] px-5 py-5 text-white shadow-[0_22px_46px_-18px_rgba(74,21,21,0.7)] transition-transform duration-500 hover:-translate-y-1 sm:max-w-[236px] sm:rounded-[1.75rem] sm:px-7"
                     style={{
-                      backgroundImage:
-                        'linear-gradient(150deg, #7d1017 0%, #580c0d 54%, #380607 100%)',
+                      backgroundImage: 'linear-gradient(150deg, #7d1017 0%, #580c0d 54%, #380607 100%)',
                     }}
                   >
+                    <span aria-hidden className="absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-brand-gold/35" />
                     <span
                       aria-hidden
-                      className="absolute inset-0 rounded-[1.75rem] ring-1 ring-inset ring-brand-gold/35"
+                      className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full"
+                      style={{ background: 'radial-gradient(closest-side, rgba(255,196,178,0.28), transparent)' }}
                     />
-                    <span
-                      aria-hidden
-                      className="absolute -top-12 -right-10 w-36 h-36 rounded-full pointer-events-none"
-                      style={{
-                        background:
-                          'radial-gradient(closest-side, rgba(255,196,178,0.30), transparent)',
-                      }}
-                    />
-
                     <div className="relative flex flex-col items-center">
-                      <span
-                        className="font-numeric lining-nums font-semibold text-[46px] sm:text-[58px] leading-[0.88] tracking-[-0.01em] text-transparent bg-clip-text"
-                        style={{
-                          backgroundImage:
-                            'linear-gradient(180deg, #fff8ec 0%, #f2d9a8 58%, #d9b26a 100%)',
-                        }}
-                      >
-                        50K+
-                      </span>
-                      <span className="mt-2 h-px w-16 bg-gradient-to-r from-transparent via-brand-gold/70 to-transparent" />
-                      <p className="mt-2 sm:mt-2.5 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] text-white/75">
+                      <CountUp
+                        to={50}
+                        suffix="K+"
+                        delay={700}
+                        className="lining-nums bg-clip-text font-display text-[50px] font-semibold tabular-nums leading-[0.85] text-transparent sm:text-[62px]"
+                        style={{ backgroundImage: 'linear-gradient(180deg, #fff8ec 0%, #f2d9a8 58%, #d9b26a 100%)' }}
+                      />
+                      <span className="mt-2.5 h-px w-14 bg-gradient-to-r from-transparent via-brand-gold/70 to-transparent" />
+                      <p className="mt-2.5 font-body text-[9px] font-medium uppercase tracking-[0.28em] text-white/75 sm:text-[10px]">
                         Happy customers
                       </p>
-                      <div className="flex -space-x-3 mt-3 sm:mt-3.5">
-                        {AVATARS.map((a, i) => (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            key={a}
-                            src={a}
-                            alt=""
-                            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border-[3px] border-[#4d0a0b] transition-transform duration-500 group-hover:-translate-y-0.5"
-                            style={{ zIndex: 3 - i, transitionDelay: `${i * 60}ms` }}
-                          />
+                      <div className="mt-3 flex gap-1" aria-hidden>
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} size={11} strokeWidth={1.2} className="fill-current text-brand-gold" />
                         ))}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-
-              <p
-                className="mt-[clamp(10px,2.2svh,44px)] mx-auto max-w-4xl text-center text-[#4a1515] font-semibold text-[clamp(16px,min(4.7vw,4.3svh),46px)] leading-[1.25] tracking-[-0.015em] px-2 anim-fade-up"
-                style={{ animationDelay: '820ms' }}
-              >
-                Exquisite pastries crafted for those who appreciate{' '}
-                <span className="font-display font-medium italic text-brand-red">
-                  the art of sweet indulgence.
-                </span>
-              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ==================== BESTSELLERS ==================== */}
+      {/* ==================== RIBBONS ==================== */}
+      <div aria-hidden className="relative z-10 overflow-x-clip pb-4 pt-10 sm:pb-6 sm:pt-16">
+        <Ribbon variant="back" />
+        <Ribbon variant="front" />
+      </div>
+
+      {/* ==================== SIGNATURES ==================== */}
       <Reveal>
-        <section className="relative py-14 sm:py-24 overflow-hidden">
-          {/* Premium subtle wave filling the right side space */}
-          <svg
-            className="absolute top-[10%] -right-[15%] w-[45%] h-[80%] text-brand-red pointer-events-none opacity-[0.03]"
-            viewBox="0 0 400 800"
-            preserveAspectRatio="none"
-            aria-hidden
-          >
-            <path
-              fill="currentColor"
-              d="M400,0 L400,800 L200,800 C50,600 -50,200 200,0 Z"
-            />
-          </svg>
-
-          {/* Decorative falling petals for extra premium detail */}
-          <svg
-            className="absolute top-[25%] right-[8%] w-10 h-10 text-brand-red/40 rotate-45 pointer-events-none drop-shadow-md blur-[1px]"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden
-          >
-            <path d="M12 2C8 2 4 6 4 12C4 18 12 22 12 22C12 22 20 18 20 12C20 6 16 2 12 2Z" />
-          </svg>
-          <svg
-            className="absolute top-[65%] right-[18%] w-14 h-14 text-brand-red/70 -rotate-12 pointer-events-none drop-shadow-lg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden
-          >
-            <path d="M12 2C8 2 4 6 4 12C4 18 12 22 12 22C12 22 20 18 20 12C20 6 16 2 12 2Z" />
-          </svg>
-          <svg
-            className="absolute top-[40%] left-[8%] w-12 h-12 text-brand-red/60 -rotate-45 pointer-events-none drop-shadow-md"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden
-          >
-            <path d="M12 2C8 2 4 6 4 12C4 18 12 22 12 22C12 22 20 18 20 12C20 6 16 2 12 2Z" />
-          </svg>
-
-          <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <p className="text-center text-[9.5px] font-semibold uppercase tracking-[0.26em] text-brand-gold-dark">
-              What Salmiya keeps ordering
-            </p>
-            <h2 className="mb-11 mt-3 text-center font-display text-[32px] leading-none tracking-tight text-[#4a1515] sm:mb-14 sm:text-[46px]">
-              Our Signature Bestsellers
-            </h2>
-
-            <div className="stagger grid gap-6 sm:grid-cols-3 sm:gap-7">
-              {BESTSELLERS.map((p, i) => (
-                <article
-                  key={p.name}
-                  className="group flex flex-col overflow-hidden rounded-[1.4rem] bg-white ring-1 ring-brand-gold/18 shadow-[0_12px_34px_rgba(74,21,21,0.09)] transition-[box-shadow,transform] duration-500 ease-out hover:-translate-y-1 hover:shadow-[0_26px_58px_rgba(74,21,21,0.2)]"
-                >
-                  <div className="relative aspect-[5/4] overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img(p.image, 1000)}
-                      alt={p.name}
-                      loading="lazy"
-                      className="h-full w-full object-cover transition-transform duration-[900ms] ease-out group-hover:scale-[1.08]"
-                    />
-                    {i === 0 && (
-                      <span className="absolute left-3.5 top-3.5 rounded-full bg-white/90 px-3 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-brand-red shadow-sm backdrop-blur-sm">
-                        Most loved
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex flex-1 flex-col items-center px-5 pb-6 pt-5 text-center">
-                    <h3 className="font-display text-[21px] leading-tight text-[#4a1515]">
-                      {p.name}
-                    </h3>
-                    <span
-                      aria-hidden
-                      className="my-3 block h-px w-10 bg-gradient-to-r from-transparent via-brand-gold to-transparent transition-[width] duration-500 group-hover:w-20"
-                    />
-                    <p className="font-semibold tabular-nums text-[16px] text-brand-red">
-                      {formatKWD(p.price)}
-                    </p>
-                    <button className="mt-5 w-full rounded-full bg-brand-red px-6 py-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors duration-300 hover:bg-brand-red-dark active:scale-[0.98]">
-                      Add to cart
-                    </button>
-                  </div>
-                </article>
-              ))}
+        <section id="signatures" className="relative scroll-mt-24 pb-20 pt-12 sm:pb-28 sm:pt-20">
+          <Cutout src="raspberry" className="left-[2%] top-16 w-[86px] max-sm:hidden" p0={50} p1={-70} r0={-18} r1={8} f={6} />
+          <Cutout src="petal-c" className="left-[40%] top-6 w-[30px] max-lg:hidden" p0={90} p1={-120} r0={10} r1={90} f={5} />
+          <Cutout src="strawberries" className="-right-7 top-[44%] w-[96px] sm:-right-4 sm:w-[136px] xl:right-[1.5%]" p0={80} p1={-110} r0={8} r1={-10} f={7} />
+          <div className={CONTAINER}>
+            <div className="flex flex-col items-center gap-7 text-center lg:flex-row lg:items-end lg:justify-between lg:text-left">
+              <div>
+                <p className="eyebrow text-brand-gold-dark">The Signatures</p>
+                <h2 className="heading mt-5 text-brand-wine">
+                  Our Signature <em className="text-brand-red">Bestsellers</em>
+                </h2>
+              </div>
+              <div className="rise flex max-w-sm flex-col items-center gap-5 lg:items-start lg:pb-2">
+                <p className="lede text-brand-ink/65">
+                  What Salmiya keeps ordering — baked each morning, boxed by hand,
+                  and usually gone by evening.
+                </p>
+                <Link href="/customer" className="text-link text-brand-red hover:text-brand-red-dark">
+                  See the full menu
+                  <ArrowRight size={13} strokeWidth={1.8} />
+                </Link>
+              </div>
             </div>
 
-            <div className="mt-12 flex justify-center">
-              <Link
-                href="/customer"
-                className="group inline-flex items-center gap-2 border-b border-brand-gold/50 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-brand-red transition-colors hover:border-brand-red"
-              >
-                See the full menu
-                <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
-              </Link>
+            {/* Two in a row, two rows deep — same shape on every screen. */}
+            <div className="stagger mt-12 grid grid-cols-2 gap-x-5 gap-y-12 sm:mt-16 sm:gap-x-7 sm:gap-y-14">
+              {BESTSELLERS.map((p, i) => (
+                <Link
+                  key={p.name}
+                  href="/customer"
+                  className="signature-card group block"
+                  style={{ '--i': i } as React.CSSProperties}
+                >
+                  <Tilt>
+                  <div className="arch curtain relative isolate aspect-[4/5] overflow-hidden bg-brand-sand shadow-[0_26px_50px_-30px_rgba(74,21,21,0.55)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img(p.image, 900)}
+                      srcSet={srcSet(p.image, [500, 800, 1100])}
+                      sizes="(min-width: 1024px) 270px, (min-width: 640px) 46vw, 72vw"
+                      alt={p.name}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.06]"
+                    />
+                    <span aria-hidden className="arch pointer-events-none absolute inset-[9px] border border-white/55" />
+                    {p.badge && (
+                      <span className="absolute bottom-5 left-1/2 z-[3] -translate-x-1/2 whitespace-nowrap rounded-full bg-brand-cream/95 px-3.5 py-1.5 font-body text-[9px] font-medium uppercase tracking-[0.24em] text-brand-red shadow-sm">
+                        {p.badge}
+                      </span>
+                    )}
+                    <span aria-hidden className="tilt-glare" />
+                  </div>
+                  </Tilt>
+
+                  <div className="signature-copy flex flex-col items-center px-2 pt-6 text-center">
+                    <p className="font-body text-[9.5px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark">
+                      {p.kind}
+                    </p>
+                    <h3 className="signature-name mt-2.5 font-display text-[22px] font-bold leading-tight text-brand-wine sm:text-[26px]">
+                      {p.name}
+                    </h3>
+                    <p className="mt-2 max-w-[250px] font-body text-[13px] font-light leading-relaxed text-brand-ink/60">
+                      {p.note}
+                    </p>
+                    <div className="mt-4 flex items-center gap-3">
+                      <span className="lining-nums font-display text-[21px] font-semibold text-brand-red">
+                        {formatKWD(p.price)}
+                      </span>
+                      <span aria-hidden className="h-3.5 w-px bg-brand-gold/50" />
+                      <span className="inline-flex items-center gap-1.5 font-body text-[10px] font-medium uppercase tracking-[0.24em] text-brand-wine/70 transition-colors duration-300 group-hover:text-brand-red">
+                        Order
+                        <ArrowRight size={12} strokeWidth={1.8} className="transition-transform duration-300 group-hover:translate-x-1" />
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
           </div>
         </section>
       </Reveal>
 
-      {/* ==================== KUWAIT'S FINEST FLAVORS ==================== */}
+      {/* ==================== OUR STORY ==================== */}
       <Reveal>
-        <section id="story" className="relative py-12 sm:py-16">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid md:grid-cols-2 gap-10 items-center">
-            <div className="flex flex-col items-center gap-5 text-center md:items-start md:text-left">
-              <span className="text-[9.5px] font-semibold uppercase tracking-[0.26em] text-brand-gold-dark">
-                Sourced, not substituted
-              </span>
-              <h2 className="font-display text-[32px] leading-[1.02] tracking-tight text-[#4a1515] sm:text-[46px]">
-                Kuwait&apos;s Finest Flavors
+        <section id="story" className="relative scroll-mt-24 py-20 sm:py-28">
+          <Cutout src="petal-b" className="right-[3%] top-8 w-[40px] max-sm:hidden" p0={120} p1={-140} r0={-20} r1={70} f={6} />
+          <div className={`${CONTAINER} grid items-center gap-16 lg:grid-cols-2 lg:gap-20`}>
+            <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+              <p className="eyebrow text-brand-gold-dark">Our Story · Since 2012</p>
+              <h2 className="heading mt-5 text-brand-wine">
+                Kuwait&apos;s Finest <em className="text-brand-red">Flavors</em>
               </h2>
-              <p className="max-w-md text-[15px] leading-[1.85] text-brand-ink/70">
+              <p className="lede rise mt-6 max-w-md text-brand-ink/65">
                 We source Medjool dates from the Gulf, saffron from Iran and
                 pistachios from Aleppo, then fold them into recipes our family has
                 baked for three generations. Nothing is frozen, and nothing leaves
                 the kitchen a day old.
               </p>
-              <ul className="flex w-full max-w-md flex-col gap-0 self-stretch">
-                {FLAVOURS.map((f) => (
+
+              <ul className="mt-9 w-full max-w-md border-t border-brand-gold/25 text-left">
+                {FLAVOURS.map((f, i) => (
                   <li
                     key={f.label}
-                    className="flex items-baseline justify-between gap-4 border-b border-brand-gold/25 py-2.5 last:border-b-0"
+                    className="rise flex items-baseline gap-4 border-b border-brand-gold/25 py-3.5"
+                    style={{ '--i': i + 2 } as React.CSSProperties}
                   >
-                    <span className="font-display text-[16px] text-[#4a1515]">{f.label}</span>
-                    <span
-                      aria-hidden
-                      className="mx-1 h-px flex-1 self-center bg-brand-gold/25"
-                    />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-ink/45">
+                    <span className="w-6 font-display text-[14px] italic text-brand-gold-dark">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className="font-display text-[21px] font-medium leading-none text-brand-wine">
+                      {f.label}
+                    </span>
+                    <span aria-hidden className="flex-1 self-center border-b border-dotted border-brand-gold/55" />
+                    <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-brand-ink/50">
                       {f.from}
                     </span>
                   </li>
                 ))}
               </ul>
 
-              <Link
-                href="/customer"
-                className="group mt-1 inline-flex items-center gap-2 rounded-full bg-brand-red px-7 py-3.5 text-[10px] font-bold uppercase tracking-[0.15em] text-white transition-colors hover:bg-brand-red-dark"
-              >
-                Explore Menu
-                <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
+              <Link href="/customer" className="btn btn-outline mt-10">
+                Explore the menu
+                <ArrowRight size={13} strokeWidth={1.8} />
               </Link>
             </div>
 
-            <div className="stagger grid grid-cols-2 gap-3.5 sm:gap-5">
-              {FLAVOURS.map((f, i) => (
-                <figure
-                  key={f.alt}
-                  className={`group/f relative overflow-hidden rounded-2xl ring-1 ring-brand-gold/18 shadow-[0_10px_28px_rgba(74,21,21,0.1)] transition-shadow duration-500 hover:shadow-[0_20px_44px_rgba(74,21,21,0.2)] ${i % 2 === 1 ? 'sm:mt-9' : ''}`}
+            {/* Two staggered columns of photographs, with the year set
+                between them like a maker's mark. */}
+            <div className="relative mx-auto w-full max-w-[520px] lg:max-w-none">
+              {/* The two columns drift at different speeds as the page moves. */}
+              <div className="grid grid-cols-2 gap-4 sm:gap-5">
+                <div
+                  className="parallax flex flex-col gap-4 sm:gap-5"
+                  style={{ '--p0': '24px', '--p1': '-24px' } as React.CSSProperties}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img(f.src, 900)}
-                    alt={f.alt}
-                    loading="lazy"
-                    className={`w-full object-cover transition-transform duration-[900ms] ease-out group-hover/f:scale-[1.07] ${
-                      i === 0 || i === 3 ? 'h-44 sm:h-60' : 'h-36 sm:h-48'
-                    }`}
-                  />
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/78 via-[#2a1108]/12 to-transparent"
-                  />
-                  <figcaption className="absolute inset-x-0 bottom-0 p-3.5 sm:p-4">
-                    <span className="block text-[8.5px] font-semibold uppercase tracking-[0.24em] text-brand-gold">
-                      {f.from}
-                    </span>
-                    <span className="mt-0.5 block font-display text-[16px] leading-none text-white sm:text-[18px]">
-                      {f.label}
-                    </span>
-                  </figcaption>
-                </figure>
-              ))}
+                  <Photo i={0} src={FLAVOURS[0].src} label={FLAVOURS[0].label} from={FLAVOURS[0].from} aspect="aspect-[4/5]" />
+                  <Photo i={2} src={FLAVOURS[2].src} label={FLAVOURS[2].label} from={FLAVOURS[2].from} aspect="aspect-square" />
+                </div>
+                <div
+                  className="parallax mt-12 flex flex-col gap-4 sm:mt-16 sm:gap-5"
+                  style={{ '--p0': '80px', '--p1': '-80px' } as React.CSSProperties}
+                >
+                  <Photo i={1} src={FLAVOURS[1].src} label={FLAVOURS[1].label} from={FLAVOURS[1].from} aspect="aspect-square" />
+                  <Photo i={3} src={FLAVOURS[3].src} label={FLAVOURS[3].label} from={FLAVOURS[3].from} aspect="aspect-[4/5]" />
+                </div>
+              </div>
+
+              {/* A rose laid across the corner of the photographs. */}
+              <Cutout
+                src="rose"
+                className="-bottom-14 -left-6 z-10 w-[230px] sm:-bottom-16 sm:-left-12 sm:w-[310px] lg:-bottom-20 lg:-left-24 lg:w-[380px]"
+                p0={50}
+                p1={-50}
+                r0={-16}
+                r1={-6}
+                f={8}
+              />
+
+              <div className="absolute -left-3 -top-6 flex h-[92px] w-[92px] flex-col sm:-left-9 sm:-top-9 items-center justify-center rounded-full bg-brand-cream text-center shadow-[0_18px_40px_-16px_rgba(74,21,21,0.5)] ring-1 ring-brand-gold/40 sm:h-[112px] sm:w-[112px]">
+                <span aria-hidden className="absolute inset-[5px] rounded-full border border-brand-gold/35" />
+                <span className="font-display text-[13px] italic leading-none text-brand-gold-dark sm:text-[15px]">Est.</span>
+                <span className="lining-nums mt-1 font-display text-[26px] font-semibold leading-none text-brand-wine sm:text-[32px]">
+                  2012
+                </span>
+              </div>
             </div>
           </div>
         </section>
@@ -719,44 +715,38 @@ export default function Home() {
 
       {/* ==================== WHY RED ROSE ==================== */}
       <Reveal>
-        <section className="relative py-12 sm:py-16">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h2 className="text-2xl sm:text-4xl font-bold text-center tracking-tight">
-              Why Red Rose
-            </h2>
-            <p className="mx-auto mb-11 mt-3 max-w-xl text-center text-[15px] leading-relaxed text-brand-ink/65">
-              Four things we refuse to compromise on, in every box that leaves the
-              kitchen.
-            </p>
+        <section id="promise" className="relative scroll-mt-24 pb-24 pt-16 sm:pb-32 sm:pt-24">
+          <Cutout src="strawberry" className="-left-6 top-[34%] w-[150px] max-sm:hidden xl:left-[1.5%]" p0={90} p1={-90} r0={-20} r1={6} f={7} />
+          <Cutout src="cherry" className="-right-3 bottom-[8%] w-[56px] sm:right-[2%] sm:w-[78px]" p0={60} p1={-100} r0={14} r1={-12} f={5.5} />
+          <div className={CONTAINER}>
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="eyebrow eyebrow-center text-brand-gold-dark">The Red Rose Promise</p>
+              <h2 className="heading mt-5 text-brand-wine">
+                Why <em className="text-brand-red">Red Rose</em>
+              </h2>
+              <p className="lede mx-auto mt-5 max-w-md text-brand-ink/65">
+                Four things we refuse to compromise on, in every box that leaves the kitchen.
+              </p>
+            </div>
 
-            <div className="stagger grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-4">
-              {PROMISES.map(({ icon: Icon, title, text }) => (
+            {/* Hairline grid: the gold shows only through the 1px gaps. */}
+            <div className="mt-14 grid grid-cols-2 gap-px overflow-hidden rounded-[24px] border border-brand-gold/30 bg-brand-gold/30 sm:mt-16 lg:grid-cols-4">
+              {PROMISES.map(({ icon: Icon, title, text }, i) => (
                 <div
                   key={title}
-                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl bg-white px-5 py-8 text-center ring-1 ring-brand-gold/18 shadow-[0_8px_24px_rgba(74,21,21,0.07)] transition-[box-shadow] duration-500 hover:shadow-[0_20px_44px_rgba(74,21,21,0.16)]"
+                  className="group bg-brand-cream px-4 py-10 text-center transition-colors duration-500 hover:bg-white sm:px-8 sm:py-12"
                 >
-                  {/* warm wash rises from the base instead of the card jumping */}
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-x-0 bottom-0 h-0 bg-gradient-to-t from-brand-red/8 to-transparent transition-[height] duration-500 ease-out group-hover:h-full"
-                  />
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute -right-3 -top-3 text-brand-red/[0.055] transition-transform duration-700 ease-out group-hover:-translate-y-1 group-hover:rotate-6"
-                  >
-                    <Icon size={104} strokeWidth={1.1} />
-                  </span>
-                  <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-brand-red/10 text-brand-red transition-[background-color,color,transform] duration-500 group-hover:scale-[1.08] group-hover:bg-brand-red group-hover:text-white">
-                    <Icon size={23} strokeWidth={1.7} />
-                  </div>
-                  <h3 className="relative font-display text-[17px] leading-none tracking-tight text-[#4a1515]">
+                  <div className="rise flex flex-col items-center" style={{ '--i': i } as React.CSSProperties}>
+                  <span className="font-display text-[15px] italic text-brand-gold-dark">{ROMAN[i]}</span>
+                  <Icon size={26} strokeWidth={1.1} className="mt-5 text-brand-red transition-transform duration-500 group-hover:-translate-y-1 group-hover:scale-110" />
+                  <h3 className="mt-5 font-display text-[22px] font-medium leading-tight text-brand-wine sm:text-[25px]">
                     {title}
                   </h3>
-                  <span
-                    aria-hidden
-                    className="relative block h-px w-6 bg-brand-gold/70 transition-[width] duration-500 group-hover:w-14"
-                  />
-                  <p className="relative text-[12.5px] leading-relaxed text-brand-ink/60">{text}</p>
+                  <span aria-hidden className="mt-4 block h-px w-8 bg-brand-gold/60 transition-[width] duration-500 group-hover:w-14" />
+                  <p className="mt-4 max-w-[220px] font-body text-[13px] font-light leading-relaxed text-brand-ink/60 sm:text-[13.5px]">
+                    {text}
+                  </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -764,242 +754,258 @@ export default function Home() {
         </section>
       </Reveal>
 
-      {/* ========= RED BAND: GIFTING + HOW IT WORKS + GUARANTEE ========= */}
-      <Reveal>
+      {/* ========= RED BAND: GIFTING + HOW IT WORKS + GUARANTEE =========
+          Not wrapped in one Reveal: each block below reveals as it is
+          reached, so How it works isn't spent before anyone scrolls to it. */}
         <section
           id="gifting"
-          className="relative overflow-hidden text-white"
+          className="relative overflow-clip text-white"
           style={{
-            backgroundImage:
-              'linear-gradient(168deg, #b81a27 0%, #9d1420 34%, #7c0e19 68%, #5f070f 100%)',
+            backgroundImage: 'linear-gradient(172deg, #b81a27 0%, #9d1420 28%, #7c0e19 64%, #5f070f 100%)',
           }}
         >
-          {/* Massive elegant sweeping top wave matching the reference */}
-          <svg
-            className="absolute -top-px left-0 w-full h-[140px] sm:h-[280px] text-brand-cream pointer-events-none"
-            viewBox="0 0 1440 280"
-            preserveAspectRatio="none"
-            aria-hidden
-          >
-            <path
-              fill="currentColor"
-              d="M0,0 L1440,0 L1440,50 C1000,200 400,280 0,120 Z"
-            />
-          </svg>
+          <div aria-hidden className="grain pointer-events-none absolute inset-0 opacity-[0.05] mix-blend-overlay" />
+          <EdgeCurve position="top" />
 
-          {/* ---- Luxury Gifting ---- */}
-          <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-36 sm:pt-48 pb-14 grid md:grid-cols-2 gap-10 items-center">
-            <div className="flex flex-col gap-5 text-center md:text-left items-center md:items-start">
-              <span className="inline-flex items-center gap-2 rounded-full bg-[#fbeec6]/12 px-4 py-1.5 text-[10.5px] font-bold uppercase tracking-[0.18em] text-[#f0d9a4] ring-1 ring-[#f0d9a4]/35">
-                <Gift size={13} /> Gifting
-              </span>
-              <h2 className="font-display text-[34px] leading-[1.05] tracking-tight sm:text-[52px]">
-                Luxury Gifting
-              </h2>
-              <p className="max-w-md text-[17px] leading-[1.75] text-[#fbe6d8] sm:text-[19px]">
-                Hand-tied silk ribbon, a hand-written card, and a box built to
-                survive the drive. Corporate orders, wedding favours and Eid
-                hampers — delivered anywhere in Kuwait, on the day you name.
-              </p>
-              <Link
-                href="#gifting"
-                className="group inline-flex items-center gap-2.5 rounded-full px-8 py-4 text-[11px] font-bold uppercase tracking-[0.16em] text-[#4a1515] shadow-[0_14px_32px_rgba(30,0,4,0.4)] transition-transform duration-300 hover:-translate-y-0.5"
-                style={{
-                  backgroundImage:
-                    'linear-gradient(135deg, #fbeec6 0%, #dcbb79 48%, #b9924b 100%)',
-                }}
-              >
-                View Gifting Collection
-                <ArrowRight size={14} className="transition-transform duration-300 group-hover:translate-x-1" />
-              </Link>
-            </div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={img(IMAGES.gifting, 900)}
-              alt="A wrapped Red Rose parcel, hand-tied"
-              loading="lazy"
-              className="h-[260px] w-full rounded-2xl object-cover shadow-[0_28px_60px_rgba(30,0,4,0.45)] ring-1 ring-brand-gold/25 sm:h-[340px]"
-            />
-          </div>
+          {/* petals drifting through the band */}
+          <Cutout src="petal-a" className="left-[3%] top-[9%] w-[42px]" p0={160} p1={-200} r0={0} r1={140} f={6} />
+          <Cutout src="petal-c" className="right-[4%] top-[30%] w-[36px] max-sm:hidden" p0={200} p1={-220} r0={30} r1={-90} f={7} />
+          <Cutout src="petal-b" className="left-[6%] top-[52%] w-[34px] max-sm:hidden" p0={140} p1={-180} r0={-40} r1={60} f={5.5} />
+          <Cutout src="petal-a" className="right-[7%] top-[70%] w-[30px]" p0={180} p1={-160} r0={60} r1={-40} f={6.5} />
 
-          {/* ---- How It Works ---- */}
-          <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-12">
-            {/* Inner dark-red wave for How It Works to create the 2-tone effect */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[150vw] sm:w-[200vw] h-[120%] bg-brand-red-dark/30 -z-10 rounded-[100%_0_100%_0/50%_0_50%_0] transform -skew-y-3" />
-          
-            <h2 className="text-2xl sm:text-4xl font-bold text-center tracking-tight">
-              How It Works
-            </h2>
-            <p className="mx-auto mb-14 mt-3 max-w-sm text-center text-[15px] leading-relaxed text-white/70">
-              From your screen to your door in three steps.
-            </p>
-            <div className="relative grid sm:grid-cols-3 gap-10 sm:gap-6">
-              {/* rule connecting the three steps */}
-              <div
-                aria-hidden
-                className="absolute left-[17%] right-[17%] top-[38px] hidden h-px bg-gradient-to-r from-transparent via-brand-gold/55 to-transparent sm:block"
-              />
-              {[
-                {
-                  n: '1.',
-                  title: 'You Order',
-                  text: 'Pick your favourites and place your order online in under a minute.',
-                  icon: ShoppingCart,
-                },
-                {
-                  n: '2.',
-                  title: 'We Bake',
-                  text: 'Our pastry chefs whisk, proof and bake your box fresh that morning.',
-                  icon: null,
-                },
-                {
-                  n: '3.',
-                  title: 'We Deliver',
-                  text: 'Same-day delivery across Kuwait City, boxed and beautifully sealed.',
-                  icon: Truck,
-                },
-              ].map((s) => (
-                <div
-                  key={s.title}
-                  className="group relative flex flex-col items-center gap-3.5 text-center"
-                >
-                  <div className="relative">
-                    <div className="flex h-[76px] w-[76px] items-center justify-center rounded-full bg-[#5f070f] text-white shadow-[0_12px_28px_rgba(30,0,4,0.5)] ring-1 ring-brand-gold/40 transition-transform duration-500 group-hover:scale-[1.06]">
-                      {s.icon ? <s.icon size={31} strokeWidth={1.6} /> : <Whisk size={31} />}
-                    </div>
-                    <span className="absolute -right-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full bg-brand-gold font-numeric lining-nums text-[14px] font-semibold text-[#4a1515] shadow-md">
-                      {s.n.replace('.', '')}
-                    </span>
-                  </div>
-                  <h3 className="mt-1 font-display text-[20px] leading-none tracking-tight">
-                    {s.title}
-                  </h3>
-                  <p className="max-w-[230px] text-[13px] leading-relaxed text-white/72">
-                    {s.text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ---- Freshness Guarantee ---- */}
-          <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-24 sm:pb-28">
-            <div className="bg-brand-red-dark rounded-2xl ring-1 ring-brand-gold/40 px-6 py-6 sm:px-10 sm:py-7 flex flex-col sm:flex-row items-center gap-5 shadow-xl text-center sm:text-left">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-brand-gold text-brand-red flex items-center justify-center shrink-0 shadow-lg ring-4 ring-brand-gold/25">
-                <BadgeCheck size={30} />
+          {/* ---- Gifting ---- */}
+          <Reveal>
+          <div className={`${CONTAINER} relative grid items-center gap-20 pb-20 pt-28 sm:pt-36 lg:grid-cols-[1fr_1.05fr] lg:gap-20 lg:pb-28 lg:pt-40`}>
+            <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[420px] lg:mx-0 lg:max-w-[440px]">
+              <div aria-hidden className="arch absolute -inset-3 border border-brand-gold-light/40 sm:-inset-4" />
+              <div className="arch curtain relative isolate aspect-[4/5] overflow-hidden shadow-[0_40px_80px_-30px_rgba(20,0,3,0.85)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img(IMAGES.giftBoxes, 1000)}
+                  srcSet={srcSet(IMAGES.giftBoxes, [700, 1000, 1400])}
+                  sizes="(min-width: 1024px) 440px, (min-width: 640px) 420px, 340px"
+                  alt="Black gift boxes tied with gold ribbon"
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
               </div>
+              <div
+                className="parallax absolute -bottom-8 -right-4 z-20 w-[42%] sm:-right-12"
+                style={{ '--p0': '50px', '--p1': '-40px' } as React.CSSProperties}
+              >
+                <div className="aspect-square overflow-hidden rounded-full border-[5px] border-brand-cream shadow-[0_24px_50px_-20px_rgba(20,0,3,0.8)]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img(IMAGES.chocolates, 600)}
+                    srcSet={srcSet(IMAGES.chocolates, [400, 700])}
+                    sizes="(min-width: 640px) 185px, 145px"
+                    alt="An open box of assorted chocolates"
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              </div>
+
+              {/* A rose laid against the foot of the arch. */}
+              <Cutout
+                src="rose"
+                className="-bottom-12 -left-10 z-10 w-[210px] sm:-left-20 sm:w-[290px]"
+                p0={40}
+                p1={-40}
+                r0={-34}
+                r1={-22}
+                f={8}
+              />
+            </div>
+
+            <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+              <p className="eyebrow text-brand-gold-light">Luxury Gifting</p>
+              <h2 className="heading mt-5 text-white">
+                The Art of <em className="text-brand-gold-light">Gifting</em>
+              </h2>
+              <p className="lede rise mt-6 max-w-lg text-[#fbe6d8]/85">
+                Hand-tied silk ribbon, a hand-written card, and a box built to
+                survive the drive — delivered anywhere in Kuwait, on the day you name.
+              </p>
+
+              <ul className="mt-9 w-full max-w-lg border-t border-white/15 text-left">
+                {OCCASIONS.map((o, i) => (
+                  <li
+                    key={o.title}
+                    className="rise flex gap-5 border-b border-white/15 py-5"
+                    style={{ '--i': i + 2 } as React.CSSProperties}
+                  >
+                    <span className="pt-1.5 font-display text-[15px] italic text-brand-gold-light/80">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <div>
+                      <p className="font-display text-[23px] font-medium leading-tight">{o.title}</p>
+                      <p className="mt-1.5 font-body text-[13.5px] font-light leading-relaxed text-white/65">
+                        {o.text}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="rise mt-10 flex flex-col items-center gap-6 sm:flex-row" style={{ '--i': 6 } as React.CSSProperties}>
+                <Link href="/customer" className="btn btn-gold">
+                  Explore gift boxes
+                  <ArrowRight size={13} strokeWidth={1.8} />
+                </Link>
+                <a href="tel:+96522000000" className="text-link text-white/80 hover:text-white">
+                  Corporate orders
+                  <ArrowRight size={13} strokeWidth={1.8} />
+                </a>
+              </div>
+            </div>
+          </div>
+          </Reveal>
+
+          {/* ---- How it works ---- */}
+          <Reveal>
+          <div id="how-it-works" className={`${CONTAINER} relative scroll-mt-20`}>
+            <div className="border-t border-white/15 py-20 sm:py-24">
+              <div className="mx-auto max-w-2xl text-center">
+                <p className="eyebrow eyebrow-center text-brand-gold-light">How it works</p>
+                <h2 className="heading mt-5 text-white">
+                  From our kitchen <em className="text-brand-gold-light">to your door</em>
+                </h2>
+              </div>
+
+              <div className="relative mt-14 sm:mt-16">
+                {/* rule through the three markers */}
+                <span
+                  aria-hidden
+                  className="draw-x absolute left-[16.67%] right-[16.67%] top-[95px] hidden h-px bg-gradient-to-r from-brand-gold-light/10 via-brand-gold-light/50 to-brand-gold-light/10 sm:block"
+                />
+                <ol className="stagger grid gap-14 sm:grid-cols-3 sm:gap-8">
+                  {STEPS.map((s, i) => (
+                    <li key={s.title} className="relative flex flex-col items-center text-center">
+                      <span className="numeral-outline lining-nums font-display text-[84px] font-medium leading-[0.9]">
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      <span aria-hidden className="relative mt-4 block h-2 w-2 rotate-45 bg-brand-gold-light shadow-[0_0_0_5px_rgba(124,14,25,0.9)]" />
+                      <h3 className="mt-6 font-display text-[27px] font-medium leading-tight">{s.title}</h3>
+                      <p className="mt-3 max-w-[260px] font-body text-[14px] font-light leading-relaxed text-white/70">
+                        {s.text}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </div>
+          </Reveal>
+
+          {/* ---- Freshness promise ---- */}
+          <Reveal>
+          <div id="guarantee" className={`${CONTAINER} relative scroll-mt-28 pb-32 sm:pb-40`}>
+            <div className="mx-auto flex max-w-4xl flex-col items-center gap-8 rounded-[28px] border border-brand-gold-light/30 bg-black/10 px-7 py-11 text-center sm:flex-row sm:gap-11 sm:px-12 sm:text-left">
+              <Seal />
               <div>
-                <h3 className="text-lg sm:text-2xl font-bold tracking-tight">
-                  Freshness Guarantee
+                <p className="eyebrow text-brand-gold-light">Our guarantee</p>
+                <h3 className="mt-4 font-display text-[34px] font-medium leading-none sm:text-[40px]">
+                  Freshness, <em className="font-normal italic text-brand-gold-light">guaranteed</em>
                 </h3>
-                <p className="text-[12.5px] text-white/75 mt-1">
-                  Freshly baked daily, guaranteed to delight — or we replace the box.
+                <p className="mt-4 max-w-xl font-body text-[14.5px] font-light leading-relaxed text-white/72">
+                  Everything is baked the morning it is sold. If a box isn&apos;t
+                  perfect when it reaches you, we replace it — no questions asked.
                 </p>
               </div>
             </div>
           </div>
+          </Reveal>
 
-          <svg
-            className="absolute -bottom-px left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
-            viewBox="0 0 1440 120"
-            preserveAspectRatio="none"
-            aria-hidden
-          >
-            <path
-              fill="currentColor"
-              d="M0,120 L1440,120 L1440,60 C900,160 400,-20 0,80 Z"
-            />
-          </svg>
+          <EdgeCurve position="bottom" />
         </section>
-      </Reveal>
 
       {/* ==================== SWEET WORDS ==================== */}
       <Reveal>
-        <section className="relative py-14 sm:py-20">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <h2 className="mb-3 text-center font-display text-[32px] leading-none tracking-tight sm:text-[46px]">
-              Sweet Words
+        <section id="reviews" className="relative scroll-mt-24 py-20 sm:py-28">
+          <Cutout src="croissant" className="-left-16 top-4 w-[150px] sm:-left-14 sm:top-10 sm:w-[240px] xl:left-[1%]" p0={60} p1={-80} r0={-10} r1={6} f={8} />
+          <Cutout src="cherries" className="-right-10 top-[12%] w-[120px] sm:-right-8 sm:w-[190px] xl:right-[2%]" p0={90} p1={-90} r0={12} r1={-8} f={6.5} />
+          <div className="mx-auto max-w-2xl px-5 text-center">
+            <p className="eyebrow eyebrow-center text-brand-gold-dark">Testimonials</p>
+            <h2 className="heading mt-5 text-brand-wine">
+              Sweet <em className="text-brand-red">Words</em>
             </h2>
-            <p className="mx-auto mb-11 max-w-sm text-center text-[14px] text-brand-ink/55">
-              Hover to hold it still — and add your own below.
+            <p className="lede rise mx-auto mt-5 max-w-md text-brand-ink/65">
+              Notes from the people we bake for.
             </p>
           </div>
 
           {/* full-bleed, so the run has somewhere to come from and go to */}
-          <Reviews seed={REVIEW_SEED} />
+          <div className="mt-12 sm:mt-16">
+            <Reviews seed={REVIEW_SEED} />
+          </div>
         </section>
       </Reveal>
 
-      {/* ==================== FIND OUR BOUTIQUES ==================== */}
+      {/* ==================== VISIT ==================== */}
       <Reveal>
-        <section id="locations" className="relative pb-16 sm:pb-24">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <h2 className="text-center font-display text-[32px] leading-none tracking-tight sm:text-[46px]">
-              Find Our Shop
-            </h2>
-            <p className="mx-auto mb-11 mt-3 max-w-sm text-center text-[15px] text-brand-ink/60">
-              One kitchen, one counter, in Salmiya.
-            </p>
+        <section id="locations" className="relative scroll-mt-24 pb-28 sm:pb-36">
+          <Cutout src="petal-c" className="left-[8%] top-0 w-[34px] max-sm:hidden" p0={100} p1={-120} r0={-30} r1={50} f={6} />
+          <Cutout src="raspberry" className="right-[6%] top-6 w-[58px] sm:w-[74px]" p0={70} p1={-90} r0={10} r1={-16} f={5.5} />
+          <div className={CONTAINER}>
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="eyebrow eyebrow-center text-brand-gold-dark">Visit us</p>
+              <h2 className="heading mt-5 text-brand-wine">
+                Find Our <em className="text-brand-red">Shop</em>
+              </h2>
+              <p className="lede rise mx-auto mt-5 max-w-md text-brand-ink/65">
+                One kitchen, one counter, in Salmiya.
+              </p>
+            </div>
 
-            <div className="grid overflow-hidden rounded-[1.5rem] bg-white shadow-[0_18px_46px_rgba(74,21,21,0.13)] ring-1 ring-brand-gold/20 md:grid-cols-5">
-              <div className="relative h-72 md:col-span-3 md:h-[420px]">
+            <div className="mt-12 grid overflow-hidden rounded-[28px] border border-brand-gold/25 bg-white shadow-[0_34px_70px_-40px_rgba(74,21,21,0.5)] sm:mt-16 lg:grid-cols-5">
+              <div className="relative h-72 sm:h-96 lg:col-span-3 lg:h-auto lg:min-h-[480px]">
                 <iframe
                   title="Red Rose Sweets — Salmiya, Kuwait"
                   src="https://www.google.com/maps?q=29.3339,48.0777&z=16&output=embed"
-                  className="h-full w-full border-0"
+                  className="absolute inset-0 h-full w-full border-0 [filter:grayscale(0.4)_sepia(0.18)_contrast(1.03)]"
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
                 />
                 {/* Seals the embed: the wheel scrolls the page instead of
-                    zooming the map, and the view stays where we put it. The
-                    Get directions button is the way out to the real map. */}
+                    zooming the map. Get directions is the way out to the map. */}
                 <span aria-hidden className="absolute inset-0 cursor-default" />
               </div>
 
-              <div className="flex flex-col justify-center gap-5 p-7 sm:p-9 md:col-span-2">
-                <div>
-                  <span className="text-[9.5px] font-semibold uppercase tracking-[0.24em] text-brand-gold-dark">
-                    Our shop
-                  </span>
-                  <h3 className="mt-1.5 font-display text-[28px] leading-none text-[#4a1515]">
-                    Salmiya
-                  </h3>
-                </div>
+              <div className="flex flex-col justify-center px-7 py-10 sm:px-11 sm:py-12 lg:col-span-2">
+                <p className="eyebrow text-brand-gold-dark">The shop</p>
+                <h3 className="mt-4 font-display text-[42px] font-medium leading-none text-brand-wine">Salmiya</h3>
 
-                <div className="flex flex-col gap-3.5 text-[14px] leading-relaxed text-brand-ink/70">
-                  <p className="flex items-start gap-3">
-                    <MapPin size={17} className="mt-0.5 shrink-0 text-brand-red" />
-                    <span>
-                      179 Street, Salmiya 123
-                      <br />
-                      Kuwait City
-                    </span>
-                  </p>
-                  <p className="flex items-start gap-3">
-                    <Clock size={17} className="mt-0.5 shrink-0 text-brand-red" />
-                    <span>
-                      Open daily
-                      <br />
-                      <span className="tabular-nums">8:00 — 23:00</span>
-                    </span>
-                  </p>
-                  <p className="flex items-start gap-3">
-                    <Phone size={17} className="mt-0.5 shrink-0 text-brand-red" />
+                <dl className="mt-8 divide-y divide-brand-gold/20 border-y border-brand-gold/20">
+                  <InfoRow icon={MapPin} label="Address">
+                    179 Street, Salmiya 123
+                    <br />
+                    Kuwait City
+                  </InfoRow>
+                  <InfoRow icon={Clock} label="Hours">
+                    Open daily · <span className="tabular-nums">8:00 – 23:00</span>
+                  </InfoRow>
+                  <InfoRow icon={Phone} label="Telephone">
                     <a href="tel:+96522000000" className="tabular-nums transition-colors hover:text-brand-red">
                       +965 2200 0000
                     </a>
-                  </p>
-                </div>
+                  </InfoRow>
+                </dl>
 
-                <a
-                  href="https://www.google.com/maps?q=Salmiya+Kuwait"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group mt-1 inline-flex items-center justify-center gap-2 self-start rounded-full bg-brand-red px-7 py-3.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white transition-colors hover:bg-brand-red-dark"
-                >
-                  Get directions
-                  <ArrowRight size={13} className="transition-transform duration-300 group-hover:translate-x-1" />
-                </a>
+                <div className="mt-9 flex flex-wrap gap-3">
+                  <a
+                    href="https://www.google.com/maps?q=Salmiya+Kuwait"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-red px-7"
+                  >
+                    Get directions
+                    <ArrowRight size={13} strokeWidth={1.8} />
+                  </a>
+                  <a href="tel:+96522000000" className="btn btn-outline px-7">
+                    Call us
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -1007,99 +1013,319 @@ export default function Home() {
       </Reveal>
 
       {/* ==================== FOOTER ==================== */}
-      <footer id="contact" className="relative bg-brand-red text-white overflow-hidden">
-        <svg
-          className="absolute -top-px left-0 w-full h-16 sm:h-24 text-brand-cream pointer-events-none"
-          viewBox="0 0 1440 120"
-          preserveAspectRatio="none"
-          aria-hidden
-        >
-          <path
-            fill="currentColor"
-            d="M0,0 L1440,0 L1440,30 C1000,120 400,-20 0,70 Z"
-          />
-        </svg>
+      <footer
+        id="contact"
+        className="relative overflow-clip text-white"
+        style={{ backgroundImage: 'linear-gradient(176deg, #9d1420 0%, #7c0e19 45%, #4f070c 100%)' }}
+      >
+        <div aria-hidden className="grain pointer-events-none absolute inset-0 opacity-[0.05] mix-blend-overlay" />
+        <EdgeCurve position="top" />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 sm:pt-28 pb-8 grid gap-10 md:grid-cols-[1fr_1.3fr_auto]">
-          <div className="flex flex-col gap-3.5">
-            <div className="flex items-center gap-2.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={BRAND.logo}
-                alt=""
-                className="h-9 w-9 rounded-full object-cover ring-2 ring-white/40"
-              />
-              <span className="font-bold text-[13px] tracking-[0.2em] uppercase">
-                Red Rose
-              </span>
-            </div>
-            <p className="text-[11.5px] text-white/70 leading-relaxed max-w-[230px]">
-              Artisanal Arabic and French pastries, baked fresh every morning in
-              Kuwait City and delivered to your door.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-4 md:items-center">
-            <h4 className="font-bold text-lg sm:text-xl tracking-tight">Newsletter Sign Up</h4>
-            <div className="relative w-full max-w-sm">
-              <label htmlFor="newsletter-email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="newsletter-email"
-                type="email"
-                placeholder="Email address"
-                className="w-full pl-5 pr-[104px] py-3 rounded-full bg-white text-brand-ink text-[12px] placeholder:text-brand-ink/40 focus:outline-none focus:ring-2 focus:ring-brand-gold"
-              />
-              <button
-                type="button"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 px-5 py-2 bg-brand-red-dark text-white rounded-full font-bold text-[10px] tracking-[0.15em] uppercase hover:bg-brand-ink transition-colors"
-              >
-                Sign Up
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2.5 mt-1">
-              <SocialIcon label="Facebook">
-                <path d="M13.5 21v-7.5h2.5l.5-3h-3V8.8c0-.9.25-1.5 1.5-1.5H16.5V4.6c-.3 0-1.3-.13-2.4-.13-2.4 0-4.1 1.5-4.1 4.2v2.3H7.5v3H10V21h3.5z" />
-              </SocialIcon>
-              <SocialIcon label="Instagram">
-                <path d="M12 2.2c3.2 0 3.6 0 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.25.07 1.62.07 4.81s0 3.56-.07 4.81c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.25.06-1.62.07-4.85.07s-3.6 0-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.8 3.8 0 0 1-1.38-.9 3.8 3.8 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.2 15.56 2.2 15.19 2.2 12s0-3.56.07-4.81c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38a3.8 3.8 0 0 1 1.38-.9c.42-.16 1.06-.36 2.23-.41C8.44 2.2 8.8 2.2 12 2.2zm0 3.05A6.75 6.75 0 1 0 18.75 12 6.75 6.75 0 0 0 12 5.25zm0 11.13A4.38 4.38 0 1 1 16.38 12 4.38 4.38 0 0 1 12 16.38zm6.99-11.4a1.58 1.58 0 1 1-1.58-1.57 1.58 1.58 0 0 1 1.58 1.57z" />
-              </SocialIcon>
-              <SocialIcon label="LinkedIn">
-                <path d="M4.5 4.5h3.2v3.2H4.5V4.5zm0 5h3.2V20H4.5V9.5zm5.4 0h3.06v1.44h.04c.43-.8 1.47-1.65 3.02-1.65 3.23 0 3.83 2.03 3.83 4.68V20h-3.2v-5.35c0-1.28-.03-2.92-1.83-2.92-1.84 0-2.12 1.39-2.12 2.83V20H9.9V9.5z" />
-              </SocialIcon>
-              <SocialIcon label="Email">
-                <path d="M3 5.5h18c.55 0 1 .45 1 1V17.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1V6.5c0-.55.45-1 1-1zm9 7.1 8-4.85V6.9l-8 4.85L4 6.9v.85l8 4.85z" />
-              </SocialIcon>
-            </div>
-          </div>
-
-          <nav className="flex flex-col gap-2.5 text-[12px] md:items-end">
-            {NAV_LINKS.concat([{ label: 'Contact Us', href: '#contact' }]).map((l) => (
-              <Link
-                key={l.label}
-                href={l.href}
-                className="text-white/75 hover:text-white transition-colors"
-              >
-                {l.label}
+        <div className="relative mx-auto w-full max-w-7xl px-5 pt-28 sm:px-8 sm:pt-36">
+          <div className="grid gap-12 border-b border-white/15 pb-14 sm:grid-cols-2 lg:grid-cols-12 lg:gap-10">
+            <div className="lg:col-span-4">
+              <Link href="/" className="inline-flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/rose-mark.webp"
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="h-12 w-12 rounded-full object-cover ring-1 ring-brand-gold-light/60"
+                />
+                <span className="leading-none">
+                  <span className="sr-only">{BRAND.fullName}</span>
+                  <span
+                    aria-hidden
+                    className="block font-wordmark text-[28px] uppercase tracking-[0.04em]"
+                    style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
+                  >
+                    Red Rose
+                  </span>
+                  <span aria-hidden className="mt-1.5 block font-body text-[8px] font-medium uppercase tracking-[0.5em] text-brand-gold-light/85">
+                    Pastry · Kuwait
+                  </span>
+                </span>
               </Link>
-            ))}
-          </nav>
-        </div>
+              <p className="mt-6 max-w-xs font-body text-[14px] font-light leading-relaxed text-white/65">
+                Artisanal Arabic and French pastries, baked fresh every morning in
+                Kuwait City and delivered to your door.
+              </p>
+              <div className="mt-7 flex items-center gap-2.5">
+                <SocialIcon label="Instagram">
+                  <path d="M12 2.2c3.2 0 3.6 0 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.25.07 1.62.07 4.81s0 3.56-.07 4.81c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.25.06-1.62.07-4.85.07s-3.6 0-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.8 3.8 0 0 1-1.38-.9 3.8 3.8 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.2 15.56 2.2 15.19 2.2 12s0-3.56.07-4.81c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38a3.8 3.8 0 0 1 1.38-.9c.42-.16 1.06-.36 2.23-.41C8.44 2.2 8.8 2.2 12 2.2zm0 3.05A6.75 6.75 0 1 0 18.75 12 6.75 6.75 0 0 0 12 5.25zm0 11.13A4.38 4.38 0 1 1 16.38 12 4.38 4.38 0 0 1 12 16.38zm6.99-11.4a1.58 1.58 0 1 1-1.58-1.57 1.58 1.58 0 0 1 1.58 1.57z" />
+                </SocialIcon>
+                <SocialIcon label="Facebook">
+                  <path d="M13.5 21v-7.5h2.5l.5-3h-3V8.8c0-.9.25-1.5 1.5-1.5H16.5V4.6c-.3 0-1.3-.13-2.4-.13-2.4 0-4.1 1.5-4.1 4.2v2.3H7.5v3H10V21h3.5z" />
+                </SocialIcon>
+                <SocialIcon label="LinkedIn">
+                  <path d="M4.5 4.5h3.2v3.2H4.5V4.5zm0 5h3.2V20H4.5V9.5zm5.4 0h3.06v1.44h.04c.43-.8 1.47-1.65 3.02-1.65 3.23 0 3.83 2.03 3.83 4.68V20h-3.2v-5.35c0-1.28-.03-2.92-1.83-2.92-1.84 0-2.12 1.39-2.12 2.83V20H9.9V9.5z" />
+                </SocialIcon>
+                <SocialIcon label="Email">
+                  <path d="M3 5.5h18c.55 0 1 .45 1 1V17.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1V6.5c0-.55.45-1 1-1zm9 7.1 8-4.85V6.9l-8 4.85L4 6.9v.85l8 4.85z" />
+                </SocialIcon>
+              </div>
+            </div>
 
-        <div className="relative z-10 border-t border-white/15">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between gap-1.5 text-[10.5px] text-white/60">
+            <div className="lg:col-span-2">
+              <FooterHeading>Explore</FooterHeading>
+              <ul className="mt-5 flex flex-col gap-3">
+                {FOOTER_LINKS.map((l) => (
+                  <li key={l.label}>
+                    <Link
+                      href={l.href}
+                      className="font-body text-[14px] font-light text-white/70 transition-colors hover:text-brand-gold-light"
+                    >
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="lg:col-span-3">
+              <FooterHeading>Visit</FooterHeading>
+              <address className="mt-5 flex flex-col gap-3 font-body text-[14px] font-light not-italic leading-relaxed text-white/70">
+                <span>
+                  179 Street, Salmiya 123
+                  <br />
+                  Kuwait City
+                </span>
+                <span>
+                  Open daily · <span className="tabular-nums">8:00 – 23:00</span>
+                </span>
+                <a href="tel:+96522000000" className="tabular-nums transition-colors hover:text-brand-gold-light">
+                  +965 2200 0000
+                </a>
+              </address>
+            </div>
+
+            <div className="sm:col-span-2 lg:col-span-3">
+              <FooterHeading>Newsletter</FooterHeading>
+              <p className="mt-5 font-display text-[24px] font-medium leading-tight">
+                Letters from <em className="font-normal italic text-brand-gold-light">the kitchen</em>
+              </p>
+              <p className="mt-2 font-body text-[13px] font-light leading-relaxed text-white/60">
+                New flavours, seasonal boxes and Eid pre-orders. Never more than once a month.
+              </p>
+              <div className="mt-5 flex items-end gap-3 border-b border-white/30 transition-colors focus-within:border-brand-gold-light">
+                <label htmlFor="newsletter-email" className="sr-only">
+                  Email address
+                </label>
+                <input
+                  id="newsletter-email"
+                  type="email"
+                  placeholder="Your email address"
+                  className="min-w-0 flex-1 bg-transparent py-3 font-body text-[14px] font-light text-white outline-none placeholder:text-white/40"
+                />
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 py-3 font-body text-[10.5px] font-medium uppercase tracking-[0.24em] text-brand-gold-light transition-colors hover:text-white"
+                >
+                  Subscribe
+                  <ArrowRight size={13} strokeWidth={1.8} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-between gap-3 py-7 font-body text-[11.5px] font-light tracking-[0.06em] text-white/55 sm:flex-row">
             <span>
               © {new Date().getFullYear()} {BRAND.fullName} · {BRAND.city}
             </span>
-            <Link href="#" className="hover:text-white transition-colors">
+            <Link href="#" className="transition-colors hover:text-white">
               Privacy Policy
             </Link>
           </div>
         </div>
+
+        {/* The wordmark returns, very faint, to close the page. */}
+        <div aria-hidden className="pointer-events-none relative h-[15vw] select-none overflow-hidden">
+          <p
+            className="rise-in absolute inset-x-0 top-0 text-center font-wordmark text-[26vw] uppercase leading-[0.8] tracking-[-0.01em] text-white/[0.06]"
+          >
+            Red Rose
+          </p>
+        </div>
       </footer>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------------- */
+
+/** A photograph in the Our Story mosaic, captioned on a soft shade. */
+function Photo({ src, label, from, aspect, i }: { src: string; label: string; from: string; aspect: string; i: number }) {
+  return (
+    <figure
+      className={`curtain group relative isolate overflow-hidden rounded-[18px] shadow-[0_22px_44px_-28px_rgba(74,21,21,0.6)] ${aspect}`}
+      style={{ '--i': i } as React.CSSProperties}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={img(src, 800)}
+        srcSet={srcSet(src, [500, 800, 1100])}
+        sizes="(min-width: 1024px) 270px, 45vw"
+        alt={label}
+        loading="lazy"
+        className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.05]"
+      />
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/75 via-[#2a1108]/5 to-transparent" />
+      <figcaption className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
+        <span className="block font-body text-[8.5px] font-medium uppercase tracking-[0.28em] text-brand-gold-light">
+          {from}
+        </span>
+        <span className="mt-1 block font-display text-[19px] font-medium leading-none text-white sm:text-[22px]">
+          {label}
+        </span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/**
+ * A cut-out photograph (fruit, petals, a rose) resting on the edge of a
+ * section. It drifts with the scroll (p0 → p1 px, r0 → r1 deg) and bobs
+ * gently on its own, so the page never sits completely still.
+ */
+function Cutout({
+  src,
+  className = '',
+  p0 = 70,
+  p1 = -70,
+  r0 = 0,
+  r1 = 0,
+  f = 7,
+}: {
+  src: string;
+  className?: string;
+  p0?: number;
+  p1?: number;
+  r0?: number;
+  r1?: number;
+  f?: number;
+}) {
+  return (
+    <span aria-hidden className={`cutout ${className}`}>
+      <span
+        className="parallax block"
+        style={{ '--p0': `${p0}px`, '--p1': `${p1}px`, '--r0': `${r0}deg`, '--r1': `${r1}deg` } as React.CSSProperties}
+      >
+        <span className="float" style={{ '--f': `${f}s` } as React.CSSProperties}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={`/cutouts/${src}.webp`} alt="" loading="lazy" />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** One band of the crossing ribbons under the hero. */
+function Ribbon({ variant }: { variant: 'front' | 'back' }) {
+  // Four copies: the track loops at -50%, so each half must be identical
+  // and wider than the widest screen.
+  const items = [...RIBBON, ...RIBBON, ...RIBBON, ...RIBBON];
+  const shift = variant === 'front' ? { '--sx0': '5%', '--sx1': '-5%' } : { '--sx0': '-5%', '--sx1': '5%' };
+  return (
+    <div className={`ribbon ribbon-${variant}`}>
+      <div className="scroll-slide" style={shift as React.CSSProperties}>
+        <div className="ribbon-track">
+          {items.map((t, i) => (
+            <span key={i} className="ribbon-item">
+              {t}
+              <span className="ribbon-star">✦</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A soft dip where a cream section meets a red one, with a gold hairline. */
+function EdgeCurve({ position }: { position: 'top' | 'bottom' }) {
+  const top = position === 'top';
+  const fill = top
+    ? 'M0,0 L1440,0 L1440,20 C1080,92 360,92 0,20 Z'
+    : 'M0,96 L1440,96 L1440,76 C1080,4 360,4 0,76 Z';
+  const line = top ? 'M0,20 C360,92 1080,92 1440,20' : 'M0,76 C360,4 1080,4 1440,76';
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 1440 96"
+      preserveAspectRatio="none"
+      className={`pointer-events-none absolute left-0 h-[40px] w-full sm:h-[80px] ${top ? '-top-px' : '-bottom-px'}`}
+    >
+      <defs>
+        <linearGradient id={`edge-gold-${position}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#ecd8a6" stopOpacity="0" />
+          <stop offset="50%" stopColor="#ecd8a6" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#ecd8a6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path fill="#fbf8ee" d={fill} />
+      <path fill="none" stroke={`url(#edge-gold-${position})`} strokeWidth="1.25" vectorEffect="non-scaling-stroke" d={line} />
+    </svg>
+  );
+}
+
+/** A round maker's seal: rose mark in the centre, the promise around it. */
+function Seal() {
+  return (
+    <div className="relative h-[128px] w-[128px] shrink-0">
+      <svg
+        viewBox="0 0 120 120"
+        className="absolute inset-0 h-full w-full text-brand-gold-light motion-safe:animate-[spin_36s_linear_infinite]"
+        aria-hidden
+      >
+        <defs>
+          <path id="seal-ring" d="M60,60 m-45,0 a45,45 0 1,1 90,0 a45,45 0 1,1 -90,0" />
+        </defs>
+        <circle cx="60" cy="60" r="58.5" fill="none" stroke="currentColor" strokeOpacity="0.4" strokeWidth="0.8" />
+        <circle cx="60" cy="60" r="34" fill="none" stroke="currentColor" strokeOpacity="0.4" strokeWidth="0.8" />
+        <text fill="currentColor" fontSize="8" fontWeight="500" style={{ fontFamily: 'var(--lux-body)' }}>
+          <textPath href="#seal-ring" textLength="280" lengthAdjust="spacing">
+            BAKED FRESH · EVERY MORNING · SINCE 2012 ·
+          </textPath>
+        </text>
+      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/rose-mark.webp"
+        alt=""
+        width={56}
+        height={56}
+        className="absolute left-1/2 top-1/2 h-[54px] w-[54px] -translate-x-1/2 -translate-y-1/2 rounded-full object-cover"
+      />
+    </div>
+  );
+}
+
+function InfoRow({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-4 py-4">
+      <Icon size={16} strokeWidth={1.4} className="mt-0.5 shrink-0 text-brand-red" />
+      <div>
+        <dt className="font-body text-[9.5px] font-medium uppercase tracking-[0.28em] text-brand-ink/45">{label}</dt>
+        <dd className="mt-1.5 font-body text-[15px] font-light leading-relaxed text-brand-ink/80">{children}</dd>
+      </div>
+    </div>
+  );
+}
+
+function FooterHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h4 className="font-body text-[10px] font-medium uppercase tracking-[0.32em] text-brand-gold-light">
+      {children}
+    </h4>
   );
 }
 
@@ -1108,9 +1334,9 @@ function SocialIcon({ label, children }: { label: string; children: React.ReactN
     <a
       href="#"
       aria-label={label}
-      className="w-8 h-8 rounded-full bg-white text-brand-red flex items-center justify-center hover:bg-brand-gold hover:text-white transition-colors"
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-white/25 text-white/80 transition-colors hover:border-brand-gold-light hover:text-brand-gold-light"
     >
-      <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
         {children}
       </svg>
     </a>

@@ -7,7 +7,8 @@ export type Review = {
   name: string;
   text: string;
   rating: number;
-  photo: string;
+  /** Older saved reviews carry a photo; cards no longer show one. */
+  photo?: string;
 };
 
 const STORAGE_KEY = 'rr_reviews_v1';
@@ -40,42 +41,45 @@ function writeRaw(next: Review[]) {
   listeners.forEach((l) => l());
 }
 
-function Stars({ value, size = 12 }: { value: number; size?: number }) {
+function Stars({ value, size = 11 }: { value: number; size?: number }) {
   return (
-    <div className="flex gap-0.5" aria-label={`${value} out of 5`}>
+    <div className="flex gap-[3px]" role="img" aria-label={`${value} out of 5`}>
       {Array.from({ length: 5 }).map((_, i) => (
         <Star
           key={i}
           size={size}
-          className={i < value ? 'fill-current text-brand-gold' : 'text-brand-gold/25'}
+          strokeWidth={1.4}
+          className={i < value ? 'fill-current text-brand-gold' : 'text-brand-gold/35'}
         />
       ))}
     </div>
   );
 }
 
-/** Photo and words in one card, rather than a photo, then a card, then a photo. */
+/** A quote card: the words carry it, set in the serif. */
 function Card({ r }: { r: Review }) {
   return (
-    <figure className="flex h-full flex-col overflow-hidden rounded-2xl bg-white ring-1 ring-brand-gold/18 shadow-[0_10px_28px_rgba(74,21,21,0.09)]">
-      <div className="relative h-[150px] shrink-0 overflow-hidden sm:h-[168px]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={r.photo} alt="" loading="lazy" className="h-full w-full object-cover" />
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/45 to-transparent"
-        />
-      </div>
-      <figcaption className="flex flex-1 flex-col gap-2.5 p-5">
+    <figure className="flex h-full flex-col rounded-[20px] border border-brand-gold/25 bg-white/70 px-7 pb-6 pt-7 shadow-[0_18px_40px_-28px_rgba(74,21,21,0.35)]">
+      <span aria-hidden className="block h-7 font-display text-[64px] leading-[0.9] text-brand-gold/70">
+        &ldquo;
+      </span>
+      <blockquote className="mt-3 flex-1 font-display text-[19px] leading-[1.5] text-brand-wine sm:text-[20px]">
+        {r.text}
+      </blockquote>
+      <figcaption className="mt-6 flex items-center justify-between gap-4 border-t border-brand-gold/20 pt-4">
+        <span className="font-body text-[10.5px] font-medium uppercase tracking-[0.26em] text-brand-wine/80">
+          {r.name}
+        </span>
         <Stars value={r.rating} />
-        <p className="flex-1 text-[13px] leading-relaxed text-brand-ink/70">
-          {r.text}
-        </p>
-        <p className="text-[11.5px] font-bold tracking-wide text-brand-red">{r.name}</p>
       </figcaption>
     </figure>
   );
 }
+
+const fieldLabel =
+  'mb-2 block font-body text-[10px] font-medium uppercase tracking-[0.26em] text-brand-wine/55';
+const fieldInput =
+  'w-full rounded-xl border border-brand-gold/30 bg-brand-cream/60 px-4 py-3 font-body text-[15px] font-light text-brand-ink outline-none transition-colors placeholder:text-brand-ink/30 focus:border-brand-red/60 focus:bg-white';
 
 export default function Reviews({ seed }: { seed: Review[] }) {
   const raw = useSyncExternalStore(subscribe, readRaw, () => '[]');
@@ -104,13 +108,7 @@ export default function Reviews({ seed }: { seed: Review[] }) {
     const n = name.trim();
     const t = text.trim();
     if (!n || !t) return;
-    const entry: Review = {
-      name: n,
-      text: t,
-      rating,
-      photo: seed[mine.length % seed.length].photo,
-    };
-    writeRaw([entry, ...mine]);
+    writeRaw([{ name: n, text: t, rating }, ...mine]);
     setName('');
     setText('');
     setRating(5);
@@ -124,11 +122,11 @@ export default function Reviews({ seed }: { seed: Review[] }) {
   return (
     <>
       <div className="marquee">
-        <ul className="marquee-track">
+        <ul className="marquee-track py-2">
           {[...all, ...all].map((r, i) => (
             <li
               key={i}
-              className="mr-4 w-[248px] shrink-0 sm:mr-5 sm:w-[288px]"
+              className="mr-5 w-[290px] shrink-0 sm:mr-6 sm:w-[360px]"
               aria-hidden={i >= all.length}
             >
               <Card r={r} />
@@ -137,35 +135,31 @@ export default function Reviews({ seed }: { seed: Review[] }) {
         </ul>
       </div>
 
-      <div className="mx-auto mt-10 flex max-w-2xl flex-col items-center px-4">
+      <div className="mx-auto mt-12 flex max-w-xl flex-col items-center px-4">
         {!open && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="group inline-flex items-center gap-2 rounded-full bg-brand-red px-7 py-3.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-white transition-colors hover:bg-brand-red-dark"
-          >
-            <Plus size={14} className="transition-transform duration-300 group-hover:rotate-90" />
-            Add your review
+          <button type="button" onClick={() => setOpen(true)} className="btn btn-outline">
+            <Plus size={14} strokeWidth={1.6} />
+            Write a review
           </button>
         )}
 
         {saved && (
-          <p role="status" className="mt-1 text-[13px] text-brand-green">
-            Thanks — your review is saved on this device.
+          <p role="status" className="mt-4 font-body text-[13px] font-light text-brand-green">
+            Thank you — your review is saved on this device.
           </p>
         )}
 
         {open && (
           <form
             onSubmit={submit}
-            className="w-full rounded-2xl bg-white p-6 text-left ring-1 ring-brand-gold/25 shadow-[0_16px_40px_rgba(74,21,21,0.12)]"
+            className="w-full rounded-[24px] border border-brand-gold/25 bg-white p-7 text-left shadow-[0_24px_50px_-30px_rgba(74,21,21,0.45)] sm:p-9"
           >
-            <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="mb-7 flex items-start justify-between gap-4">
               <div>
-                <h3 className="font-display text-[22px] leading-none text-[#4a1515]">
-                  Add your review
+                <h3 className="font-display text-[30px] font-medium leading-none text-brand-wine">
+                  Share your <em className="italic font-normal text-brand-red">experience</em>
                 </h3>
-                <p className="mt-1.5 text-[12.5px] text-brand-ink/55">
+                <p className="mt-2.5 font-body text-[12.5px] font-light text-brand-ink/55">
                   Saved in this browser only.
                 </p>
               </div>
@@ -175,14 +169,12 @@ export default function Reviews({ seed }: { seed: Review[] }) {
                 aria-label="Close"
                 className="rounded-full p-1.5 text-brand-ink/45 transition-colors hover:bg-brand-ink/5 hover:text-brand-ink"
               >
-                <X size={17} />
+                <X size={17} strokeWidth={1.6} />
               </button>
             </div>
 
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-ink/50">
-              Your rating
-            </label>
-            <div className="mb-5 flex gap-1.5">
+            <span className={fieldLabel}>Your rating</span>
+            <div className="mb-6 flex gap-1.5">
               {[1, 2, 3, 4, 5].map((n) => (
                 <button
                   key={n}
@@ -194,16 +186,14 @@ export default function Reviews({ seed }: { seed: Review[] }) {
                 >
                   <Star
                     size={24}
-                    className={n <= rating ? 'fill-current text-brand-gold' : 'text-brand-gold/30'}
+                    strokeWidth={1.3}
+                    className={n <= rating ? 'fill-current text-brand-gold' : 'text-brand-gold/35'}
                   />
                 </button>
               ))}
             </div>
 
-            <label
-              htmlFor="rv-name"
-              className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-ink/50"
-            >
+            <label htmlFor="rv-name" className={fieldLabel}>
               Your name
             </label>
             <input
@@ -214,13 +204,10 @@ export default function Reviews({ seed }: { seed: Review[] }) {
               required
               maxLength={40}
               placeholder="Reem A."
-              className="mb-5 w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 px-4 py-3 text-[14px] text-brand-ink outline-none transition-colors placeholder:text-brand-ink/30 focus:border-brand-red"
+              className={`${fieldInput} mb-6`}
             />
 
-            <label
-              htmlFor="rv-text"
-              className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-ink/50"
-            >
+            <label htmlFor="rv-text" className={fieldLabel}>
               Your review
             </label>
             <textarea
@@ -231,12 +218,12 @@ export default function Reviews({ seed }: { seed: Review[] }) {
               rows={4}
               maxLength={400}
               placeholder="What did you order, and how was it?"
-              className="mb-5 w-full resize-none rounded-xl border border-brand-gold/30 bg-brand-cream/50 px-4 py-3 text-[14px] leading-relaxed text-brand-ink outline-none transition-colors placeholder:text-brand-ink/30 focus:border-brand-red"
+              className={`${fieldInput} mb-7 resize-none leading-relaxed`}
             />
 
             <button
               type="submit"
-              className="w-full rounded-full bg-brand-red px-7 py-3.5 text-[10.5px] font-bold uppercase tracking-[0.16em] text-white transition-colors hover:bg-brand-red-dark disabled:opacity-40"
+              className="btn btn-red w-full disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!name.trim() || !text.trim()}
             >
               Post review

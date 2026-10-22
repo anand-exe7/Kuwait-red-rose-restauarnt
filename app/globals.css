@@ -10,11 +10,14 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --font-poppins: var(--font-poppins-src), "Segoe UI", Arial, sans-serif;
-  /* Landing-page display voice: the hero wordmark and section headings. */
-  --font-display: var(--font-display-src), "Georgia", "Times New Roman", serif;
-  /* Numerals (stats, counters) — deliberately not the display face. */
-  --font-numeric: var(--font-numeric-src), "Garamond", "Times New Roman", serif;
+
+  /* Landing page type (loaded in app/fonts.ts, applied on the landing root).
+     body     — Jost: copy, labels, buttons
+     display  — Cormorant Garamond: headings, prices, quotes
+     wordmark — Anton: the RED ROSE lockup only */
+  --font-body: var(--font-body-src), "Segoe UI", Arial, sans-serif;
+  --font-display: var(--font-display-src), "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-wordmark: var(--font-wordmark-src), Impact, "Arial Narrow", sans-serif;
 
   /* Red Rose brand palette (from the shop sign) */
   --color-brand-beige: #f3ecd2;
@@ -22,7 +25,9 @@
   --color-brand-sand: #efe6c9;
   --color-brand-red: #b01e28;
   --color-brand-red-dark: #8f1720;
+  --color-brand-wine: #4a1515;
   --color-brand-gold: #c9a961;
+  --color-brand-gold-light: #ecd8a6;
   --color-brand-gold-dark: #a5843f;
   --color-brand-plum: #8e2570;
   --color-brand-green: #3f8f3a;
@@ -31,8 +36,12 @@
 
 html, body {
   max-width: 100vw;
-  overflow-x: hidden;
 }
+/* `hidden` on body would make it a scroll container, and every scroll-driven
+   animation below would then bind to a box that never scrolls. `clip` cuts
+   the overflow without that side effect. html's value moves to the viewport. */
+html { overflow-x: hidden; }
+body { overflow-x: clip; }
 
 body {
   background: var(--background);
@@ -40,24 +49,171 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Smooth in-page jumps (Our Story, Gifting…) on the landing page only. */
+html:has(.landing) { scroll-behavior: smooth; }
+.landing ::selection { background: #b01e28; color: #fbf8ee; }
+.landing { -webkit-tap-highlight-color: transparent; }
+
+/* ===================================================================
+   Landing building blocks
+   Kept as component classes (not utilities) so a Tailwind utility on the
+   element can still override any one property.
+   =================================================================== */
+@layer components {
+  /* @theme inline doesn't publish --font-* as runtime variables, so these
+     classes read the next/font variables (with the same fallbacks). */
+  .landing {
+    --lux-body: var(--font-body-src), "Segoe UI", Arial, sans-serif;
+    --lux-display: var(--font-display-src), "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  }
+
+  /* Small caps label above every heading. */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.9rem;
+    font-family: var(--lux-body);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .eyebrow::before,
+  .eyebrow-center::after {
+    content: "";
+    display: block;
+    width: 2rem;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.55;
+  }
+
+  /* Section headings: a light serif, with the italic doing the emphasis. */
+  .heading {
+    font-family: var(--lux-display);
+    font-weight: 500;
+    font-size: clamp(38px, 5.4vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+  }
+  .heading em {
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .lede {
+    font-family: var(--lux-body);
+    font-weight: 300;
+    font-size: 15.5px;
+    line-height: 1.85;
+  }
+
+  /* Buttons. One shape everywhere: a pill with spaced caps. */
+  .btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    border-radius: 9999px;
+    padding: 1.05rem 2.1rem;
+    font-family: var(--lux-body);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    line-height: 1;
+    white-space: nowrap;
+    transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease,
+      box-shadow 0.35s ease, transform 0.35s ease;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn svg { transition: transform 0.35s ease; }
+  .btn:hover svg { transform: translateX(3px); }
+
+  .btn-red {
+    background: #b01e28;
+    color: #fff;
+    box-shadow: 0 14px 30px -12px rgba(143, 23, 32, 0.55);
+  }
+  .btn-red:hover { background: #8f1720; }
+
+  .btn-wine {
+    color: #fbf8ee;
+    background-image: linear-gradient(135deg, #75201f 0%, #4a1515 50%, #2b0a0a 100%);
+    box-shadow: 0 18px 36px -14px rgba(74, 21, 21, 0.75), inset 0 0 0 1px rgba(201, 169, 97, 0.45);
+  }
+  .btn-wine:hover { box-shadow: 0 22px 40px -14px rgba(74, 21, 21, 0.85), inset 0 0 0 1px rgba(236, 216, 166, 0.7); }
+
+  .btn-gold {
+    color: #4a1515;
+    background-image: linear-gradient(135deg, #fbeec6 0%, #dcbb79 50%, #b9924b 100%);
+    box-shadow: 0 16px 34px -14px rgba(30, 0, 4, 0.7);
+  }
+  .btn-gold:hover { box-shadow: 0 20px 40px -14px rgba(30, 0, 4, 0.85); }
+
+  .btn-outline {
+    color: #4a1515;
+    box-shadow: inset 0 0 0 1px rgba(74, 21, 21, 0.28);
+  }
+  .btn-outline:hover { color: #b01e28; box-shadow: inset 0 0 0 1px #b01e28; }
+
+  .btn-outline-light {
+    color: #fbf8ee;
+    box-shadow: inset 0 0 0 1px rgba(236, 216, 166, 0.45);
+  }
+  .btn-outline-light:hover { box-shadow: inset 0 0 0 1px #ecd8a6; color: #ecd8a6; }
+
+  /* Underlined text link with an arrow. */
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-bottom: 0.4rem;
+    font-family: var(--lux-body);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    background-image: linear-gradient(currentColor, currentColor);
+    background-size: 100% 1px;
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    transition: color 0.3s ease, background-size 0.4s ease;
+  }
+  .text-link svg { transition: transform 0.3s ease; }
+  .text-link:hover svg { transform: translateX(3px); }
+
+  /* Arch-topped frame for 4:5 photographs: the vertical radius is 40% of the
+     height, which on a 4:5 box equals half the width — a true semicircle. */
+  .arch {
+    border-radius: 50% 50% 16px 16px / 40% 40% 16px 16px;
+  }
+
+  /* Outlined numerals (How it works). */
+  .numeral-outline {
+    color: transparent;
+    -webkit-text-stroke: 1px #ecd8a6;
+  }
+}
+
 /* ===================================================================
    Motion
-   The hero cake itself is deliberately still — it sits centred and level.
-   Everything else arrives on load or on scroll, and the ambient loops are
-   kept to light and petals so nothing competes with the cake.
+   Everything here animates transform, opacity or clip-path, so it stays off
+   the main thread. Scroll-linked effects use CSS scroll timelines (compositor
+   driven, no scroll listeners) and are wrapped in @supports, so browsers
+   without them simply get the still layout.
    =================================================================== */
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translate3d(0, 28px, 0); }
+  from { opacity: 0; transform: translate3d(0, 24px, 0); }
   to   { opacity: 1; transform: none; }
 }
 @keyframes fade-down {
   from { opacity: 0; transform: translate3d(0, -14px, 0); }
   to   { opacity: 1; transform: none; }
-}
-@keyframes fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
 }
 @keyframes slide-in-left {
   from { opacity: 0; transform: translate3d(-9%, 0, 0); }
@@ -67,167 +223,443 @@ body {
   from { opacity: 0; transform: translate3d(9%, 0, 0); }
   to   { opacity: 1; transform: none; }
 }
-/* The cake settles into place once, then holds. */
+/* The cake settles into place once. */
 @keyframes cake-arrive {
-  from { opacity: 0; transform: scale(0.92) translate3d(0, 2.5%, 0); }
+  from { opacity: 0; transform: scale(0.94) translate3d(0, 2.5%, 0); }
   to   { opacity: 1; transform: none; }
 }
-/* Ambient: the plate of light behind the cake breathes. Opacity only — scaling
-   a blurred box makes the browser re-rasterise the blur on every frame. */
+/* The plate of light behind the cake breathes. Opacity only. */
 @keyframes glow-breathe {
-  0%, 100% { opacity: 0.58; }
+  0%, 100% { opacity: 0.6; }
   50%      { opacity: 0.9; }
-}
-/* Ambient: petals drifting in the hero field. */
-@keyframes petal-drift {
-  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
-  33%  { transform: translate3d(14px, -22px, 0) rotate(14deg); }
-  66%  { transform: translate3d(-9px, -11px, 0) rotate(-9deg); }
-  100% { transform: translate3d(0, 0, 0) rotate(0deg); }
 }
 
 .anim-fade-up      { animation: fade-up 0.95s cubic-bezier(0.22, 0.85, 0.28, 1) both; }
 .anim-fade-down    { animation: fade-down 0.8s cubic-bezier(0.22, 0.85, 0.28, 1) both; }
-.anim-fade-in      { animation: fade-in 1s ease both; }
 .anim-slide-left   { animation: slide-in-left 1.15s cubic-bezier(0.2, 0.85, 0.25, 1) both; }
 .anim-slide-right  { animation: slide-in-right 1.15s cubic-bezier(0.2, 0.85, 0.25, 1) both; }
-.anim-cake-arrive  { animation: cake-arrive 1.3s cubic-bezier(0.2, 0.9, 0.24, 1) both; }
+.anim-cake-arrive  { animation: cake-arrive 1.2s cubic-bezier(0.2, 0.9, 0.24, 1) both; }
 .anim-glow         { animation: glow-breathe 7s ease-in-out infinite; }
-.anim-petal        { animation: petal-drift 14s ease-in-out infinite; }
 
-/* Scroll-triggered reveal, driven by the Reveal client component. */
+/* ---------- Hero: the cake drops, fruit bursts out ---------- */
+@keyframes cake-drop {
+  0%   { opacity: 0; transform: translate3d(0, -24%, 0) scale(0.97); }
+  40%  { opacity: 1; }
+  62%  { transform: translate3d(0, 1.2%, 0) scale(1.02, 0.975); }
+  80%  { transform: translate3d(0, -0.5%, 0) scale(0.996, 1.005); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes burst-out {
+  0% {
+    opacity: 0;
+    transform: translate3d(calc(var(--cake) * var(--tx) * -0.9), calc(var(--cake) * (var(--ty) * -0.9 + 0.12)), 0)
+      scale(0.2) rotate(-70deg);
+  }
+  18%  { opacity: 1; }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes bob {
+  from { transform: translate3d(0, -7px, 0) rotate(-3deg); }
+  to   { transform: translate3d(0, 7px, 0) rotate(3deg); }
+}
+@keyframes petal-fall {
+  0%   { transform: translate3d(0, -12vh, 0) rotate(0deg); opacity: 0; }
+  8%   { opacity: var(--po, 0.9); }
+  50%  { transform: translate3d(var(--sway, 40px), 50vh, 0) rotate(200deg); }
+  92%  { opacity: var(--po, 0.9); }
+  100% { transform: translate3d(0, 108vh, 0) rotate(380deg); opacity: 0; }
+}
+
+.anim-cake-drop { animation: cake-drop 1.15s cubic-bezier(0.3, 0.7, 0.2, 1) 0.15s both; }
+.burst-fly      { display: block; animation: burst-out 1.2s cubic-bezier(0.15, 0.85, 0.3, 1.1) calc(0.72s + var(--d, 0ms)) both; }
+.float          { display: block; animation: bob var(--f, 6s) ease-in-out var(--fd, 0s) infinite alternate; }
+.petal-fall     { animation: petal-fall var(--dur, 16s) linear var(--delay, 0s) infinite both; }
+
+.hero-cake-drop { position: relative; z-index: 2; display: block; }
+
+/* Fruit and petals around the cake. Positions are in cake widths from the
+   cake's centre, with a separate set for phones (--m*) where the cake sits
+   under the wordmark instead of between the words. */
+.burst {
+  --tx: var(--mx);
+  --ty: var(--my);
+  --ts: var(--ms);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: calc(var(--cake) * var(--ts));
+  translate: calc(-50% + var(--cake) * var(--tx)) calc(-50% + var(--cake) * var(--ty));
+  pointer-events: none;
+}
+.burst img {
+  display: block;
+  width: 100%;
+  height: auto;
+  rotate: var(--r, 0deg);
+  filter: drop-shadow(0 14px 14px rgba(45, 0, 8, 0.38));
+}
+@media (min-width: 640px) {
+  .burst { --tx: var(--x); --ty: var(--y); --ts: var(--s); }
+}
+
+/* Decorative cutouts that sit on the edges of sections. */
+.cutout { position: absolute; z-index: 5; pointer-events: none; user-select: none; }
+.cutout img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 22px 24px rgba(74, 21, 21, 0.26));
+}
+
+/* ---------- Ribbons: two crossing bands of copy ---------- */
+.ribbon {
+  position: relative;
+  left: -5%;
+  width: 110%;
+  overflow: hidden;
+}
+.ribbon-back {
+  z-index: 1;
+  rotate: 2.2deg;
+  background: #b01e28;
+  color: #fbf8ee;
+}
+.ribbon-front {
+  z-index: 2;
+  rotate: -2.6deg;
+  margin-top: -3.4rem;
+  color: #ecd8a6;
+  background: linear-gradient(90deg, #330b0b, #4a1515 50%, #330b0b);
+  border-block: 1px solid rgba(201, 169, 97, 0.45);
+  box-shadow: 0 24px 46px -22px rgba(74, 21, 21, 0.7);
+}
+.ribbon-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-x 46s linear infinite;
+}
+.ribbon-back .ribbon-track { animation-direction: reverse; animation-duration: 58s; }
+.ribbon-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.7rem;
+  padding: 0.95rem 0 0.95rem 1.7rem;
+  font-family: var(--lux-display);
+  font-style: italic;
+  font-size: clamp(19px, 2.3vw, 30px);
+  line-height: 1;
+  white-space: nowrap;
+}
+.ribbon-star { font-style: normal; font-size: 0.55em; color: #c9a961; }
+.ribbon-back .ribbon-star { color: #ecd8a6; }
+
+/* ---------- Product card tilt ---------- */
+.tilt {
+  transform: perspective(1000px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.tilt[data-tilt="on"] { transition-duration: 0.15s; }
+.tilt-glare {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--gx, 50%) var(--gy, 0%), rgba(255, 255, 255, 0.45), transparent 55%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.tilt[data-tilt="on"] .tilt-glare { opacity: 1; }
+
+/* ---------- Thin gold reading-progress line ---------- */
+.scroll-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #a5843f, #ecd8a6 55%, #b01e28);
+  pointer-events: none;
+}
+
+/* ---------- Scroll-linked (CSS scroll timelines) ---------- */
+@keyframes progress-grow { to { transform: scaleX(1); } }
+@keyframes hx-left  { to { transform: translate3d(-26vw, 4vh, 0); opacity: 0; } }
+@keyframes hx-right { to { transform: translate3d(26vw, 4vh, 0); opacity: 0; } }
+@keyframes hx-cake  { to { transform: translate3d(0, -8vh, 0) scale(0.9) rotate(-8deg); opacity: 0.4; } }
+@keyframes hx-burst {
+  to {
+    transform: translate3d(calc(var(--tx) * 36vw), calc(var(--ty) * 30vh - 14vh), 0) rotate(calc(var(--tx) * 60deg));
+    opacity: 0;
+  }
+}
+@keyframes hx-fade  { to { opacity: 0; transform: translate3d(0, -5vh, 0); } }
+@keyframes parallax {
+  from { transform: translate3d(0, var(--p0, 70px), 0) rotate(var(--r0, 0deg)); }
+  to   { transform: translate3d(0, var(--p1, -70px), 0) rotate(var(--r1, 0deg)); }
+}
+@keyframes zoom-settle {
+  from { transform: scale(1.22); }
+  to   { transform: scale(1); }
+}
+@keyframes slide-x {
+  from { transform: translate3d(var(--sx0, 6%), 0, 0); }
+  to   { transform: translate3d(var(--sx1, -6%), 0, 0); }
+}
+@keyframes rise-in {
+  from { transform: translate3d(0, 38%, 0); }
+  to   { transform: none; }
+}
+
+@supports (animation-timeline: view()) {
+  .scroll-progress {
+    animation: progress-grow linear both;
+    animation-timeline: scroll(root);
+  }
+
+  /* Hero exit: the words part, the fruit scatters, the cake lifts away. */
+  .hero-tl { view-timeline: --hero block; }
+  .hx {
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: --hero;
+    animation-range: exit-crossing 0% exit-crossing 100%;
+  }
+  .hx-left  { animation-name: hx-left; }
+  .hx-right { animation-name: hx-right; }
+  .hx-cake  { animation-name: hx-cake; }
+  .hx-burst { animation-name: hx-burst; }
+  .hx-fade  { animation-name: hx-fade; }
+
+  /* Cutouts and photo columns drift at their own speed. */
+  .parallax {
+    animation: parallax linear both;
+    animation-timeline: view();
+    animation-range: cover 0% cover 100%;
+  }
+  /* Photos settle from a slight zoom as they pass through. */
+  .zoom-settle {
+    animation: zoom-settle linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 60%;
+  }
+  /* The ribbons slide sideways with the scroll, on top of their own run. */
+  .scroll-slide {
+    animation: slide-x linear both;
+    animation-timeline: view();
+    animation-range: cover 0% cover 100%;
+  }
+  /* The closing wordmark rises into place. */
+  .rise-in {
+    animation: rise-in linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 100%;
+  }
+}
+
+/* Scroll-triggered reveal, driven by the Reveal client component. The layer
+   hint is only held while the block is waiting to animate, so a long page
+   doesn't keep a compositor layer per section for ever. */
 .reveal {
   opacity: 0;
-  transform: translate3d(0, 14px, 0);
+  transform: translate3d(0, 18px, 0);
   transition:
-    opacity 0.5s cubic-bezier(0.22, 0.85, 0.28, 1),
-    transform 0.5s cubic-bezier(0.22, 0.85, 0.28, 1);
-  will-change: opacity, transform;
+    opacity 0.7s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.7s cubic-bezier(0.22, 0.85, 0.28, 1);
 }
+.reveal:not(.reveal-in) { will-change: opacity, transform; }
 .reveal-in {
   opacity: 1;
   transform: none;
 }
 
+/* Headings rise out of a mask line; eyebrow rules draw in; copy follows. */
+.reveal .heading {
+  clip-path: inset(100% -8% -30% -8%);
+  transform: translate3d(0, 0.45em, 0);
+  transition:
+    clip-path 1.15s cubic-bezier(0.2, 0.75, 0.15, 1) 0.1s,
+    transform 1.15s cubic-bezier(0.2, 0.75, 0.15, 1) 0.1s;
+}
+.reveal-in .heading { clip-path: inset(-30% -8% -30% -8%); transform: none; }
+
+.reveal .eyebrow::before,
+.reveal .eyebrow-center::after {
+  transform: scaleX(0);
+  transition: transform 1s cubic-bezier(0.7, 0, 0.2, 1) 0.25s;
+}
+.reveal .eyebrow::before { transform-origin: right; }
+.reveal .eyebrow-center::after { transform-origin: left; }
+.reveal-in .eyebrow::before,
+.reveal-in .eyebrow-center::after { transform: scaleX(1); }
+
+.reveal .rise {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity 0.9s cubic-bezier(0.22, 0.85, 0.28, 1) calc(var(--i, 0) * 90ms + 0.3s),
+    transform 0.9s cubic-bezier(0.22, 0.85, 0.28, 1) calc(var(--i, 0) * 90ms + 0.3s);
+}
+.reveal-in .rise { opacity: 1; transform: none; }
+
+/* Photos open like a curtain, bottom to top, and settle from a zoom. */
+.reveal .curtain {
+  clip-path: inset(100% 0 0 0);
+  transition: clip-path 1.3s cubic-bezier(0.75, 0, 0.2, 1) calc(var(--i, 0) * 120ms + 0.15s);
+}
+.reveal .curtain > img {
+  transform: scale(1.22);
+  transition:
+    transform 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--i, 0) * 120ms + 0.15s),
+    scale 1.2s ease-out;
+}
+.reveal-in .curtain { clip-path: inset(0 0 0 0); }
+.reveal-in .curtain > img { transform: none; }
+
+/* A rule that draws itself across (How it works). */
+.reveal .draw-x {
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 1.6s cubic-bezier(0.7, 0, 0.2, 1) 0.45s;
+}
+.reveal-in .draw-x { transform: scaleX(1); }
+
 /* Children of a revealed block arrive one after another rather than as a slab. */
 .stagger > * {
   opacity: 0;
-  transform: translate3d(0, 12px, 0);
+  transform: translate3d(0, 14px, 0);
   transition:
-    opacity 0.45s cubic-bezier(0.22, 0.85, 0.28, 1),
-    transform 0.45s cubic-bezier(0.22, 0.85, 0.28, 1);
+    opacity 0.6s cubic-bezier(0.22, 0.85, 0.28, 1),
+    transform 0.6s cubic-bezier(0.22, 0.85, 0.28, 1);
 }
 .reveal-in .stagger > * {
   opacity: 1;
   transform: none;
 }
-.stagger > *:nth-child(1) { transition-delay: 0.04s; }
-.stagger > *:nth-child(2) { transition-delay: 0.1s; }
-.stagger > *:nth-child(3) { transition-delay: 0.16s; }
-.stagger > *:nth-child(4) { transition-delay: 0.22s; }
-.stagger > *:nth-child(5) { transition-delay: 0.28s; }
-.stagger > *:nth-child(6) { transition-delay: 0.34s; }
+.stagger > *:nth-child(1) { transition-delay: 0.05s; }
+.stagger > *:nth-child(2) { transition-delay: 0.13s; }
+.stagger > *:nth-child(3) { transition-delay: 0.21s; }
+.stagger > *:nth-child(4) { transition-delay: 0.29s; }
+.stagger > *:nth-child(5) { transition-delay: 0.37s; }
+.stagger > *:nth-child(6) { transition-delay: 0.45s; }
 
-/* Scroll parallax removed: translating the wordmark and cake by a fraction of
-   scrollY made them trail the page on every scroll, which reads as lag rather
-   than as depth. The hero's separation now comes from scale and light alone. */
+/* ===================================================================
+   Hero: RED · cake · ROSE
+   One number, --cake, drives the cake, its halo and the gap the words hold
+   open for it; --hero-font drives the wordmark. Both are capped on width AND
+   height so a short laptop screen can't let them swallow the page.
+   =================================================================== */
 
-
-/* Hero cake sizing lives here rather than in arbitrary Tailwind utilities so
-   it cannot depend on those classes being generated. */
-/* Phone: The words are side-by-side and the cake is an absolute centered anchor. */
-
-/* One number, --cake, drives the whole RED-cake-ROSE composition: the cake's
-   width, the halo behind it, and the gap the two words hold open for it. It is
-   capped on BOTH axes on purpose. A width-only size (the old 32vw) keeps
-   growing on a wide-but-short laptop screen until the cake swallows the eyebrow
-   above it and eats a letter off the wordmark. */
-/* ROSE is wider than RED, and the cake is pinned to the container's centre, so
-   the lockup's own centre lands right of the frame's. Sliding the layer back by
-   half that difference balances the margins; the constant is measured -- RED
-   runs 1.31em and ROSE 1.75em, so half the difference is 0.218em. */
-/* PHONE. Side by side, 18vw type on a 390px screen is 70px — which is why the
-   hero read as mostly empty red with a small wordmark floating in it. Stacked,
-   the same screen carries ~115px, and the cake sits in the gap between the two
-   lines instead of shouldering them apart. */
+/* PHONE. Side by side, the words are too small to read and the cake lands
+   on top of them. So the lockup reads RED ROSE on one line, full width, and
+   the cake sits below it, only just kissing the bottom of the letters. */
 .hero-word-layer {
-  position: absolute;
-  inset: 0 0 11svh 0;
-  --cake: min(52vw, 24svh);
-  --hero-font: min(25vw, 10.5svh);
+  --hero-font: min(23.5vw, 11svh);
+  --cake: min(76vw, 42svh);
+  position: relative;
   display: grid;
-  grid-template-columns: 1fr;
-  align-content: center;
-  padding: 0 5vw 2svh;
-  line-height: 0.95;
+  grid-template-columns: auto auto;
+  justify-content: center;
+  align-items: end;
+  column-gap: calc(var(--hero-font) * 0.15);
+  padding: 0 4vw;
+  line-height: 1;
 }
-.hero-cake-anchor { width: 0; height: 100%; }
-.hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: block; }
+.hero-word-gap-l  { grid-row: 1; grid-column: 1; justify-content: flex-end; }
+.hero-word-gap-r  { grid-row: 1; grid-column: 2; justify-content: flex-start; }
+.hero-cake-anchor {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  margin-top: calc(var(--hero-font) * -0.2);
+  pointer-events: none;
+}
+.hero-cake-pos    { position: relative; display: block; }
 .hero-cake-img    { display: block; width: var(--cake); max-width: none; height: auto; }
-.hero-cake-halo   { display: block; width: calc(var(--cake) * 1.22); height: calc(var(--cake) * 1.02); transform: translate(-50%, -50%); }
+.hero-cake-halo   {
+  position: absolute; left: 50%; top: 50%;
+  display: block;
+  width: calc(var(--cake) * 1.22); height: calc(var(--cake) * 1.02);
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  pointer-events: none;
+}
 
-/* Each word holds back by a fixed share of the cake's width, so the cake
-   overlaps RED and ROSE by the same amount at every aspect ratio instead of
-   drifting from "barely touching" to "covering a whole letter". The shop's name
-   has to stay readable, so the cake only kisses the D and the R. */
-.hero-word-gap-l  { justify-content: flex-start; padding: 0; }
-.hero-word-gap-r  { justify-content: flex-end;   padding: 0; }
+/* Tall Anton letters. */
+.hero-word {
+  font-size: var(--hero-font);
+  transform: scaleY(1.18);
+  transform-origin: bottom;
+  padding-top: 0.12em;
+}
 
-/* Wordmark scale, tall letters for Anton */
-.hero-word { font-size: var(--hero-font); transform: none; padding-top: 0.06em; }
-
-/* TABLET. Jumping straight to the desktop numbers left the cake small against
-   type that had already gone large — 30vw of cake beside 17vw of type reads
-   wrong at 768. More cake, less type, until there is width to spare. */
+/* TABLET and up: the words sit on the outer edges and the cake floats
+   centred on top of them, overlapping the D and the R. */
 @media (min-width: 640px) {
-  .hero-word        { transform: scaleY(1.2); transform-origin: bottom; padding-top: 0.15em; }
+  .hero-word        { transform: scaleY(1.2); padding-top: 0.15em; }
   .hero-word-layer  {
+    position: absolute;
     inset: 0;
     --cake: min(38vw, 46svh, calc((100svh - 300px) * 0.78));
     --hero-font: min(15vw, 30svh, calc((100svh - 460px) * 0.83));
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
     align-content: center;
     align-items: center;
+    column-gap: 0;
     padding: 0 2vw 16svh;
     line-height: 1.25;
+    /* ROSE is wider than RED (1.75em vs 1.31em) and the cake is pinned to
+       the centre, so slide the lockup back by half the difference. */
     transform: translateX(calc(var(--hero-font) * -0.218));
   }
-  .hero-word-gap-l  { justify-content: flex-end;   padding: 0 calc(var(--cake) * 0.44) 0 0; }
-  .hero-word-gap-r  { justify-content: flex-start; padding: 0 0 0 calc(var(--cake) * 0.44); }
+  .hero-word-gap-l  { grid-row: auto; grid-column: auto; padding: 0 calc(var(--cake) * 0.44) 0 0; }
+  .hero-word-gap-r  { grid-row: auto; grid-column: auto; padding: 0 0 0 calc(var(--cake) * 0.44); }
+  .hero-cake-anchor {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 0;
+    height: 100%;
+    align-items: center;
+    grid-row: auto;
+    grid-column: auto;
+  }
+  .hero-cake-pos    { position: absolute; left: 50%; top: 50%; translate: -50% -50%; }
 }
 
 /* DESKTOP. Width stops being the binding constraint, so the type takes over. */
 @media (min-width: 1024px) {
   .hero-word-layer  {
     --cake: min(30vw, 48svh, calc((100svh - 300px) * 0.78));
-    --hero-font: min(17vw, 33svh, calc((100svh - 460px) * 0.83));
+    /* -500px: on short laptop screens (1280×720) the stretched letters
+       otherwise reach up into the eyebrow line. */
+    --hero-font: min(17vw, 33svh, calc((100svh - 500px) * 0.83));
   }
 }
 
-.hero-cake-bob { animation: cake-bob 6s ease-in-out infinite alternate; }
-.hero-cake-yaw {
-  position: relative; display: block;
-  transform-origin: 50% 62%;
-  animation: cake-yaw 9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+/* A slow, continuous 3D spin — one keyframe, one transform, so the
+   compositor runs it on every device without a repaint. The sway stays
+   under ±14° so the cake never shows its edge, and the vertical bob is
+   folded into the same keyframe to keep it off the main thread. */
+.cake-spin {
+  transform-origin: 50% 60%;
   will-change: transform;
+  backface-visibility: hidden;
+  animation: cake-spin 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-.hero-cake-sweep {
-  position: absolute; inset: 0; pointer-events: none;
-  mask-image: url('/cake-hero.webp');
-  -webkit-mask-image: url('/cake-hero.webp');
-  mask-size: contain; -webkit-mask-size: contain;
-  mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
-  mask-position: center; -webkit-mask-position: center;
-  background: linear-gradient(102deg,
-    rgba(255,255,255,0) 34%,
-    rgba(255,255,255,0.30) 46%,
-    rgba(255,255,255,0.55) 50%,
-    rgba(255,255,255,0.30) 54%,
-    rgba(255,255,255,0) 66%);
-  background-size: 250% 100%;
-  mix-blend-mode: soft-light;
-  animation: cake-sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+@keyframes cake-spin {
+  0%   { transform: perspective(1400px) rotateY(-14deg) translate3d(0, -3px, 0); }
+  50%  { transform: perspective(1400px) rotateY(14deg)  translate3d(0,  3px, 0); }
+  100% { transform: perspective(1400px) rotateY(-14deg) translate3d(0, -3px, 0); }
 }
+
 /* Grounding shadow. Kept OUT of the animated subtree on purpose: a filter
    anywhere above a transform animation forces a main-thread repaint per frame. */
 .hero-cake-shadow {
@@ -238,45 +670,56 @@ body {
   filter: blur(9px);
 }
 
-/* Once the real frames are running, the fake tilt and the fake highlight would
-   fight the actual rotation, so they stand down. The bob stays — it's the only
-   part the footage doesn't already provide. */
-.hero-cake-pos.has-frames .hero-cake-yaw {
-  animation: none;
-  transform: none;
-  will-change: auto;    /* stop pinning a compositor layer we no longer move */
+/* One light pass across ROSE after it lands, then it holds. A looping sweep
+   repainted the whole word on every frame for as long as the page was open. */
+@keyframes text-shimmer {
+  from { background-position: 130% 0; }
+  to   { background-position: -30% 0; }
 }
-.hero-cake-pos.has-frames .hero-cake-bob { animation: none; }
-.hero-cake-pos.has-frames .hero-cake-sweep { display: none; }
-
-@keyframes cake-yaw {
-  from { transform: perspective(1400px) rotateY(-10deg); }
-  to   { transform: perspective(1400px) rotateY(10deg); }
-}
-@keyframes cake-bob {
-  from { transform: translateY(-5px); }
-  to   { transform: translateY(5px); }
-}
-@keyframes cake-sweep {
-  from { background-position: 118% 0; }
-  to   { background-position: -18% 0; }
+.hero-shimmer {
+  background-size: 250% 100%;
+  background-position: -30% 0;
+  animation: text-shimmer 2.6s cubic-bezier(0.45, 0, 0.3, 1) 1.1s 1 both;
 }
 
-/* Sweet Words runs as a marquee. The list is rendered twice and the track is
-   pulled exactly -50%, so the seam lands on an identical item. The gap is a
-   right margin on each cell rather than `gap`, because a flex gap leaves the
-   two halves different widths and the loop visibly jumps. */
+/* ===================================================================
+   Signatures: each card's name rises and settles as the card scrolls in.
+   The transform runs on the compositor; a view-timeline drives it where
+   supported, with a one-shot fallback animation below for everyone else.
+   =================================================================== */
+@keyframes signature-rise {
+  from { opacity: 0; transform: translate3d(0, 28px, 0) scale(0.94); letter-spacing: 0.02em; }
+  to   { opacity: 1; transform: none; letter-spacing: normal; }
+}
+.signature-name {
+  animation: signature-rise 0.9s cubic-bezier(0.22, 0.85, 0.28, 1) calc(var(--i, 0) * 90ms + 0.2s) both;
+  will-change: transform, opacity;
+}
+@supports (animation-timeline: view()) {
+  .signature-name {
+    animation: signature-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 35%;
+  }
+}
+
+/* ===================================================================
+   Reviews marquee. The list is rendered twice and the track is pulled
+   exactly -50%, so the seam lands on an identical item. The gap is a right
+   margin on each cell rather than `gap`, which would leave the halves
+   different widths and make the loop jump.
+   =================================================================== */
 .marquee {
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
 }
 .marquee-track {
   display: flex;
   align-items: stretch;
   width: max-content;
   padding-inline: 1rem;
-  animation: marquee-x 64s linear infinite;
+  animation: marquee-x 80s linear infinite;
   will-change: transform;
 }
 .marquee:hover .marquee-track,
@@ -287,45 +730,68 @@ body {
   to   { transform: translate3d(-50%, 0, 0); }
 }
 
-@keyframes text-shimmer {
-  0%        { background-position: -140% 0; }
-  55%, 100% { background-position: 240% 0; }
-}
-.hero-shimmer {
-  background-size: 250% 100%;
-  animation: text-shimmer 7s ease-in-out infinite;
-}
-
-/* Old-style figures make "50K+" read as "5oK+" in the numeral face. */
+/* Old-style figures make "50K+" read as "5oK+" in the serif. */
 .lining-nums {
   font-variant-numeric: lining-nums;
   font-feature-settings: 'lnum' 1, 'onum' 0;
 }
 
+/* Fine grain over flat colour fields, so the reds read as paper, not plastic. */
+.grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html:has(.landing) { scroll-behavior: auto; }
   .anim-fade-up,
   .anim-fade-down,
-  .anim-fade-in,
   .anim-slide-left,
   .anim-slide-right,
   .anim-cake-arrive,
   .anim-glow,
-  .anim-petal,
   .hero-shimmer,
-  .hero-cake-bob,
-  .hero-cake-yaw,
-  .hero-cake-sweep,
-  .marquee-track {
+  .signature-name,
+  .cake-spin,
+  .marquee-track,
+  .ribbon-track,
+  .anim-cake-drop,
+  .burst-fly,
+  .float,
+  .hx,
+  .parallax,
+  .zoom-settle,
+  .scroll-slide,
+  .rise-in,
+  .scroll-progress {
     animation: none !important;
+  }
+  .petal-fall { display: none; }
+  .tilt { transform: none !important; }
+  .reveal .heading,
+  .reveal .rise,
+  .reveal .curtain,
+  .reveal .curtain > img,
+  .reveal .draw-x,
+  .reveal .eyebrow::before,
+  .reveal .eyebrow-center::after {
+    clip-path: none;
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
   /* the run is stopped, so let it be scrolled by hand instead */
   .marquee { overflow-x: auto; }
-  .hero-cake-sweep { opacity: 0; }
   .reveal,
   .stagger > * {
     opacity: 1;
     transform: none;
     transition: none;
+  }
+  .signature-name {
+    opacity: 1;
+    transform: none;
+    letter-spacing: normal;
   }
 }
 
@@ -336,3 +802,212 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a5843f; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ===================================================================
+   Staff dashboards (chef / waiter / admin) — brand paint pass.
+   Each page's root <div> carries .staff-themed, and the rules below
+   re-skin the common dark-panel / near-black / plain-white utilities
+   to the Red Rose cream + wine + gold palette the landing page uses.
+   `!important` is used because the utilities we're overriding are
+   single-class ones with identical specificity, and we want the brand
+   paint to win no matter the Tailwind build order.
+   =================================================================== */
+.staff-themed {
+  background: var(--color-brand-cream) !important;
+  color: var(--color-brand-wine);
+  font-family: var(--font-body-src), "Segoe UI", Arial, sans-serif;
+}
+.staff-themed h1,
+.staff-themed h2,
+.staff-themed h3,
+.staff-themed h4 {
+  font-family: var(--font-display-src), "Cormorant Garamond", Georgia, serif;
+  letter-spacing: -0.01em;
+}
+
+/* Dark panels → cream / white / sand.
+   The hierarchy matters: page is CREAM, main cards are WHITE with a gold
+   hairline, inner panels are a soft BEIGE one notch deeper than the page,
+   and primary chips / dark buttons become solid WINE (handled further
+   below). Keeping these four tones distinct is what makes the staff
+   dashboards read like the landing page instead of a beige wash. */
+.staff-themed .bg-\[\#050505\],
+.staff-themed .bg-\[\#0d0809\],
+.staff-themed .bg-\[\#0a0a0a\] { background-color: var(--color-brand-cream) !important; }
+
+.staff-themed .bg-\[\#111\],
+.staff-themed .bg-\[\#141414\],
+.staff-themed .bg-\[\#171717\] {
+  background-color: #ffffff !important;
+  border-color: rgba(201, 169, 97, 0.35) !important;
+  box-shadow: 0 20px 44px -28px rgba(74, 21, 21, 0.35);
+}
+
+.staff-themed .bg-\[\#1a1a1a\],
+.staff-themed .bg-\[\#1f1f1f\] { background-color: var(--color-brand-beige) !important; }
+
+/* Admin sidebar — deep wine with gold hairline and cream labels. The
+   bg-[#1a0a10] utility is only used on the admin sidebar in this app,
+   so these descendant rules re-skin its nav, labels and avatar block. */
+.staff-themed .bg-\[\#1a0a10\] {
+  background-image: linear-gradient(180deg, #4a1515 0%, #3a0d0d 55%, #2b0a0a 100%) !important;
+  background-color: var(--color-brand-wine) !important;
+  border-right: 1px solid rgba(201, 169, 97, 0.3) !important;
+  color: var(--color-brand-cream) !important;
+  box-shadow: 24px 0 46px -32px rgba(0, 0, 0, 0.35);
+}
+.staff-themed .bg-\[\#1a0a10\] * { border-color: rgba(201, 169, 97, 0.22) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-white,
+.staff-themed .bg-\[\#1a0a10\] span,
+.staff-themed .bg-\[\#1a0a10\] p { color: var(--color-brand-cream) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-gray-300,
+.staff-themed .bg-\[\#1a0a10\] .text-gray-400,
+.staff-themed .bg-\[\#1a0a10\] .text-gray-500 { color: rgba(236, 216, 166, 0.65) !important; }
+.staff-themed .bg-\[\#1a0a10\] button { color: rgba(236, 216, 166, 0.78) !important; }
+.staff-themed .bg-\[\#1a0a10\] button:hover { color: var(--color-brand-cream) !important; background-color: rgba(255, 255, 255, 0.06) !important; }
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red {
+  background-image: linear-gradient(135deg, #d9323f 0%, #b01e28 55%, #8f1720 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 30px -14px rgba(176, 30, 40, 0.65), inset 0 0 0 1px rgba(236, 216, 166, 0.35) !important;
+}
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red,
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red * { color: #ffffff !important; }
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red\/20 { background-color: rgba(236, 216, 166, 0.14) !important; }
+.staff-themed .bg-\[\#1a0a10\] .border-brand-red\/30 { border-color: rgba(236, 216, 166, 0.4) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-brand-gold { color: var(--color-brand-gold-light) !important; }
+
+/* Solid wine for small dark chips and the primary dark action button —
+   they share this bg in the chef / waiter markup but are always paired
+   with text-white, so this stays legible. */
+.staff-themed .bg-\[\#222\],
+.staff-themed .bg-\[\#2a2a2a\] {
+  background-color: var(--color-brand-wine) !important;
+  color: #ffffff !important;
+}
+
+.staff-themed .bg-\[\#f5f0f1\] { background-color: var(--color-brand-sand) !important; }
+
+/* Grays → warm ink */
+.staff-themed .bg-gray-50,
+.staff-themed .bg-gray-100 { background-color: var(--color-brand-sand) !important; }
+.staff-themed .bg-gray-200 { background-color: var(--color-brand-beige) !important; }
+.staff-themed .bg-gray-500,
+.staff-themed .bg-gray-600,
+.staff-themed .bg-gray-700,
+.staff-themed .bg-gray-800,
+.staff-themed .bg-gray-900 { background-color: var(--color-brand-wine) !important; color: #fff !important; }
+.staff-themed .bg-black { background-color: var(--color-brand-wine) !important; color: #fff !important; }
+
+/* Text */
+.staff-themed .text-white { color: var(--color-brand-wine) !important; }
+.staff-themed .text-black { color: var(--color-brand-wine) !important; }
+.staff-themed .text-gray-300 { color: rgba(74, 21, 21, 0.55) !important; }
+.staff-themed .text-gray-400 { color: rgba(74, 21, 21, 0.6) !important; }
+.staff-themed .text-gray-500 { color: rgba(74, 21, 21, 0.55) !important; }
+.staff-themed .text-gray-600 { color: rgba(74, 21, 21, 0.78) !important; }
+.staff-themed .text-gray-700 { color: rgba(74, 21, 21, 0.9) !important; }
+.staff-themed .text-gray-800,
+.staff-themed .text-gray-900 { color: var(--color-brand-wine) !important; }
+
+/* Borders */
+.staff-themed .border-white\/5,
+.staff-themed .border-white\/10,
+.staff-themed .border-white\/20,
+.staff-themed .border-white\/30 { border-color: rgba(201, 169, 97, 0.35) !important; }
+.staff-themed .border-black,
+.staff-themed .border-gray-200,
+.staff-themed .border-gray-300 { border-color: rgba(74, 21, 21, 0.22) !important; }
+.staff-themed .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+.staff-themed .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(201, 169, 97, 0.35) !important; }
+
+/* Preserve WHITE text on strong, filled color buttons (red, wine, green,
+   blue, emerald, amber, indigo, 400-700 shades, plus gradients). Keeps
+   the "Mark as Ready" / "Confirm" / "Send" buttons readable. */
+.staff-themed .bg-brand-red,
+.staff-themed .bg-brand-red-dark,
+.staff-themed .bg-brand-wine,
+.staff-themed .bg-brand-plum,
+.staff-themed [class*="bg-red-4"],
+.staff-themed [class*="bg-red-5"],
+.staff-themed [class*="bg-red-6"],
+.staff-themed [class*="bg-red-7"],
+.staff-themed [class*="bg-green-4"],
+.staff-themed [class*="bg-green-5"],
+.staff-themed [class*="bg-green-6"],
+.staff-themed [class*="bg-green-7"],
+.staff-themed [class*="bg-emerald-4"],
+.staff-themed [class*="bg-emerald-5"],
+.staff-themed [class*="bg-emerald-6"],
+.staff-themed [class*="bg-emerald-7"],
+.staff-themed [class*="bg-blue-4"],
+.staff-themed [class*="bg-blue-5"],
+.staff-themed [class*="bg-blue-6"],
+.staff-themed [class*="bg-blue-7"],
+.staff-themed [class*="bg-indigo-4"],
+.staff-themed [class*="bg-indigo-5"],
+.staff-themed [class*="bg-indigo-6"],
+.staff-themed [class*="bg-amber-4"],
+.staff-themed [class*="bg-amber-5"],
+.staff-themed [class*="bg-amber-6"],
+.staff-themed [class*="bg-orange-4"],
+.staff-themed [class*="bg-orange-5"],
+.staff-themed [class*="bg-orange-6"],
+.staff-themed [class*="bg-gradient"] {
+  color: #fff !important;
+}
+/* …and keep white when text-white is on a child of such a button. */
+.staff-themed .bg-brand-red .text-white,
+.staff-themed .bg-brand-red-dark .text-white,
+.staff-themed .bg-brand-wine .text-white,
+.staff-themed .bg-brand-plum .text-white,
+.staff-themed [class*="bg-red-5"] .text-white,
+.staff-themed [class*="bg-red-6"] .text-white,
+.staff-themed [class*="bg-green-5"] .text-white,
+.staff-themed [class*="bg-green-6"] .text-white,
+.staff-themed [class*="bg-emerald-5"] .text-white,
+.staff-themed [class*="bg-emerald-6"] .text-white,
+.staff-themed [class*="bg-blue-5"] .text-white,
+.staff-themed [class*="bg-blue-6"] .text-white,
+.staff-themed [class*="bg-gradient"] .text-white,
+.staff-themed .bg-black .text-white { color: #fff !important; }
+
+/* The dark chip / dark primary button class (bg-[#222]) is now wine —
+   preserve text-white on it and on its descendants, otherwise the label
+   on the Start Cooking button is wine-on-wine. */
+.staff-themed .bg-\[\#222\].text-white,
+.staff-themed .bg-\[\#222\] .text-white,
+.staff-themed .bg-\[\#2a2a2a\].text-white,
+.staff-themed .bg-\[\#2a2a2a\] .text-white { color: #fff !important; }
+
+/* The hover:text-white that peppers the dark version becomes a brand hover. */
+.staff-themed .hover\:text-white:hover { color: var(--color-brand-red) !important; }
+.staff-themed .hover\:bg-white:hover { background-color: #ffffff !important; }
+
+/* The chef/waiter headers used heavy black weights that read raw on cream.
+   Dial them back toward display-serif weights that match the landing. */
+.staff-themed .font-black { font-weight: 600 !important; }
+
+/* The focus ring on inputs is often white on dark; use gold on cream. */
+.staff-themed .ring-white\/10,
+.staff-themed .ring-white\/20 { --tw-ring-color: rgba(201, 169, 97, 0.4) !important; }
+
+/* Numeric chips sitting on wine (bg-[#222]) use text-brand-red in the
+   original dark theme — red on wine is low-contrast, so lift the digit
+   into brand-gold-light on cream. */
+.staff-themed .bg-\[\#222\] .text-brand-red,
+.staff-themed .bg-\[\#222\].text-brand-red,
+.staff-themed .bg-\[\#2a2a2a\] .text-brand-red,
+.staff-themed .bg-\[\#2a2a2a\].text-brand-red { color: var(--color-brand-gold-light) !important; }
+
+/* The brand-red/10 and brand-red/20 "soft red" chips keep their red text
+   on cream, but the original design pairs them with border-brand-red/20 —
+   bump the border so it reads crisply on the new light panel. */
+.staff-themed .border-brand-red\/20,
+.staff-themed .border-brand-red\/30 { border-color: rgba(176, 30, 40, 0.45) !important; }
+
+/* Subtle lift for every rounded panel so cards don't just float flat. */
+.staff-themed [class*="rounded-2xl"],
+.staff-themed [class*="rounded-3xl"],
+.staff-themed [class*="rounded-\[2rem\]"] {
+  box-shadow: 0 10px 30px -22px rgba(74, 21, 21, 0.35);
+}
