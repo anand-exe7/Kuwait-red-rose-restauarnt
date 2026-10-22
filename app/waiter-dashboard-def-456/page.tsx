@@ -78,7 +78,7 @@ export default function WaiterDashboard() {
     const status: Record<number, 'available' | 'occupied'> = {};
     for (const t of tableNumbers) status[t] = 'available';
     for (const o of placedOrders) {
-      if (o.status !== 'served' && o.mode !== 'standing' && o.mode !== 'takeaway') {
+      if (o.status !== 'served' && o.mode !== 'standing' && o.mode !== 'takeaway' && o.mode !== 'delivery') {
         status[o.table] = 'occupied';
       }
     }
@@ -145,7 +145,8 @@ export default function WaiterDashboard() {
 
   // ── Ready-order alert (sound + visual) ─────────────────────────────────────
   const readyOrders = useMemo(
-    () => placedOrders.filter(o => o.status === 'ready').sort((a, b) => a.createdAt - b.createdAt),
+    // Delivery orders are collected by drivers (see Admin -> Deliveries), not served by waiters.
+    () => placedOrders.filter(o => o.status === 'ready' && o.mode !== 'delivery').sort((a, b) => a.createdAt - b.createdAt),
     [placedOrders]
   );
   const audioCtxRef = useRef<AudioContext | null>(null);

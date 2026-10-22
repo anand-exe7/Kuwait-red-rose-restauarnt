@@ -163,6 +163,8 @@ export default function ChefDashboard() {
                     <div className="w-12 h-12 rounded-xl bg-[#1a1a1a] flex flex-col items-center justify-center font-black text-sm shrink-0 border border-white/5 text-center leading-none px-1">
                       {order.mode === 'standing' ? (
                         <span className="text-[10px] uppercase tracking-wide">Stand</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="text-[10px] uppercase tracking-wide">Deliv</span>
                       ) : order.mode === 'takeaway' ? (
                         <span className="text-[10px] uppercase tracking-wide">To-go</span>
                       ) : (
@@ -221,6 +223,8 @@ export default function ChefDashboard() {
                     <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex flex-col items-center justify-center font-black shadow-inner text-center leading-none px-1 ${order.status === 'cooking' ? 'bg-brand-red text-white shadow-[0_0_15px_rgba(176,30,40,0.4)]' : order.priority === 'high' ? 'bg-red-500/20 text-red-500' : 'bg-[#222] text-white'}`}>
                       {order.mode === 'standing' ? (
                         <span className="text-xs uppercase tracking-wide">Stand</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="text-xs uppercase tracking-wide">Deliv</span>
                       ) : order.mode === 'takeaway' ? (
                         <span className="text-xs uppercase tracking-wide">To-go</span>
                       ) : (

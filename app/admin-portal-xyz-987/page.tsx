@@ -21,6 +21,9 @@ import {
   LogOut,
   Ticket,
   Receipt,
+  Truck,
+  Users,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
@@ -29,6 +32,9 @@ import TablesSection from './TablesSection';
 import CouponsSection from './CouponsSection';
 import BillingSection from './BillingSection';
 import AnalyticsSection from './AnalyticsSection';
+import DeliveriesSection from './DeliveriesSection';
+import DriversSection from './DriversSection';
+import DeliverySettingsSection from './DeliverySettingsSection';
 import { Period, isInPeriod } from './analyticsHelpers';
 import {
   MenuItem,
@@ -88,7 +94,7 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63
 // Root
 // ---------------------------------------------------------------------------
 
-type Section = 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
+type Section = 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing' | 'deliveries' | 'drivers' | 'delivery';
 
 export default function AdminDashboard() {
   const [section, setSection] = useState<Section>('billing');
@@ -103,6 +109,9 @@ export default function AdminDashboard() {
     { key: 'inventory', icon: Package, label: 'Inventory' },
     { key: 'tables', icon: LayoutGrid, label: 'Tables' },
     { key: 'coupons', icon: Ticket, label: 'Coupons' },
+    { key: 'deliveries', icon: Truck, label: 'Deliveries' },
+    { key: 'drivers', icon: Users, label: 'Drivers' },
+    { key: 'delivery', icon: SlidersHorizontal, label: 'Delivery Settings' },
   ];
 
   return (
@@ -165,6 +174,9 @@ export default function AdminDashboard() {
             {section === 'tables' && <TablesSection />}
             {section === 'billing' && <BillingSection />}
             {section === 'coupons' && <CouponsSection />}
+            {section === 'deliveries' && <DeliveriesSection />}
+            {section === 'drivers' && <DriversSection />}
+            {section === 'delivery' && <DeliverySettingsSection />}
           </div>
           <footer className="mt-8 pt-6 border-t border-black/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-black/40">
             <span>© {new Date().getFullYear()} All rights reserved. {BRAND.fullName}.</span>
