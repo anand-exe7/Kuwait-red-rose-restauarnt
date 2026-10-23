@@ -35,6 +35,7 @@ import AnalyticsSection from './AnalyticsSection';
 import DeliveriesSection from './DeliveriesSection';
 import DriversSection from './DriversSection';
 import DeliverySettingsSection from './DeliverySettingsSection';
+import PhotoField from './PhotoField';
 import { Period, isInPeriod } from './analyticsHelpers';
 import {
   MenuItem,
@@ -657,15 +658,11 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red resize-none" placeholder="Short menu description" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block">Image URL</label>
-              <input value={image} onChange={e => setImage(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="https://..." />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block">Prep Time</label>
-              <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
-            </div>
+          <PhotoField value={image} onChange={setImage} />
+
+          <div>
+            <label className="text-xs font-bold text-black/50 mb-1.5 block">Prep Time</label>
+            <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
           </div>
 
           <div>
