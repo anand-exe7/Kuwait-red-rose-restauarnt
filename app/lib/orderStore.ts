@@ -372,15 +372,15 @@ export function updateOrderItems(id: string, items: OrderItem[]) {
     const total = taxable + tax;
     return { ...o, items, subtotal, tax, total };
   }));
-  const sb = getSupabase();
-  if (sb) {
-    const o = store.get().find((x) => x.id === id);
-    if (o) void sb.from('orders').update({
-      items: o.items, subtotal: o.subtotal, tax: o.tax, total: o.total,
-    }).eq('id', id).then(({ error }) => {
-      if (error) console.error('[orders] items update failed', error.message);
-    });
-  }
+  const o = store.get().find((x) => x.id === id);
+  if (o) void write({
+    table: 'orders',
+    op: 'update',
+    values: { items: o.items, subtotal: o.subtotal, tax: o.tax, total: o.total },
+    match: { id },
+  }).then(({ error }) => {
+    if (error) console.error('[orders] items update failed', error);
+  });
 }
 
 export function subscribeToOrders(callback: () => void): () => void {

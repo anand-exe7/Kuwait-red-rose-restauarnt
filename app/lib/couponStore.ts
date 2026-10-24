@@ -99,6 +99,14 @@ export function deleteCoupon(id: string) {
   });
 }
 
+/** Record one more redemption of this coupon. Called at checkout, after the
+ *  order is placed, so usedCount reflects actual completed orders. */
+export function incrementCouponUsage(id: string) {
+  const current = store.get().find((c) => c.id === id);
+  if (!current) return;
+  updateCoupon(id, { usedCount: (current.usedCount ?? 0) + 1 });
+}
+
 export function codeExists(code: string, exceptId?: string): boolean {
   const c = code.trim().toUpperCase();
   return store.get().some((x) => x.code === c && x.id !== exceptId);
