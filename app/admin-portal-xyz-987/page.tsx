@@ -20,6 +20,8 @@ import {
   LogOut,
   Ticket,
   Receipt,
+  Bell,
+  Users,
 } from 'lucide-react';
 import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
@@ -28,6 +30,8 @@ import TablesSection from './TablesSection';
 import CouponsSection from './CouponsSection';
 import BillingSection from './BillingSection';
 import AnalyticsSection from './AnalyticsSection';
+import IncomingOrdersSection from './IncomingOrdersSection';
+import OpenTabsSection from './OpenTabsSection';
 import { Period, isInPeriod } from './analyticsHelpers';
 import {
   MenuItem,
@@ -75,6 +79,7 @@ function exportOrdersToCSV(orders: Order[]) {
 }
 
 const STATUS_STYLES: Record<Order['status'], string> = {
+  awaiting_admin: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
   pending: 'bg-gray-500/10 text-gray-600 border-gray-500/20',
   cooking: 'bg-brand-red/10 text-brand-red-dark border-brand-red/20',
   ready: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
@@ -87,15 +92,19 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63
 // Root
 // ---------------------------------------------------------------------------
 
-type Section = 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
+type Section = 'incoming' | 'opentabs' | 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
 
 export default function AdminDashboard() {
-  const [section, setSection] = useState<Section>('billing');
+  const [section, setSection] = useState<Section>('incoming');
   const rawOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  // Billed-only history for the Orders / Analytics sections.
   const orders = useMemo(() => rawOrders.filter(o => o.billed), [rawOrders]);
+  const incomingCount = useMemo(() => rawOrders.filter(o => o.status === 'awaiting_admin').length, [rawOrders]);
   const menu = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
 
-  const navItems: { key: Section; icon: typeof LayoutDashboard; label: string }[] = [
+  const navItems: { key: Section; icon: typeof LayoutDashboard; label: string; badge?: number }[] = [
+    { key: 'incoming', icon: Bell, label: 'Incoming', badge: incomingCount },
+    { key: 'opentabs', icon: Users, label: 'Open Tabs' },
     { key: 'billing', icon: Receipt, label: 'Billing' },
     { key: 'analytics', icon: LayoutDashboard, label: 'Analytics' },
     { key: 'orders', icon: ClipboardList, label: 'Orders' },
@@ -119,10 +128,15 @@ export default function AdminDashboard() {
             <button
               key={item.key}
               onClick={() => setSection(item.key)}
-              className={`flex items-center justify-center md:justify-start gap-4 p-3 rounded-xl transition-all ${section === item.key ? 'bg-brand-red text-white shadow-lg shadow-brand-red/20' : 'text-gray-400 hover:bg-brand-red/5 hover:text-white'}`}
+              className={`relative flex items-center justify-center md:justify-start gap-4 p-3 rounded-xl transition-all ${section === item.key ? 'bg-brand-red text-white shadow-lg shadow-brand-red/20' : 'text-gray-400 hover:bg-brand-red/5 hover:text-white'}`}
             >
               <item.icon size={20} />
               <span className="font-medium hidden md:block">{item.label}</span>
+              {item.badge && item.badge > 0 && (
+                <span className="absolute right-2 top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-gold px-1.5 text-[10px] font-bold text-brand-wine md:static md:ml-auto">
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -158,6 +172,8 @@ export default function AdminDashboard() {
 
         <main className="bg-[#f5f0f1] min-h-[calc(100vh-4rem)] text-black p-4 sm:p-6 md:p-8 flex flex-col">
           <div className="flex-1">
+            {section === 'incoming' && <IncomingOrdersSection orders={rawOrders} />}
+            {section === 'opentabs' && <OpenTabsSection />}
             {section === 'analytics' && <AnalyticsSection orders={orders} />}
             {section === 'orders' && <OrdersSection orders={orders} />}
             {section === 'inventory' && <InventorySection menu={menu} />}

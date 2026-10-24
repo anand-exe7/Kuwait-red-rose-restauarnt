@@ -1,8 +1,9 @@
 import { Anton, Cormorant_Garamond, Jost } from 'next/font/google';
 
 /*
- * Landing-page type. Loaded here rather than in the root layout so the staff
- * dashboards (which use Geist) don't preload faces they never render.
+ * Red Rose type. Loaded here rather than in the root layout so the admin portal
+ * (which stays on Geist) doesn't preload faces it never renders. Used by the
+ * landing, customer, chef and waiter pages.
  *
  *  - Anton      — the RED ROSE wordmark only (hero + logo lockups).
  *  - Cormorant  — every heading, price and quote: a high-contrast serif with a

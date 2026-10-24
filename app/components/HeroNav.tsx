@@ -6,7 +6,7 @@ import { Menu, X, ArrowRight, ShoppingBag } from 'lucide-react';
 import { BRAND } from '../lib/brand';
 
 const LINKS = [
-  { label: 'Menu', href: '/customer' },
+  { label: 'Menu', href: '/menu' },
   { label: 'Our Story', href: '#story' },
   { label: 'Gifting', href: '#gifting' },
   { label: 'Visit', href: '#locations' },
@@ -105,14 +105,14 @@ export default function HeroNav() {
           {/* ---- Actions ---- */}
           <div className="flex shrink-0 items-center gap-2">
             <Link
-              href="/customer"
+              href="/menu"
               aria-label="Your bag"
               className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/20 text-white/90 transition-colors duration-300 hover:border-brand-gold-light/60 hover:text-white sm:flex"
             >
               <ShoppingBag size={16} strokeWidth={1.6} />
             </Link>
 
-            <Link href="/customer" className="btn btn-gold hidden px-6 py-3 text-[10.5px] sm:inline-flex">
+            <Link href="/menu" className="btn btn-gold hidden px-6 py-3 text-[10.5px] sm:inline-flex">
               Order Now
               <ArrowRight size={13} strokeWidth={1.8} />
             </Link>
@@ -204,7 +204,7 @@ export default function HeroNav() {
             }}
           >
             <Link
-              href="/customer"
+              href="/menu"
               onClick={() => setOpen(false)}
               tabIndex={open ? 0 : -1}
               className="btn btn-gold w-full"

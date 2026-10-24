@@ -455,7 +455,7 @@ export default function Home() {
               <div className="order-2 mx-auto mt-7 grid w-full max-w-5xl grid-cols-2 items-center gap-x-4 gap-y-9 sm:order-1 sm:mt-0 sm:gap-y-5 lg:grid-cols-3 lg:gap-8">
                 {/* Customize your box */}
                 <Link
-                  href="/customer"
+                  href="/menu"
                   className="group order-2 flex flex-col items-center justify-center gap-3 text-center anim-fade-up sm:order-1 sm:flex-row sm:gap-5 sm:text-left lg:justify-start"
                   style={{ animationDelay: '520ms' }}
                 >
@@ -503,7 +503,7 @@ export default function Home() {
                   className="order-1 col-span-2 flex justify-center anim-fade-up sm:order-3 lg:order-2 lg:col-span-1"
                   style={{ animationDelay: '680ms' }}
                 >
-                  <Link href="/customer" className="btn btn-wine group overflow-hidden px-11 py-[19px] text-[11.5px] sm:px-12">
+                  <Link href="/menu" className="btn btn-wine group overflow-hidden px-11 py-[19px] text-[11.5px] sm:px-12">
                     {/* sheen sweeps across on hover */}
                     <span
                       aria-hidden
@@ -582,7 +582,7 @@ export default function Home() {
                   What Salmiya keeps ordering — baked each morning, boxed by hand,
                   and usually gone by evening.
                 </p>
-                <Link href="/customer" className="text-link text-brand-red hover:text-brand-red-dark">
+                <Link href="/menu" className="text-link text-brand-red hover:text-brand-red-dark">
                   See the full menu
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </Link>
@@ -594,7 +594,7 @@ export default function Home() {
               {BESTSELLERS.map((p, i) => (
                 <Link
                   key={p.name}
-                  href="/customer"
+                  href="/menu"
                   className="group block w-[72%] shrink-0 snap-start sm:w-auto"
                   style={{ '--i': i } as React.CSSProperties}
                 >
@@ -685,7 +685,7 @@ export default function Home() {
                 ))}
               </ul>
 
-              <Link href="/customer" className="btn btn-outline mt-10">
+              <Link href="/menu" className="btn btn-outline mt-10">
                 Explore the menu
                 <ArrowRight size={13} strokeWidth={1.8} />
               </Link>
@@ -871,7 +871,7 @@ export default function Home() {
               </ul>
 
               <div className="rise mt-10 flex flex-col items-center gap-6 sm:flex-row" style={{ '--i': 6 } as React.CSSProperties}>
-                <Link href="/customer" className="btn btn-gold">
+                <Link href="/menu" className="btn btn-gold">
                   Explore gift boxes
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </Link>
