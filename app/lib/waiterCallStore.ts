@@ -4,7 +4,7 @@
 // taps "call waiter" and it pops up on the waiter dashboard on another device.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 
 export interface WaiterCall {
   id: string;
@@ -38,17 +38,14 @@ export function callWaiter(table: number): WaiterCall {
   if (existing) return existing;
   const call: WaiterCall = { id: `WC-${Date.now().toString(36)}`, table, createdAt: Date.now(), resolved: false };
   store.patchLocal((cur) => [call, ...cur]);
-  const sb = getSupabase();
-  if (sb) void sb.from('waiter_calls')
-    .insert({ id: call.id, table_number: table, resolved: false, created_at: call.createdAt })
+  void write({ table: 'waiter_calls', op: 'insert', values: { id: call.id, table_number: table, resolved: false, created_at: call.createdAt } })
     .then(({ error }) => { if (error) console.error('[waiter_calls] add failed', error.message); });
   return call;
 }
 
 export function resolveWaiterCall(id: string) {
   store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, resolved: true } : c)));
-  const sb = getSupabase();
-  if (sb) void sb.from('waiter_calls').update({ resolved: true }).eq('id', id).then(({ error }) => {
+  void write({ table: 'waiter_calls', op: 'update', values: { resolved: true }, match: { id: id } }).then(({ error }) => {
     if (error) console.error('[waiter_calls] resolve failed', error.message);
   });
 }

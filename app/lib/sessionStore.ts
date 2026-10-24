@@ -8,6 +8,7 @@
 
 import { createRealtimeStore } from './createRealtimeStore';
 import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 import type { OrderMode } from './orderStore';
 
 export type SessionStatus = 'open' | 'closed' | 'void';
@@ -47,6 +48,12 @@ function fromRow(r: Record<string, unknown>): Session {
 }
 
 const store = createRealtimeStore<Session>({ table: 'sessions', fromRow });
+
+function send(label: string, query: Promise<{ error: { message: string } | null }>) {
+  void query.then(({ error }) => {
+    if (error) console.error(`[sessions] ${label} failed`, error.message);
+  });
+}
 
 export function getSessionsSnapshot(): Session[] {
   return store.getSnapshot();
@@ -103,51 +110,48 @@ export function openSession(input: {
     createdAt: now,
   };
   store.patchLocal((cur) => [session, ...cur]);
-  const sb = getSupabase();
-  if (sb) {
-    const settled = sb.from('sessions').insert({
+  const settled = write({
+    table: 'sessions',
+    op: 'insert',
+    values: {
       id: session.id,
       table_number: session.tableNumber,
       mode: session.mode,
-      status: 'open',
       standing_label: session.standingLabel,
       customer_name: session.customerName,
       customer_phone: session.customerPhone,
       guests: session.guests,
-      opened_at: now,
-      created_at: now,
-    }).then(async ({ error }): Promise<string> => {
-      if (!error) {
-        if (session.mode === 'table' && session.tableNumber != null) {
-          void sb.from('tables').update({ session_id: session.id }).eq('number', session.tableNumber);
-        }
-        return session.id;
+    },
+  }).then(async ({ error }): Promise<string> => {
+    // The server links the table to the new session as part of this write.
+    if (!error) return session.id;
+    // One-open-session-per-table index fired: another device (or a stale tab)
+    // already has this table open. Adopt that session instead of ours.
+    if (error.code === '23505' && session.mode === 'table' && session.tableNumber != null) {
+      const sb = getSupabase();
+      const { data } = sb
+        ? await sb
+            .from('sessions')
+            .select('id')
+            .eq('table_number', session.tableNumber)
+            .eq('mode', 'table')
+            .eq('status', 'open')
+            .maybeSingle()
+        : { data: null };
+      const existingId = data?.id as string | undefined;
+      if (existingId) {
+        store.patchLocal((cur) => cur.filter((s) => s.id !== session.id));
+        void store.refetch();
+        return existingId;
       }
-      // One-open-session-per-table index fired: another device (or a stale tab)
-      // already has this table open. Adopt that session instead of ours.
-      if (error.code === '23505' && session.mode === 'table' && session.tableNumber != null) {
-        const { data } = await sb
-          .from('sessions')
-          .select('id')
-          .eq('table_number', session.tableNumber)
-          .eq('mode', 'table')
-          .eq('status', 'open')
-          .maybeSingle();
-        const existingId = data?.id as string | undefined;
-        if (existingId) {
-          store.patchLocal((cur) => cur.filter((s) => s.id !== session.id));
-          void store.refetch();
-          return existingId;
-        }
-      }
-      console.error('[sessions] open failed', error.message);
-      void store.refetch();
-      return session.id;
-    });
-    pendingOpens.set(session.id, Promise.resolve(settled).finally(() => {
-      setTimeout(() => pendingOpens.delete(session.id), 30_000);
-    }));
-  }
+    }
+    console.error('[sessions] open failed', error.message);
+    void store.refetch();
+    return session.id;
+  });
+  pendingOpens.set(session.id, Promise.resolve(settled).finally(() => {
+    setTimeout(() => pendingOpens.delete(session.id), 30_000);
+  }));
   return session;
 }
 
@@ -162,38 +166,25 @@ export function settleSessionId(sessionId: string): Promise<string> {
 export function requestBill(sessionId: string) {
   const at = Date.now();
   store.patchLocal((cur) => cur.map((s) => (s.id === sessionId ? { ...s, billRequestedAt: at } : s)));
-  const sb = getSupabase();
-  if (sb) void sb.from('sessions').update({ bill_requested_at: at }).eq('id', sessionId);
+  send('bill request', write({ table: 'sessions', op: 'update', values: { bill_requested_at: at }, match: { id: sessionId } }));
 }
 
 /** Staff settled the tab: close the session, attach the bill, free the table. */
 export function closeSession(sessionId: string, billId?: string) {
   const at = Date.now();
-  const session = store.get().find((s) => s.id === sessionId);
   store.patchLocal((cur) =>
     cur.map((s) => (s.id === sessionId ? { ...s, status: 'closed', closedAt: at, billId: billId ?? s.billId } : s))
   );
-  const sb = getSupabase();
-  if (sb) {
-    void sb.from('sessions').update({ status: 'closed', closed_at: at, bill_id: billId ?? null }).eq('id', sessionId);
-    if (session?.mode === 'table' && session.tableNumber != null) {
-      void sb.from('tables').update({ session_id: null }).eq('number', session.tableNumber);
-    }
-  }
+  // The server also frees the table (keyed on the session id, so it works even
+  // when this tab hasn't cached the session).
+  send('close', write({ table: 'sessions', op: 'update', values: { status: 'closed', bill_id: billId ?? null }, match: { id: sessionId } }));
 }
 
 /** Cleared without payment. */
 export function voidSession(sessionId: string) {
   const at = Date.now();
-  const session = store.get().find((s) => s.id === sessionId);
   store.patchLocal((cur) => cur.map((s) => (s.id === sessionId ? { ...s, status: 'void', closedAt: at } : s)));
-  const sb = getSupabase();
-  if (sb) {
-    void sb.from('sessions').update({ status: 'void', closed_at: at }).eq('id', sessionId);
-    if (session?.mode === 'table' && session.tableNumber != null) {
-      void sb.from('tables').update({ session_id: null }).eq('number', session.tableNumber);
-    }
-  }
+  send('void', write({ table: 'sessions', op: 'update', values: { status: 'void' }, match: { id: sessionId } }));
 }
 
 export function subscribeToSessions(callback: () => void): () => void {

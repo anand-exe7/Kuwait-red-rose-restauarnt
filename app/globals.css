@@ -263,18 +263,12 @@ html:has(.landing) { scroll-behavior: smooth; }
 .anim-cake-arrive  { animation: cake-arrive 1.2s cubic-bezier(0.2, 0.9, 0.24, 1) both; }
 .anim-glow         { animation: glow-breathe 7s ease-in-out infinite; }
 
-/* ---------- Hero: the cake drops, cream splashes up, fruit bursts out ---------- */
+/* ---------- Hero: the cake drops, fruit bursts out ---------- */
 @keyframes cake-drop {
   0%   { opacity: 0; transform: translate3d(0, -24%, 0) scale(0.97); }
   40%  { opacity: 1; }
   62%  { transform: translate3d(0, 1.2%, 0) scale(1.02, 0.975); }
   80%  { transform: translate3d(0, -0.5%, 0) scale(0.996, 1.005); }
-  100% { opacity: 1; transform: none; }
-}
-@keyframes splash-rise {
-  0%   { opacity: 0; transform: scale(0.5, 0.04); }
-  28%  { opacity: 1; }
-  62%  { transform: scale(1.03, 1.1); }
   100% { opacity: 1; transform: none; }
 }
 @keyframes burst-out {
@@ -367,34 +361,10 @@ html:has(.landing) { scroll-behavior: smooth; }
 .pill-shine > * { position: relative; z-index: 2; }
 
 .anim-cake-drop { animation: cake-drop 1.15s cubic-bezier(0.3, 0.7, 0.2, 1) 0.15s both; }
-.anim-splash    { animation: splash-rise 1.1s cubic-bezier(0.18, 0.85, 0.25, 1) 0.62s both; }
 .burst-fly      { display: block; animation: burst-out 1.2s cubic-bezier(0.15, 0.85, 0.3, 1.1) calc(0.72s + var(--d, 0ms)) both; }
 .float          { display: block; animation: bob var(--f, 6s) ease-in-out var(--fd, 0s) infinite alternate; }
 .petal-fall     { animation: petal-fall var(--dur, 16s) linear var(--delay, 0s) infinite both; }
 
-/* The splash sits behind the cake; a second copy, masked to its lowest
-   band, sits in front, so the cake looks set down INTO the cream. */
-.hero-splash {
-  position: absolute;
-  left: 50%;
-  /* Pool level with the cake board, so the cream never spills down over
-     the copy below the hero. */
-  bottom: calc(var(--cake) * -0.03);
-  width: calc(var(--cake) * var(--splash-w, 1.42));
-  max-width: none;
-  height: auto;
-  translate: -50% 0;
-  transform-origin: 50% 95%;
-  pointer-events: none;
-  user-select: none;
-}
-.hero-splash-back  { z-index: 0; }
-.hero-splash-front {
-  z-index: 3;
-  /* A short fade: a long one left a milky haze over the cake board. */
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 10%, transparent 13.5%);
-          mask-image: linear-gradient(to top, #000 0%, #000 10%, transparent 13.5%);
-}
 .hero-cake-drop { position: relative; z-index: 2; display: block; }
 
 /* Fruit and petals around the cake. Positions are in cake widths from the
@@ -421,7 +391,6 @@ html:has(.landing) { scroll-behavior: smooth; }
 }
 @media (min-width: 640px) {
   .burst { --tx: var(--x); --ty: var(--y); --ts: var(--s); }
-  .hero-splash { --splash-w: 1.72; }
 }
 
 /* Decorative cutouts that sit on the edges of sections. */
@@ -765,52 +734,20 @@ html:has(.landing) { scroll-behavior: smooth; }
   }
 }
 
-/* A slow float. It runs from first paint and never stops, so there is no
-   jump when the turning frames take over from the still poster. */
-.hero-cake-bob {
-  animation: cake-bob 6s ease-in-out infinite alternate;
+/* A slow, continuous 3D spin — one keyframe, one transform, so the
+   compositor runs it on every device without a repaint. The sway stays
+   under ±14° so the cake never shows its edge, and the vertical bob is
+   folded into the same keyframe to keep it off the main thread. */
+.cake-spin {
+  transform-origin: 50% 60%;
+  will-change: transform;
+  backface-visibility: hidden;
+  animation: cake-spin 11s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-@keyframes cake-bob {
-  from { transform: translate3d(0, -4px, 0); }
-  to   { transform: translate3d(0, 4px, 0); }
-}
-
-/* The cake presents itself: a slow 3D sway, plus a tilt toward the pointer
-   (HeroCake sets --cx/--cy), plus a sheen that runs across the icing. */
-.cake-sway {
-  transform-origin: 50% 72%;
-  animation: cake-sway 10s ease-in-out infinite alternate;
-}
-@keyframes cake-sway {
-  from { transform: perspective(1400px) rotateY(-6deg) rotateZ(-0.8deg); }
-  to   { transform: perspective(1400px) rotateY(6deg) rotateZ(0.8deg); }
-}
-.cake-tilt {
-  transform: perspective(1200px) rotateX(var(--cx, 0deg)) rotateY(var(--cy, 0deg));
-  transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.cake-sheen {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  mix-blend-mode: soft-light;
-  -webkit-mask: url('/cake-hd-720.webp') center / contain no-repeat;
-          mask: url('/cake-hd-720.webp') center / contain no-repeat;
-}
-.cake-sheen-bar {
-  position: absolute;
-  top: -10%;
-  bottom: -10%;
-  left: -45%;
-  width: 38%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.75), transparent);
-  transform: translate3d(0, 0, 0) skewX(-12deg);
-  animation: cake-sheen 8s cubic-bezier(0.45, 0, 0.3, 1) 2.4s infinite;
-}
-@keyframes cake-sheen {
-  0%        { transform: translate3d(0, 0, 0) skewX(-12deg); }
-  28%, 100% { transform: translate3d(420%, 0, 0) skewX(-12deg); }
+@keyframes cake-spin {
+  0%   { transform: perspective(1400px) rotateY(-14deg) translate3d(0, -3px, 0); }
+  50%  { transform: perspective(1400px) rotateY(14deg)  translate3d(0,  3px, 0); }
+  100% { transform: perspective(1400px) rotateY(-14deg) translate3d(0, -3px, 0); }
 }
 
 /* Grounding shadow. Kept OUT of the animated subtree on purpose: a filter
@@ -833,6 +770,27 @@ html:has(.landing) { scroll-behavior: smooth; }
   background-size: 250% 100%;
   background-position: -30% 0;
   animation: text-shimmer 2.6s cubic-bezier(0.45, 0, 0.3, 1) 1.1s 1 both;
+}
+
+/* ===================================================================
+   Signatures: each card's name rises and settles as the card scrolls in.
+   The transform runs on the compositor; a view-timeline drives it where
+   supported, with a one-shot fallback animation below for everyone else.
+   =================================================================== */
+@keyframes signature-rise {
+  from { opacity: 0; transform: translate3d(0, 28px, 0) scale(0.94); letter-spacing: 0.02em; }
+  to   { opacity: 1; transform: none; letter-spacing: normal; }
+}
+.signature-name {
+  animation: signature-rise 0.9s cubic-bezier(0.22, 0.85, 0.28, 1) calc(var(--i, 0) * 90ms + 0.2s) both;
+  will-change: transform, opacity;
+}
+@supports (animation-timeline: view()) {
+  .signature-name {
+    animation: signature-rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% cover 35%;
+  }
 }
 
 /* ===================================================================
@@ -883,13 +841,11 @@ html:has(.landing) { scroll-behavior: smooth; }
   .anim-cake-arrive,
   .anim-glow,
   .hero-shimmer,
-  .hero-cake-bob,
-  .cake-sway,
-  .cake-sheen-bar,
+  .signature-name,
+  .cake-spin,
   .marquee-track,
   .ribbon-track,
   .anim-cake-drop,
-  .anim-splash,
   .burst-fly,
   .float,
   .hx,
@@ -922,6 +878,11 @@ html:has(.landing) { scroll-behavior: smooth; }
     transform: none;
     transition: none;
   }
+  .signature-name {
+    opacity: 1;
+    transform: none;
+    letter-spacing: normal;
+  }
 }
 
 /* Shared utility scrollbars used across the staff dashboards */
@@ -931,3 +892,212 @@ html:has(.landing) { scroll-behavior: smooth; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a5843f; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ===================================================================
+   Staff dashboards (chef / waiter / admin) — brand paint pass.
+   Each page's root <div> carries .staff-themed, and the rules below
+   re-skin the common dark-panel / near-black / plain-white utilities
+   to the Red Rose cream + wine + gold palette the landing page uses.
+   `!important` is used because the utilities we're overriding are
+   single-class ones with identical specificity, and we want the brand
+   paint to win no matter the Tailwind build order.
+   =================================================================== */
+.staff-themed {
+  background: var(--color-brand-cream) !important;
+  color: var(--color-brand-wine);
+  font-family: var(--font-body-src), "Segoe UI", Arial, sans-serif;
+}
+.staff-themed h1,
+.staff-themed h2,
+.staff-themed h3,
+.staff-themed h4 {
+  font-family: var(--font-display-src), "Cormorant Garamond", Georgia, serif;
+  letter-spacing: -0.01em;
+}
+
+/* Dark panels → cream / white / sand.
+   The hierarchy matters: page is CREAM, main cards are WHITE with a gold
+   hairline, inner panels are a soft BEIGE one notch deeper than the page,
+   and primary chips / dark buttons become solid WINE (handled further
+   below). Keeping these four tones distinct is what makes the staff
+   dashboards read like the landing page instead of a beige wash. */
+.staff-themed .bg-\[\#050505\],
+.staff-themed .bg-\[\#0d0809\],
+.staff-themed .bg-\[\#0a0a0a\] { background-color: var(--color-brand-cream) !important; }
+
+.staff-themed .bg-\[\#111\],
+.staff-themed .bg-\[\#141414\],
+.staff-themed .bg-\[\#171717\] {
+  background-color: #ffffff !important;
+  border-color: rgba(201, 169, 97, 0.35) !important;
+  box-shadow: 0 20px 44px -28px rgba(74, 21, 21, 0.35);
+}
+
+.staff-themed .bg-\[\#1a1a1a\],
+.staff-themed .bg-\[\#1f1f1f\] { background-color: var(--color-brand-beige) !important; }
+
+/* Admin sidebar — deep wine with gold hairline and cream labels. The
+   bg-[#1a0a10] utility is only used on the admin sidebar in this app,
+   so these descendant rules re-skin its nav, labels and avatar block. */
+.staff-themed .bg-\[\#1a0a10\] {
+  background-image: linear-gradient(180deg, #4a1515 0%, #3a0d0d 55%, #2b0a0a 100%) !important;
+  background-color: var(--color-brand-wine) !important;
+  border-right: 1px solid rgba(201, 169, 97, 0.3) !important;
+  color: var(--color-brand-cream) !important;
+  box-shadow: 24px 0 46px -32px rgba(0, 0, 0, 0.35);
+}
+.staff-themed .bg-\[\#1a0a10\] * { border-color: rgba(201, 169, 97, 0.22) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-white,
+.staff-themed .bg-\[\#1a0a10\] span,
+.staff-themed .bg-\[\#1a0a10\] p { color: var(--color-brand-cream) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-gray-300,
+.staff-themed .bg-\[\#1a0a10\] .text-gray-400,
+.staff-themed .bg-\[\#1a0a10\] .text-gray-500 { color: rgba(236, 216, 166, 0.65) !important; }
+.staff-themed .bg-\[\#1a0a10\] button { color: rgba(236, 216, 166, 0.78) !important; }
+.staff-themed .bg-\[\#1a0a10\] button:hover { color: var(--color-brand-cream) !important; background-color: rgba(255, 255, 255, 0.06) !important; }
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red {
+  background-image: linear-gradient(135deg, #d9323f 0%, #b01e28 55%, #8f1720 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 30px -14px rgba(176, 30, 40, 0.65), inset 0 0 0 1px rgba(236, 216, 166, 0.35) !important;
+}
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red,
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red * { color: #ffffff !important; }
+.staff-themed .bg-\[\#1a0a10\] .bg-brand-red\/20 { background-color: rgba(236, 216, 166, 0.14) !important; }
+.staff-themed .bg-\[\#1a0a10\] .border-brand-red\/30 { border-color: rgba(236, 216, 166, 0.4) !important; }
+.staff-themed .bg-\[\#1a0a10\] .text-brand-gold { color: var(--color-brand-gold-light) !important; }
+
+/* Solid wine for small dark chips and the primary dark action button —
+   they share this bg in the chef / waiter markup but are always paired
+   with text-white, so this stays legible. */
+.staff-themed .bg-\[\#222\],
+.staff-themed .bg-\[\#2a2a2a\] {
+  background-color: var(--color-brand-wine) !important;
+  color: #ffffff !important;
+}
+
+.staff-themed .bg-\[\#f5f0f1\] { background-color: var(--color-brand-sand) !important; }
+
+/* Grays → warm ink */
+.staff-themed .bg-gray-50,
+.staff-themed .bg-gray-100 { background-color: var(--color-brand-sand) !important; }
+.staff-themed .bg-gray-200 { background-color: var(--color-brand-beige) !important; }
+.staff-themed .bg-gray-500,
+.staff-themed .bg-gray-600,
+.staff-themed .bg-gray-700,
+.staff-themed .bg-gray-800,
+.staff-themed .bg-gray-900 { background-color: var(--color-brand-wine) !important; color: #fff !important; }
+.staff-themed .bg-black { background-color: var(--color-brand-wine) !important; color: #fff !important; }
+
+/* Text */
+.staff-themed .text-white { color: var(--color-brand-wine) !important; }
+.staff-themed .text-black { color: var(--color-brand-wine) !important; }
+.staff-themed .text-gray-300 { color: rgba(74, 21, 21, 0.55) !important; }
+.staff-themed .text-gray-400 { color: rgba(74, 21, 21, 0.6) !important; }
+.staff-themed .text-gray-500 { color: rgba(74, 21, 21, 0.55) !important; }
+.staff-themed .text-gray-600 { color: rgba(74, 21, 21, 0.78) !important; }
+.staff-themed .text-gray-700 { color: rgba(74, 21, 21, 0.9) !important; }
+.staff-themed .text-gray-800,
+.staff-themed .text-gray-900 { color: var(--color-brand-wine) !important; }
+
+/* Borders */
+.staff-themed .border-white\/5,
+.staff-themed .border-white\/10,
+.staff-themed .border-white\/20,
+.staff-themed .border-white\/30 { border-color: rgba(201, 169, 97, 0.35) !important; }
+.staff-themed .border-black,
+.staff-themed .border-gray-200,
+.staff-themed .border-gray-300 { border-color: rgba(74, 21, 21, 0.22) !important; }
+.staff-themed .divide-white\/5 > :not([hidden]) ~ :not([hidden]),
+.staff-themed .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(201, 169, 97, 0.35) !important; }
+
+/* Preserve WHITE text on strong, filled color buttons (red, wine, green,
+   blue, emerald, amber, indigo, 400-700 shades, plus gradients). Keeps
+   the "Mark as Ready" / "Confirm" / "Send" buttons readable. */
+.staff-themed .bg-brand-red,
+.staff-themed .bg-brand-red-dark,
+.staff-themed .bg-brand-wine,
+.staff-themed .bg-brand-plum,
+.staff-themed [class*="bg-red-4"],
+.staff-themed [class*="bg-red-5"],
+.staff-themed [class*="bg-red-6"],
+.staff-themed [class*="bg-red-7"],
+.staff-themed [class*="bg-green-4"],
+.staff-themed [class*="bg-green-5"],
+.staff-themed [class*="bg-green-6"],
+.staff-themed [class*="bg-green-7"],
+.staff-themed [class*="bg-emerald-4"],
+.staff-themed [class*="bg-emerald-5"],
+.staff-themed [class*="bg-emerald-6"],
+.staff-themed [class*="bg-emerald-7"],
+.staff-themed [class*="bg-blue-4"],
+.staff-themed [class*="bg-blue-5"],
+.staff-themed [class*="bg-blue-6"],
+.staff-themed [class*="bg-blue-7"],
+.staff-themed [class*="bg-indigo-4"],
+.staff-themed [class*="bg-indigo-5"],
+.staff-themed [class*="bg-indigo-6"],
+.staff-themed [class*="bg-amber-4"],
+.staff-themed [class*="bg-amber-5"],
+.staff-themed [class*="bg-amber-6"],
+.staff-themed [class*="bg-orange-4"],
+.staff-themed [class*="bg-orange-5"],
+.staff-themed [class*="bg-orange-6"],
+.staff-themed [class*="bg-gradient"] {
+  color: #fff !important;
+}
+/* …and keep white when text-white is on a child of such a button. */
+.staff-themed .bg-brand-red .text-white,
+.staff-themed .bg-brand-red-dark .text-white,
+.staff-themed .bg-brand-wine .text-white,
+.staff-themed .bg-brand-plum .text-white,
+.staff-themed [class*="bg-red-5"] .text-white,
+.staff-themed [class*="bg-red-6"] .text-white,
+.staff-themed [class*="bg-green-5"] .text-white,
+.staff-themed [class*="bg-green-6"] .text-white,
+.staff-themed [class*="bg-emerald-5"] .text-white,
+.staff-themed [class*="bg-emerald-6"] .text-white,
+.staff-themed [class*="bg-blue-5"] .text-white,
+.staff-themed [class*="bg-blue-6"] .text-white,
+.staff-themed [class*="bg-gradient"] .text-white,
+.staff-themed .bg-black .text-white { color: #fff !important; }
+
+/* The dark chip / dark primary button class (bg-[#222]) is now wine —
+   preserve text-white on it and on its descendants, otherwise the label
+   on the Start Cooking button is wine-on-wine. */
+.staff-themed .bg-\[\#222\].text-white,
+.staff-themed .bg-\[\#222\] .text-white,
+.staff-themed .bg-\[\#2a2a2a\].text-white,
+.staff-themed .bg-\[\#2a2a2a\] .text-white { color: #fff !important; }
+
+/* The hover:text-white that peppers the dark version becomes a brand hover. */
+.staff-themed .hover\:text-white:hover { color: var(--color-brand-red) !important; }
+.staff-themed .hover\:bg-white:hover { background-color: #ffffff !important; }
+
+/* The chef/waiter headers used heavy black weights that read raw on cream.
+   Dial them back toward display-serif weights that match the landing. */
+.staff-themed .font-black { font-weight: 600 !important; }
+
+/* The focus ring on inputs is often white on dark; use gold on cream. */
+.staff-themed .ring-white\/10,
+.staff-themed .ring-white\/20 { --tw-ring-color: rgba(201, 169, 97, 0.4) !important; }
+
+/* Numeric chips sitting on wine (bg-[#222]) use text-brand-red in the
+   original dark theme — red on wine is low-contrast, so lift the digit
+   into brand-gold-light on cream. */
+.staff-themed .bg-\[\#222\] .text-brand-red,
+.staff-themed .bg-\[\#222\].text-brand-red,
+.staff-themed .bg-\[\#2a2a2a\] .text-brand-red,
+.staff-themed .bg-\[\#2a2a2a\].text-brand-red { color: var(--color-brand-gold-light) !important; }
+
+/* The brand-red/10 and brand-red/20 "soft red" chips keep their red text
+   on cream, but the original design pairs them with border-brand-red/20 —
+   bump the border so it reads crisply on the new light panel. */
+.staff-themed .border-brand-red\/20,
+.staff-themed .border-brand-red\/30 { border-color: rgba(176, 30, 40, 0.45) !important; }
+
+/* Subtle lift for every rounded panel so cards don't just float flat. */
+.staff-themed [class*="rounded-2xl"],
+.staff-themed [class*="rounded-3xl"],
+.staff-themed [class*="rounded-\[2rem\]"] {
+  box-shadow: 0 10px 30px -22px rgba(74, 21, 21, 0.35);
+}

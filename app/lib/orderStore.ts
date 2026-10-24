@@ -11,7 +11,7 @@
 // UI, which groups un-billed orders by sessionId.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 import {
   getOpenSessionForTable,
   getOpenStandingSession,
@@ -32,8 +32,9 @@ export interface OrderItem {
 }
 
 /** Where the order is served. 'table' = seated dine-in (uses `table`),
- *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go. */
-export type OrderMode = 'table' | 'standing' | 'takeaway';
+ *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go,
+ *  'delivery' = driven to the customer (handled by /api/delivery/*, not the waiter). */
+export type OrderMode = 'table' | 'standing' | 'takeaway' | 'delivery';
 
 export interface Order {
   id: string;
@@ -58,6 +59,7 @@ export interface Order {
 export function orderLabel(o: Pick<Order, 'mode' | 'table' | 'standingLabel'>): string {
   if (o.mode === 'standing') return o.standingLabel ? `Standing · ${o.standingLabel}` : 'Standing';
   if (o.mode === 'takeaway') return 'Takeaway';
+  if (o.mode === 'delivery') return 'Delivery';
   return `Table ${o.table}`;
 }
 
@@ -175,8 +177,12 @@ export function billSession(sessionId: string) {
     cur.map((o) => (o.sessionId === sessionId ? { ...o, billed: true, status: 'served' as OrderStatus } : o))
   );
 
-  const sb = getSupabase();
-  if (sb) void sb.from('orders').update({ billed: true, status: 'served' }).eq('session_id', sessionId).then(({ error }) => {
+  void write({
+    table: 'orders',
+    op: 'update',
+    values: { billed: true, status: 'served' },
+    match: { session_id: sessionId },
+  }).then(({ error }) => {
     if (error) console.error('[orders] bill failed', error.message);
   });
 
@@ -206,6 +212,13 @@ function resolveSessionId(input: {
     ?? openSession({ tableNumber: input.table, mode: 'table' }).id);
 }
 
+/** Collision-safe ticket id (a random 4-digit number clashed after ~100 orders). */
+function newOrderId(): string {
+  const stamp = Date.now().toString(36).toUpperCase().slice(-5);
+  const rand = Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0');
+  return `TK-${stamp}${rand}`;
+}
+
 export function addOrder(input: {
   table: number;
   items: OrderItem[];
@@ -220,11 +233,13 @@ export function addOrder(input: {
   status?: OrderStatus;
   standingLabel?: string;
   sessionId?: string;
+  /** Admin POS: the sale is paid on the spot, so bill and close it as soon as it is saved. */
+  billImmediately?: boolean;
 }): Order {
   const mode = input.mode ?? 'table';
   const sessionId = resolveSessionId({ table: input.table, mode, standingLabel: input.standingLabel, sessionId: input.sessionId });
   const newOrder: Order = {
-    id: `TK-${Math.floor(1000 + Math.random() * 9000)}`,
+    id: newOrderId(),
     table: input.table,
     items: input.items,
     status: input.status ?? 'pending',
@@ -241,25 +256,35 @@ export function addOrder(input: {
     sessionId,
   };
   store.patchLocal((cur) => [newOrder, ...cur]);
-  const sb = getSupabase();
-  if (sb) {
-    void settleSessionId(sessionId).then((finalId) => {
-      if (finalId !== sessionId) {
-        // Session was de-duplicated against an already-open one for this table.
-        store.patchLocal((cur) => cur.map((o) => (o.id === newOrder.id ? { ...o, sessionId: finalId } : o)));
+  void settleSessionId(sessionId).then((finalId) => {
+    if (finalId !== sessionId) {
+      // Session was de-duplicated against an already-open one for this table.
+      store.patchLocal((cur) => cur.map((o) => (o.id === newOrder.id ? { ...o, sessionId: finalId } : o)));
+    }
+    return write({ table: 'orders', op: 'insert', values: toRow({ ...newOrder, sessionId: finalId }) }).then(({ error }) => {
+      if (error) {
+        console.error('[orders] add failed', error.message);
+        // The server refused it (or it never arrived): drop the optimistic copy.
+        store.patchLocal((cur) => cur.filter((o) => o.id !== newOrder.id));
+        return;
       }
-      return sb.from('orders').insert(toRow({ ...newOrder, sessionId: finalId })).then(({ error }) => {
-        if (error) console.error('[orders] add failed', error.message);
-      });
+      // Settle only once the order row exists, so the bill can see it.
+      if (input.billImmediately) billSession(finalId);
     });
-  }
+  });
   return newOrder;
 }
 
 export function updateOrderStatus(id: string, status: OrderStatus) {
+  const order = store.get().find((o) => o.id === id);
+  // Takeaway has no table tab to settle later: once it is handed over it is
+  // paid, so serve = bill + close the session.
+  if (status === 'served' && order?.mode === 'takeaway' && order.sessionId && !order.billed) {
+    billSession(order.sessionId);
+    return;
+  }
   store.patchLocal((cur) => cur.map((o) => (o.id === id ? { ...o, status } : o)));
-  const sb = getSupabase();
-  if (sb) void sb.from('orders').update({ status }).eq('id', id).then(({ error }) => {
+  void write({ table: 'orders', op: 'update', values: { status }, match: { id } }).then(({ error }) => {
     if (error) console.error('[orders] status update failed', error.message);
   });
 }

@@ -3,7 +3,7 @@
 // Bills — the record that settles a session. Supabase + Realtime backed.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 
 export interface Bill {
   id: string;
@@ -66,17 +66,11 @@ export function createBill(input: {
     createdAt: Date.now(),
   };
   store.patchLocal((cur) => [bill, ...cur]);
-  const sb = getSupabase();
-  if (sb) void sb.from('bills').insert({
-    id: bill.id,
-    session_id: bill.sessionId,
-    subtotal: bill.subtotal,
-    tax: bill.tax,
-    discount: bill.discount,
-    total: bill.total,
-    coupon_code: bill.couponCode,
-    paid_method: bill.paidMethod,
-    created_at: bill.createdAt,
+  // The server recomputes the amounts from the session's real orders.
+  void write({
+    table: 'bills',
+    op: 'insert',
+    values: { id: bill.id, session_id: bill.sessionId, paid_method: bill.paidMethod },
   }).then(({ error }) => { if (error) console.error('[bills] create failed', error.message); });
   return bill;
 }

@@ -316,35 +316,13 @@ export default function Home() {
                       'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)',
                   }}
                 />
-                {/* The cake drops in and lands in a crown of cream: the
-                    splash rises behind it, and a copy masked to its lowest
-                    band sits in front, so the cake sits INSIDE the splash.
+                {/* The cake drops in and holds a slow 3D spin.
                     Fruit and petals burst out on impact. */}
                 <div className="hero-cake-pos hx hx-cake">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/cutouts/splash.webp"
-                    alt=""
-                    aria-hidden
-                    width={2000}
-                    height={1062}
-                    className="hero-splash hero-splash-back anim-splash"
-                  />
                   <div className="hero-cake-drop anim-cake-drop">
                     <div aria-hidden className="hero-cake-shadow" />
-                    <div className="hero-cake-bob">
-                      <HeroCake alt="Red Rose signature red velvet layer cake" />
-                    </div>
+                    <HeroCake alt="Red Rose signature red velvet layer cake" />
                   </div>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="/cutouts/splash.webp"
-                    alt=""
-                    aria-hidden
-                    width={2000}
-                    height={1062}
-                    className="hero-splash hero-splash-front anim-splash"
-                  />
 
                   {BURST.map((b, i) => (
                     <span
@@ -589,8 +567,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Phone: a swipeable row. Tablet: two by two. Desktop: one row. */}
-            <div className="stagger no-scrollbar -mx-5 mt-12 flex snap-x snap-mandatory scroll-pl-5 gap-5 overflow-x-auto px-5 pb-3 sm:mx-0 sm:mt-16 sm:grid sm:grid-cols-2 sm:gap-x-7 sm:gap-y-14 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-4">
+            {/* Two in a row, two rows deep — same shape on every screen. */}
+            <div className="stagger mt-12 grid grid-cols-2 gap-x-5 gap-y-12 sm:mt-16 sm:gap-x-7 sm:gap-y-14">
               {BESTSELLERS.map((p, i) => (
                 <Link
                   key={p.name}
@@ -619,11 +597,11 @@ export default function Home() {
                   </div>
                   </Tilt>
 
-                  <div className="flex flex-col items-center px-2 pt-6 text-center">
+                  <div className="signature-copy flex flex-col items-center px-2 pt-6 text-center">
                     <p className="font-body text-[9.5px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark">
                       {p.kind}
                     </p>
-                    <h3 className="mt-2.5 font-display text-[25px] font-medium leading-tight text-brand-wine">
+                    <h3 className="signature-name mt-2.5 font-display text-[22px] font-bold leading-tight text-brand-wine sm:text-[26px]">
                       {p.name}
                     </h3>
                     <p className="mt-2 max-w-[250px] font-body text-[13px] font-light leading-relaxed text-brand-ink/60">

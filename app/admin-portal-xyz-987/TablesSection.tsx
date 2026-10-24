@@ -1,5 +1,6 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
+import { Pagination, usePagination } from '../components/Pagination';
 import QRCode from 'qrcode';
 import { Plus, X, Pencil, Trash2, QrCode as QrIcon, Copy, Check, Download, Printer, Armchair, MapPin, PersonStanding } from 'lucide-react';
 import {
@@ -31,6 +32,7 @@ export default function TablesSection() {
   const tables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
   const origin = useSyncExternalStore(noopSub, getOrigin, getOriginServer);
   const sorted = useMemo(() => [...tables].sort((a, b) => a.number - b.number), [tables]);
+  const pager = usePagination(sorted, 9);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
@@ -127,7 +129,7 @@ export default function TablesSection() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sorted.map(t => (
+          {pager.items.map(t => (
             <div key={t.id} className={`bg-white rounded-3xl border shadow-sm p-5 flex flex-col ${t.active ? 'border-black/5' : 'border-black/5 opacity-60'}`}>
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -223,6 +225,10 @@ export default function TablesSection() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-3xl border border-black/5 shadow-sm empty:hidden">
+        <Pagination p={pager} label="tables" />
       </div>
 
       {formOpen && <TableFormModal table={editing} onClose={() => setFormOpen(false)} />}

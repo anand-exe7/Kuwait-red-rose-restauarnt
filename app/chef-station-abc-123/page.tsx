@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExtern
 import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkles, PackageCheck, Volume2, VolumeX } from 'lucide-react';
 import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
+import { Pagination, usePagination } from '../components/Pagination';
 import { BRAND } from '../lib/brand';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
@@ -66,11 +67,13 @@ export default function ChefDashboard() {
     [orders]
   );
 
+  const historyPager = usePagination(servedOrders, 15);
+
   const waitMinutes = (createdAt: number) => Math.max(0, Math.floor((now - createdAt) / 60000));
   const waitColor = (mins: number) => (mins >= 20 ? 'text-red-400' : mins >= 10 ? 'text-brand-gold' : 'text-gray-400');
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white p-4 md:p-6 font-sans">
+    <div className="staff-themed min-h-screen bg-[#050505] text-white p-4 md:p-6 font-sans">
       {/* New Ticket Toast */}
       {toastMessage && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-red-500 to-brand-red text-white px-6 py-3 rounded-full font-bold shadow-[0_10px_30px_rgba(239,68,68,0.4)] flex items-center gap-2 animate-bounce">
@@ -155,11 +158,13 @@ export default function ChefDashboard() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {servedOrders.map(order => (
+                {historyPager.items.map(order => (
                   <div key={order.id} className="bg-[#111] rounded-2xl p-4 md:p-5 border border-white/5 flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-[#1a1a1a] flex flex-col items-center justify-center font-black text-sm shrink-0 border border-white/5 text-center leading-none px-1">
                       {order.mode === 'standing' ? (
                         <span className="text-[10px] uppercase tracking-wide">Stand</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="text-[10px] uppercase tracking-wide">Deliv</span>
                       ) : order.mode === 'takeaway' ? (
                         <span className="text-[10px] uppercase tracking-wide">To-go</span>
                       ) : (
@@ -192,6 +197,7 @@ export default function ChefDashboard() {
                     </div>
                   </div>
                 ))}
+                <Pagination p={historyPager} label="served orders" dark />
               </div>
             )}
           </div>
@@ -217,6 +223,8 @@ export default function ChefDashboard() {
                     <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex flex-col items-center justify-center font-black shadow-inner text-center leading-none px-1 ${order.status === 'cooking' ? 'bg-brand-red text-white shadow-[0_0_15px_rgba(176,30,40,0.4)]' : order.priority === 'high' ? 'bg-red-500/20 text-red-500' : 'bg-[#222] text-white'}`}>
                       {order.mode === 'standing' ? (
                         <span className="text-xs uppercase tracking-wide">Stand</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="text-xs uppercase tracking-wide">Deliv</span>
                       ) : order.mode === 'takeaway' ? (
                         <span className="text-xs uppercase tracking-wide">To-go</span>
                       ) : (

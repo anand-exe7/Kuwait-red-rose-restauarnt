@@ -7,10 +7,10 @@ import { getSupabase } from './supabase';
 //   * an in-memory cache with a STABLE array reference (required by
 //     useSyncExternalStore — the snapshot must not change identity unless the
 //     data actually changed, or React loops forever),
-//   * a Realtime subscription that, on any row change, simply RE-FETCHES the
-//     table and notifies listeners. The Realtime message itself carries no data
-//     (payload is ignored) — it's just a "something changed" ping, so an
-//     offline client self-heals by re-fetching on its next connect/notify.
+//   * a Realtime subscription that applies each INSERT/UPDATE/DELETE payload to
+//     the cache directly (no per-message table download). The table is
+//     re-fetched only on initial load and each time the channel (re)connects,
+//     so a client that was offline self-heals on reconnect.
 //   * optimistic local mutation (`patchLocal`) so a write feels instant; the
 //     Realtime echo then reconciles every device (including this one) to the
 //     server's truth. Client-generated text ids make that reconcile a no-op.
@@ -68,6 +68,30 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
     });
   };
 
+  // Apply one Realtime change straight to the cache instead of re-downloading the
+  // whole table (which made egress grow with every message x every table row).
+  // Anything unexpected falls back to a full refetch so the cache self-heals.
+  const applyChange = (payload: {
+    eventType: string;
+    new: Record<string, unknown>;
+    old: Record<string, unknown>;
+  }) => {
+    const { eventType } = payload;
+    const key = String((eventType === 'DELETE' ? payload.old : payload.new)?.id ?? '');
+    if (!key) return void refetch();
+
+    if (eventType === 'DELETE') {
+      cache = cache.filter((r) => String(r.id) !== key);
+      return notify();
+    }
+    if (eventType !== 'INSERT' && eventType !== 'UPDATE') return void refetch();
+
+    const row = opts.fromRow(payload.new);
+    const exists = cache.some((r) => String(r.id) === key);
+    cache = exists ? cache.map((r) => (String(r.id) === key ? row : r)) : [row, ...cache];
+    notify();
+  };
+
   const openChannel = () => {
     const sb = getSupabase();
     if (!sb || channel) return;
@@ -76,12 +100,13 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: opts.table },
-        () => {
-          // Ignore the payload — just resync from source of truth.
-          void refetch();
-        }
+        (payload) => applyChange(payload as unknown as Parameters<typeof applyChange>[0])
       )
-      .subscribe();
+      .subscribe((status) => {
+        // Changes that landed before the socket was up (or while it was down)
+        // are missed, so resync once each time the channel becomes live.
+        if (status === 'SUBSCRIBED') void refetch();
+      });
   };
 
   const closeChannel = () => {

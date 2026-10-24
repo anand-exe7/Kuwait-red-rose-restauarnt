@@ -1,6 +1,7 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
+import { Pagination, usePagination } from '../components/Pagination';
 import {
   LayoutDashboard,
   ClipboardList,
@@ -22,6 +23,8 @@ import {
   Receipt,
   Bell,
   Users,
+  Truck,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
@@ -32,6 +35,10 @@ import BillingSection from './BillingSection';
 import AnalyticsSection from './AnalyticsSection';
 import IncomingOrdersSection from './IncomingOrdersSection';
 import OpenTabsSection from './OpenTabsSection';
+import DeliveriesSection from './DeliveriesSection';
+import DriversSection from './DriversSection';
+import DeliverySettingsSection from './DeliverySettingsSection';
+import PhotoField from './PhotoField';
 import { Period, isInPeriod } from './analyticsHelpers';
 import {
   MenuItem,
@@ -92,7 +99,18 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63
 // Root
 // ---------------------------------------------------------------------------
 
-type Section = 'incoming' | 'opentabs' | 'analytics' | 'orders' | 'inventory' | 'tables' | 'coupons' | 'billing';
+type Section =
+  | 'incoming'
+  | 'opentabs'
+  | 'analytics'
+  | 'orders'
+  | 'inventory'
+  | 'tables'
+  | 'coupons'
+  | 'billing'
+  | 'deliveries'
+  | 'drivers'
+  | 'delivery';
 
 export default function AdminDashboard() {
   const [section, setSection] = useState<Section>('incoming');
@@ -111,10 +129,13 @@ export default function AdminDashboard() {
     { key: 'inventory', icon: Package, label: 'Inventory' },
     { key: 'tables', icon: LayoutGrid, label: 'Tables' },
     { key: 'coupons', icon: Ticket, label: 'Coupons' },
+    { key: 'deliveries', icon: Truck, label: 'Deliveries' },
+    { key: 'drivers', icon: Users, label: 'Drivers' },
+    { key: 'delivery', icon: SlidersHorizontal, label: 'Delivery Settings' },
   ];
 
   return (
-    <div className="min-h-screen bg-[#0d0809] text-white font-sans">
+    <div className="staff-themed min-h-screen bg-[#0d0809] text-white font-sans">
       {/* Sidebar Navigation */}
       <div className="fixed left-0 top-0 h-full w-16 sm:w-20 md:w-64 bg-[#1a0a10] border-r border-brand-red/10 flex flex-col p-3 sm:p-4 z-50 transition-all">
         <div className="flex items-center gap-3 mb-6 sm:mb-10 pl-1 sm:pl-2">
@@ -180,6 +201,9 @@ export default function AdminDashboard() {
             {section === 'tables' && <TablesSection />}
             {section === 'billing' && <BillingSection />}
             {section === 'coupons' && <CouponsSection />}
+            {section === 'deliveries' && <DeliveriesSection />}
+            {section === 'drivers' && <DriversSection />}
+            {section === 'delivery' && <DeliverySettingsSection />}
           </div>
           <footer className="mt-8 pt-6 border-t border-black/5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-black/40">
             <span>© {new Date().getFullYear()} All rights reserved. {BRAND.fullName}.</span>
@@ -224,6 +248,8 @@ function OrdersSection({ orders }: { orders: Order[] }) {
       })
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [orders, typeFilter, dateFilter, customFrom, customTo, search]);
+
+  const pager = usePagination(filtered, 15, `${typeFilter}|${dateFilter}|${customFrom}|${customTo}|${search}`);
 
   const clearDates = () => {
     setDateFilter('all');
@@ -344,7 +370,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o => (
+              {pager.items.map(o => (
                 <React.Fragment key={o.id}>
                   <tr className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors cursor-pointer" onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}>
                     <td className="px-5 py-4 font-bold text-brand-red">{o.id}</td>
@@ -439,6 +465,7 @@ function OrdersSection({ orders }: { orders: Order[] }) {
             </tbody>
           </table>
         </div>
+        <Pagination p={pager} label="orders" />
       </div>
     </div>
   );
@@ -461,6 +488,8 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
     const matchesCat = categoryFilter === 'All' || m.category === categoryFilter;
     return matchesSearch && matchesCat;
   });
+
+  const pager = usePagination(filtered, 10, `${search}|${categoryFilter}`);
 
   const totalProducts = menu.length;
   const activeCount = menu.filter(m => m.status === 'active').length;
@@ -523,7 +552,7 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(item => {
+              {pager.items.map(item => {
                 return (
                   <tr key={item.id} className="border-b border-black/5 last:border-0 hover:bg-black/[0.02] transition-colors">
                     <td className="px-5 py-4">
@@ -574,6 +603,7 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
             </tbody>
           </table>
         </div>
+        <Pagination p={pager} label="products" />
       </div>
 
       {formOpen && <ProductFormModal item={editing} onClose={() => setFormOpen(false)} />}
@@ -654,15 +684,11 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red resize-none" placeholder="Short menu description" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block">Image URL</label>
-              <input value={image} onChange={e => setImage(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="https://..." />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block">Prep Time</label>
-              <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
-            </div>
+          <PhotoField value={image} onChange={setImage} />
+
+          <div>
+            <label className="text-xs font-bold text-black/50 mb-1.5 block">Prep Time</label>
+            <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
           </div>
 
           <div>

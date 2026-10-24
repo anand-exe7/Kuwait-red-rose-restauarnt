@@ -7,6 +7,7 @@ import { BRAND } from '../lib/brand';
 
 const LINKS = [
   { label: 'Menu', href: '/menu' },
+  { label: 'Delivery', href: '/delivery' },
   { label: 'Our Story', href: '#story' },
   { label: 'Gifting', href: '#gifting' },
   { label: 'Visit', href: '#locations' },

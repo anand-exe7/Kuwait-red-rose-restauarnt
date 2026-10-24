@@ -5,7 +5,7 @@
 // guest session (or null when the table is free) — managed by sessionStore.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { write } from './dbWrite';
 
 export interface RestaurantTable {
   id: string;
@@ -62,8 +62,7 @@ export function getTables(): RestaurantTable[] {
 export function addTable(input: Omit<RestaurantTable, 'id' | 'createdAt'>): RestaurantTable {
   const table: RestaurantTable = { ...input, id: `t${Date.now().toString(36)}`, createdAt: Date.now() };
   store.patchLocal((cur) => [...cur, table]);
-  const sb = getSupabase();
-  if (sb) void sb.from('tables').insert(toRow(table)).then(({ error }) => {
+  void write({ table: 'tables', op: 'insert', values: toRow(table) }).then(({ error }) => {
     if (error) console.error('[tables] add failed', error.message);
   });
   return table;
@@ -71,16 +70,14 @@ export function addTable(input: Omit<RestaurantTable, 'id' | 'createdAt'>): Rest
 
 export function updateTable(id: string, patch: Partial<Omit<RestaurantTable, 'id' | 'createdAt'>>) {
   store.patchLocal((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)));
-  const sb = getSupabase();
-  if (sb) void sb.from('tables').update(toRow(patch)).eq('id', id).then(({ error }) => {
+  void write({ table: 'tables', op: 'update', values: toRow(patch), match: { id: id } }).then(({ error }) => {
     if (error) console.error('[tables] update failed', error.message);
   });
 }
 
 export function deleteTable(id: string) {
   store.patchLocal((cur) => cur.filter((t) => t.id !== id));
-  const sb = getSupabase();
-  if (sb) void sb.from('tables').delete().eq('id', id).then(({ error }) => {
+  void write({ table: 'tables', op: 'delete', match: { id: id } }).then(({ error }) => {
     if (error) console.error('[tables] delete failed', error.message);
   });
 }

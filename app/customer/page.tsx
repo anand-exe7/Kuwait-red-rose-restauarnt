@@ -1,11 +1,12 @@
 "use client";
 import React, { useState, useSyncExternalStore } from 'react';
-import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell, ShoppingCart, Tag, X, PackageCheck } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ShoppingBag, Clock, Minus, Plus, CreditCard, ChevronLeft, MapPin, CheckCircle2, Loader2, Bell, ShoppingCart, Tag, X, PackageCheck, Truck } from 'lucide-react';
 import { addOrder, getActiveSessionId } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { callWaiter, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
-import { formatKWD } from '../lib/currency';
-import { validateCoupon, incrementCouponUsage } from '../lib/couponStore';
+import { formatKWD, round3 } from '../lib/currency';
+import { validateCoupon, getCouponsSnapshot, getCouponsServerSnapshot, subscribeToCoupons } from '../lib/couponStore';
 import { BRAND } from '../lib/brand';
 
 // In production each table's QR code links straight to /customer?table=N.
@@ -18,6 +19,8 @@ const getModeParam = () => {
   if (q) return q;
   // The dedicated /takeaway route reuses this same experience in takeaway mode.
   if (window.location.pathname.startsWith('/takeaway')) return 'takeaway';
+  // The /delivery route is the same menu, but the cart continues to the delivery checkout.
+  if (window.location.pathname.startsWith('/delivery')) return 'delivery';
   return null;
 };
 const getParamServer = () => null;
@@ -48,12 +51,17 @@ export default function CustomerDashboard() {
   const modeParam = useSyncExternalStore(noopSubscribe, getModeParam, getParamServer);
   const isStandingQR = modeParam === 'standing';
   const isTakeaway = modeParam === 'takeaway';
+  const isDelivery = modeParam === 'delivery';
+  const router = useRouter();
   const isStandingDineIn = isStandingQR;
   const tableNumber = Number(tableParam) > 0 ? Number(tableParam) : 12;
 
   // Live menu managed by the admin's Inventory tab — same source of truth for every role
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
+
+  // Subscribing loads the coupons table; without it every code reads as "invalid".
+  useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
 
   const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
   const activeWaiterCall = waiterCalls.find(c => c.table === tableNumber && !c.resolved);
@@ -78,10 +86,10 @@ export default function CustomerDashboard() {
   const cartItemCount = Object.values(cart).reduce((a, b) => a + b, 0);
 
   // Coupon discount applies to the product subtotal only
-  const discount = appliedCoupon ? (cartTotal * appliedCoupon.discountPercent) / 100 : 0;
+  const discount = appliedCoupon ? round3((cartTotal * appliedCoupon.discountPercent) / 100) : 0;
   const taxable = Math.max(0, cartTotal - discount);
-  const taxAmt = taxable * 0.1;
-  const grandTotal = taxable + taxAmt;
+  const taxAmt = round3(taxable * 0.1);
+  const grandTotal = round3(taxable + taxAmt);
 
   const applyCoupon = () => {
     const res = validateCoupon(couponInput, cartTotal);
@@ -101,6 +109,15 @@ export default function CustomerDashboard() {
 
   const handleSubmitOrder = () => {
     if (cartItemCount === 0 || orderState === 'submitting') return;
+
+    // Delivery: the order is placed on the checkout page (sign-in, address, pin).
+    if (isDelivery) {
+      try {
+        sessionStorage.setItem('rr_delivery_cart', JSON.stringify({ cart, coupon: appliedCoupon?.code ?? null }));
+      } catch { /* private mode: the checkout page will ask to start again */ }
+      router.push('/delivery/checkout');
+      return;
+    }
     setOrderState('submitting');
 
     const items = Object.entries(cart).map(([id, qty]) => {
@@ -127,7 +144,6 @@ export default function CustomerDashboard() {
         sessionId: sessionId || undefined,
         standingLabel: isStandingDineIn ? standingLabelId : undefined,
       });
-      if (appliedCoupon) incrementCouponUsage(appliedCoupon.id);
       setLastOrderId(order.id);
       setCart({});
       setAppliedCoupon(null);
@@ -151,12 +167,12 @@ export default function CustomerDashboard() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={BRAND.logo} alt={BRAND.fullName} className="h-9 md:h-12 w-auto rounded-lg" />
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1 bg-brand-red/10 rounded-full text-xs font-bold text-brand-red">
-              {isTakeaway ? <><ShoppingCart size={12} /> Takeaway</> : <><MapPin size={12} /> Table {tableNumber}</>}
+              {isDelivery ? <><Truck size={12} /> Delivery</> : isTakeaway ? <><ShoppingCart size={12} /> Takeaway</> : <><MapPin size={12} /> Table {tableNumber}</>}
             </div>
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
-            {!isTakeaway && (
+            {!isTakeaway && !isDelivery && (
               <button
                 onClick={handleCallWaiter}
                 disabled={!!activeWaiterCall}
@@ -199,7 +215,7 @@ export default function CustomerDashboard() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-6 md:p-12 pointer-events-none">
             <div className="flex items-center gap-2 mb-3 md:hidden">
               <div className="flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-bold text-white">
-                {isTakeaway ? <><ShoppingCart size={12} /> Takeaway</> : <><MapPin size={12} /> Table {tableNumber}</>}
+                {isDelivery ? <><Truck size={12} /> Delivery</> : isTakeaway ? <><ShoppingCart size={12} /> Takeaway</> : <><MapPin size={12} /> Table {tableNumber}</>}
               </div>
             </div>
             <h2 className="text-4xl md:text-6xl font-black text-white mb-2 md:mb-4 tracking-tight">{BRAND.fullName}</h2>
@@ -337,7 +353,7 @@ export default function CustomerDashboard() {
 
                 {cartItemCount > 0 && (
                   <div className="p-6 md:p-8 bg-brand-cream border-t border-brand-gold/20 rounded-b-[2rem] md:rounded-bl-[2rem] md:rounded-br-none pb-8 md:pb-8">
-                    {!isTakeaway && (
+                    {!isTakeaway && !isDelivery && (
                       <div className="mb-4">
                         <label className="flex items-center gap-3 bg-white border border-brand-gold/20 p-3 rounded-xl cursor-pointer hover:border-brand-red/30 transition-colors">
                           <input
@@ -416,7 +432,7 @@ export default function CustomerDashboard() {
                         </>
                       ) : (
                         <>
-                          <CreditCard size={24} /> Submit Order
+                          {isDelivery ? <><Truck size={24} /> Continue to delivery</> : <><CreditCard size={24} /> Submit Order</>}
                         </>
                       )}
                     </button>
