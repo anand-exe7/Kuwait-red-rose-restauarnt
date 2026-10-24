@@ -21,7 +21,12 @@ import {
 } from './sessionStore';
 import { createBill } from './billStore';
 
-export type OrderStatus = 'pending' | 'cooking' | 'ready' | 'served';
+// Order lifecycle:
+//   awaiting_admin → pending (chef sees it) → cooking → ready → served
+// Every customer order starts at 'awaiting_admin'; the admin approves it from
+// the Incoming Orders queue, which flips it to 'pending'. Chef dashboards
+// filter out 'awaiting_admin' so unapproved tickets never reach the kitchen.
+export type OrderStatus = 'awaiting_admin' | 'pending' | 'cooking' | 'ready' | 'served';
 
 export interface OrderItem {
   id: string;
@@ -32,9 +37,31 @@ export interface OrderItem {
 }
 
 /** Where the order is served. 'table' = seated dine-in (uses `table`),
- *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go,
- *  'delivery' = driven to the customer (handled by /api/delivery/*, not the waiter). */
+ *  'standing' = walk-in eating in but not at a table, 'takeaway' = to-go
+ *  (customer picks up at the shop), 'delivery' = we bring it to their address
+ *  (handled by /api/delivery/*, not the waiter). */
 export type OrderMode = 'table' | 'standing' | 'takeaway' | 'delivery';
+
+/** Structured Kuwait address, carried on delivery orders. */
+export interface DeliveryAddress {
+  governorate: string;   // e.g. "Hawalli", "Salmiya"
+  area: string;          // e.g. "Block 10"
+  street: string;        // required
+  avenue?: string;
+  building: string;      // house / building number
+  floor?: string;
+  apartment?: string;
+  landmark?: string;     // free-text hint for the driver
+}
+
+/** Lightweight customer identity captured at checkout — present on
+ *  takeaway/delivery orders and on dine-in orders placed after sign-in. */
+export interface CustomerInfo {
+  userId?: string;    // Supabase auth user id, when signed in
+  name?: string;
+  phone?: string;     // required for takeaway/delivery (how the shop reaches them)
+  email?: string;
+}
 
 export interface Order {
   id: string;
@@ -53,6 +80,8 @@ export interface Order {
   standingLabel?: string; // optional name/tag distinguishing walk-in parties (mode === 'standing')
   sessionId?: string;  // groups multiple orders into one dining session
   billed?: boolean;    // true after waiter closes the bill — only billed orders show in admin analytics
+  customer?: CustomerInfo;        // signed-in customer / contact details
+  deliveryAddress?: DeliveryAddress; // present when mode === 'delivery'
 }
 
 /** Human label for where an order goes — used by every role's UI. */
@@ -64,6 +93,19 @@ export function orderLabel(o: Pick<Order, 'mode' | 'table' | 'standingLabel'>): 
 }
 
 function fromRow(r: Record<string, unknown>): Order {
+  const customer: CustomerInfo | undefined =
+    (r.user_id || r.customer_name || r.customer_phone || r.customer_email)
+      ? {
+          userId: (r.user_id as string) ?? undefined,
+          name: (r.customer_name as string) ?? undefined,
+          phone: (r.customer_phone as string) ?? undefined,
+          email: (r.customer_email as string) ?? undefined,
+        }
+      : undefined;
+  const deliveryAddress =
+    r.delivery_address && typeof r.delivery_address === 'object'
+      ? (r.delivery_address as DeliveryAddress)
+      : undefined;
   return {
     id: r.id as string,
     table: Number(r.table_number ?? 0),
@@ -81,6 +123,8 @@ function fromRow(r: Record<string, unknown>): Order {
     standingLabel: (r.standing_label as string) ?? undefined,
     sessionId: (r.session_id as string) ?? undefined,
     billed: (r.billed as boolean) ?? false,
+    customer,
+    deliveryAddress,
   };
 }
 
@@ -101,6 +145,11 @@ function toRow(o: Order): Record<string, unknown> {
     standing_label: o.standingLabel ?? null,
     session_id: o.sessionId ?? null,
     billed: o.billed ?? false,
+    user_id: o.customer?.userId ?? null,
+    customer_name: o.customer?.name ?? null,
+    customer_phone: o.customer?.phone ?? null,
+    customer_email: o.customer?.email ?? null,
+    delivery_address: o.deliveryAddress ?? null,
     created_at: o.createdAt,
   };
 }
@@ -207,6 +256,10 @@ function resolveSessionId(input: {
   if (input.mode === 'takeaway') {
     return openSession({ tableNumber: null, mode: 'takeaway' }).id;
   }
+  if (input.mode === 'delivery') {
+    // Delivery orders never reuse a session — one order, one bill.
+    return openSession({ tableNumber: null, mode: 'takeaway' }).id;
+  }
   // dine-in
   return (getOpenSessionForTable(input.table)?.id
     ?? openSession({ tableNumber: input.table, mode: 'table' }).id);
@@ -235,14 +288,19 @@ export function addOrder(input: {
   sessionId?: string;
   /** Admin POS: the sale is paid on the spot, so bill and close it as soon as it is saved. */
   billImmediately?: boolean;
+  customer?: CustomerInfo;
+  deliveryAddress?: DeliveryAddress;
 }): Order {
   const mode = input.mode ?? 'table';
   const sessionId = resolveSessionId({ table: input.table, mode, standingLabel: input.standingLabel, sessionId: input.sessionId });
+  // Customer-placed orders queue for admin approval; waiter-placed orders are
+  // staff and skip the queue.
+  const defaultStatus: OrderStatus = input.source === 'waiter' ? 'pending' : 'awaiting_admin';
   const newOrder: Order = {
     id: newOrderId(),
     table: input.table,
     items: input.items,
-    status: input.status ?? 'pending',
+    status: input.status ?? defaultStatus,
     priority: input.priority,
     subtotal: input.subtotal,
     tax: input.tax,
@@ -254,6 +312,8 @@ export function addOrder(input: {
     couponCode: input.couponCode,
     standingLabel: input.standingLabel,
     sessionId,
+    customer: input.customer,
+    deliveryAddress: input.deliveryAddress,
   };
   store.patchLocal((cur) => [newOrder, ...cur]);
   void settleSessionId(sessionId).then((finalId) => {
@@ -287,6 +347,40 @@ export function updateOrderStatus(id: string, status: OrderStatus) {
   void write({ table: 'orders', op: 'update', values: { status }, match: { id } }).then(({ error }) => {
     if (error) console.error('[orders] status update failed', error.message);
   });
+}
+
+/** Admin approves an order sitting in the Incoming queue → chef sees it. */
+export function approveOrder(id: string) {
+  updateOrderStatus(id, 'pending');
+}
+
+/** Admin rejects an order → removed from the queue (status='served' hides it
+ *  from active views while leaving the row for audit). */
+export function rejectOrder(id: string) {
+  updateOrderStatus(id, 'served');
+}
+
+/** Replace the items on an open order (admin-side edit of a dine-in ticket).
+ *  Totals are recomputed; discount/coupon are preserved. */
+export function updateOrderItems(id: string, items: OrderItem[]) {
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
+  store.patchLocal((cur) => cur.map((o) => {
+    if (o.id !== id) return o;
+    const discount = o.discount ?? 0;
+    const taxable = Math.max(0, subtotal - discount);
+    const tax = taxable * 0.1;
+    const total = taxable + tax;
+    return { ...o, items, subtotal, tax, total };
+  }));
+  const sb = getSupabase();
+  if (sb) {
+    const o = store.get().find((x) => x.id === id);
+    if (o) void sb.from('orders').update({
+      items: o.items, subtotal: o.subtotal, tax: o.tax, total: o.total,
+    }).eq('id', id).then(({ error }) => {
+      if (error) console.error('[orders] items update failed', error.message);
+    });
+  }
 }
 
 export function subscribeToOrders(callback: () => void): () => void {

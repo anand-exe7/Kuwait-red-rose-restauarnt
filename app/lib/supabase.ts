@@ -25,7 +25,7 @@ export function getSupabase(): SupabaseClient | null {
     // Surface a clear, one-time hint instead of failing cryptically.
     if (!warned) {
       warned = true;
-      console.error(
+      console.warn(
         '[supabase] NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set. ' +
         'Copy .env.example to .env.local and fill them in — see SUPABASE_SETUP.md.'
       );

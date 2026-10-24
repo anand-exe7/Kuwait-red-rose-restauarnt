@@ -34,7 +34,8 @@ import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIE
 import { WaiterCall, resolveWaiterCall, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
 import { getTablesSnapshot, getTablesServerSnapshot, subscribeToTables } from '../lib/tableStore';
 import { formatKWD, round3 } from '../lib/currency';
-import { BRAND } from '../lib/brand';
+import { landingFonts } from '../fonts';
+import BrandMark from '../components/BrandMark';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
 type TableSel = number | 'standing';
@@ -125,6 +126,16 @@ export default function WaiterDashboard() {
     }
     return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, orderCount: v.count, total: v.total, id: v.id }));
   }, [placedOrders]);
+
+  // Delivery orders waiting to go out — one order per card (deliveries don't
+  // reuse sessions). Only shows admin-approved ones so the waiter never hands
+  // out a ticket the admin hasn't released.
+  const activeDeliveryOrders = useMemo(
+    () => placedOrders
+      .filter(o => o.mode === 'delivery' && !o.billed && (o.status === 'pending' || o.status === 'cooking' || o.status === 'ready'))
+      .sort((a, b) => a.createdAt - b.createdAt),
+    [placedOrders]
+  );
 
   const currentSessionId = useMemo(() => {
     if (activeTable === 'standing') return undefined;
@@ -271,13 +282,13 @@ export default function WaiterDashboard() {
     triggerToast(t === 'standing' ? 'Standing / walk-in order' : `Switched to Table ${t}`);
   };
 
-  const cardBase = 'bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm';
+  const cardBase = 'bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)]';
 
   return (
-    <div className="staff-themed h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-sans pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white">
+    <div className={`landing ${landingFonts} h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-body pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white`}>
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-ink text-white px-5 py-2.5 rounded-full font-bold text-sm shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-wine text-white px-6 py-3 rounded-full font-body font-medium text-[11px] uppercase tracking-[0.18em] border border-brand-gold/40 shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
           <Check size={16} className="text-brand-gold" />
           <span>{toastMessage}</span>
         </div>
@@ -286,37 +297,30 @@ export default function WaiterDashboard() {
       <div className="flex-1 min-h-0 w-full max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
 
         {/* ============ TOP BAR ============ */}
-        <header className={`${cardBase} p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0`}>
+        <header className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-[2rem] md:rounded-full border border-brand-gold/25 bg-[#4f070c] p-3 md:py-2.5 md:pl-4 md:pr-3 shadow-[0_18px_44px_-14px_rgba(35,0,4,0.55)]">
           <div className="flex items-center justify-between w-full md:w-auto gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={BRAND.logo} alt={BRAND.fullName} className="h-10 sm:h-12 w-auto rounded-lg border border-brand-gold/30 shrink-0" />
-              <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-black tracking-tight flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className="truncate">{BRAND.name}</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-red text-white font-bold tracking-wide shrink-0">WAITER</span>
-                </h1>
-                <p className="text-xs text-brand-ink/50 font-medium truncate">Floor service · Station 2</p>
-              </div>
+            <div className="flex items-center gap-4 min-w-0">
+              <BrandMark sub="Waiter Station" />
+              <p className="hidden sm:block text-[10px] font-medium uppercase tracking-[0.24em] text-brand-gold-light/80 truncate">Floor service · Station 2</p>
             </div>
-            <div className="md:hidden flex items-center gap-2 bg-brand-sand px-3 py-1.5 rounded-xl border border-brand-gold/30 shrink-0">
-              <span className="w-2 h-2 rounded-full bg-brand-green animate-pulse" />
-              <span className="text-xs font-bold">{activeLabel}</span>
+            <div className="md:hidden flex items-center gap-2 rounded-full border border-brand-gold/30 px-3.5 py-2 shrink-0 text-brand-gold-light">
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-[10px] font-medium uppercase tracking-[0.2em]">{activeLabel}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 w-full md:w-auto">
             <div className="relative flex-1 md:w-72">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-ink/40" size={18} />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-gold-light/70" size={16} />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search dishes, drinks…"
-                className="w-full bg-brand-cream/60 text-sm text-brand-ink placeholder-brand-ink/40 rounded-xl pl-10 pr-9 py-2.5 border border-brand-gold/25 focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
+                className="w-full rounded-full border border-white/20 bg-white/[0.07] py-3 pl-11 pr-10 text-sm font-light text-white placeholder-white/45 transition-all focus:border-brand-gold-light/70 focus:outline-none"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-brand-ink/40 hover:text-brand-red">
+                <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white">
                   <X size={16} />
                 </button>
               )}
@@ -325,26 +329,22 @@ export default function WaiterDashboard() {
             <button
               onClick={() => setMuted(m => !m)}
               title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
-              className={`shrink-0 relative flex items-center justify-center w-11 h-11 rounded-xl border transition-colors ${
-                muted
-                  ? 'bg-white text-brand-ink/40 border-brand-gold/25 hover:text-brand-ink'
-                  : 'bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/20'
-              }`}
+              className={`btn shrink-0 relative h-11 w-11 p-0 ${muted ? 'text-white/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] hover:text-white' : 'btn-outline-light'}`}
             >
-              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
               {!muted && readyOrders.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-red animate-ping" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-gold animate-ping" />
               )}
             </button>
 
-            <div className="hidden lg:flex items-center gap-2 bg-brand-sand p-1.5 rounded-xl border border-brand-gold/25 shrink-0">
-              <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-lg">
-                <User size={15} className="text-brand-red" />
-                <span className="text-xs font-bold">Alex W.</span>
-              </div>
-              <div className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-brand-green">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-green animate-ping" /> Live
-              </div>
+            <div className="hidden lg:flex items-center gap-3 rounded-full border border-brand-gold/30 py-1.5 pl-4 pr-4 shrink-0 text-brand-gold-light">
+              <span className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em]">
+                <User size={14} /> Alex W.
+              </span>
+              <span className="h-4 w-px bg-brand-gold/30" />
+              <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.2em] text-green-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" /> Live
+              </span>
             </div>
           </div>
         </header>
@@ -388,15 +388,15 @@ export default function WaiterDashboard() {
             {/* Tables */}
             <div className={`${cardBase} p-4`}>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-black text-brand-ink/50 uppercase tracking-widest flex items-center gap-1.5">
+                <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
                   <Hash size={14} className="text-brand-red" /> Floor Tables
                 </h3>
-                <div className="flex gap-1 bg-brand-sand p-1 rounded-lg">
+                <div className="flex gap-1 bg-brand-sand p-1 rounded-full">
                   {(['all', 'occupied'] as const).map(f => (
                     <button
                       key={f}
                       onClick={() => setTableFilter(f)}
-                      className={`px-2.5 py-0.5 rounded text-[10px] font-black capitalize transition-colors ${tableFilter === f ? 'bg-brand-red text-white' : 'text-brand-ink/50 hover:text-brand-ink'}`}
+                      className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.14em] transition-colors ${tableFilter === f ? 'bg-brand-wine text-brand-gold-light' : 'text-brand-ink/50 hover:text-brand-ink'}`}
                     >
                       {f}
                     </button>
@@ -417,9 +417,9 @@ export default function WaiterDashboard() {
                       <button
                         key={t}
                         onClick={() => selectTable(t)}
-                        className={`aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all font-black relative border-2 ${
+                        className={`aspect-square rounded-full flex flex-col items-center justify-center gap-0.5 transition-all font-semibold relative border ${
                           isSelected
-                            ? 'bg-brand-red text-white border-brand-red shadow-md scale-[1.03]'
+                            ? 'bg-brand-wine text-brand-gold-light border-brand-gold shadow-md scale-[1.03]'
                             : isCalling
                             ? 'bg-red-50 text-brand-red border-red-300 animate-pulse'
                             : hasReady
@@ -429,15 +429,15 @@ export default function WaiterDashboard() {
                             : 'bg-white text-brand-ink/70 border-brand-gold/20 hover:border-brand-red/40'
                         }`}
                       >
-                        <span className={`text-[9px] font-bold ${isSelected ? 'text-white/70' : 'text-brand-ink/40'}`}>TBL</span>
-                        <span className="text-lg leading-none">{t}</span>
+                        <span className={`text-[9px] font-bold ${isSelected ? 'text-brand-gold-light/80' : 'text-brand-ink/40'}`}>TBL</span>
+                        <span className="font-display text-2xl font-semibold leading-none">{t}</span>
                         {isCalling && (
                           <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand-red text-white flex items-center justify-center border-2 border-white">
                             <Bell size={10} />
                           </span>
                         )}
                         {activeCount > 0 && (
-                          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-brand-ink text-white text-[10px] font-black flex items-center justify-center border-2 border-white">
+                          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-brand-ink text-white text-[10px] font-semibold flex items-center justify-center border-2 border-white">
                             {activeCount}
                           </span>
                         )}
@@ -449,21 +449,21 @@ export default function WaiterDashboard() {
               {/* Standing / walk-in */}
               <button
                 onClick={() => selectTable('standing')}
-                className={`mt-2.5 w-full rounded-xl border-2 px-3 py-2.5 flex items-center gap-2.5 font-black text-sm transition-all ${
+                className={`mt-3 w-full rounded-full border px-5 py-3 flex items-center gap-2.5 font-medium text-sm transition-all ${
                   activeTable === 'standing'
-                    ? 'bg-brand-red text-white border-brand-red shadow-md'
+                    ? 'bg-brand-wine text-brand-gold-light border-brand-gold shadow-md'
                     : 'bg-white text-brand-ink border-dashed border-brand-gold/50 hover:border-brand-red/50'
                 }`}
               >
                 <PersonStanding size={18} className={activeTable === 'standing' ? 'text-white' : 'text-brand-red'} />
                 <span className="flex-1 text-left leading-tight">
                   Standing / Walk-in
-                  <span className={`block text-[10px] font-medium ${activeTable === 'standing' ? 'text-white/70' : 'text-brand-ink/45'}`}>
+                  <span className={`block text-[10px] font-medium ${activeTable === 'standing' ? 'text-brand-gold-light/80' : 'text-brand-ink/45'}`}>
                     No table — customer stands & eats
                   </span>
                 </span>
                 {standingActiveCount > 0 && (
-                  <span className={`text-[10px] font-black rounded-full px-2 py-0.5 ${activeTable === 'standing' ? 'bg-white/20' : 'bg-brand-red/10 text-brand-red'}`}>
+                  <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${activeTable === 'standing' ? 'bg-white/20' : 'bg-brand-red/10 text-brand-red'}`}>
                     {standingActiveCount}
                   </span>
                 )}
@@ -471,24 +471,24 @@ export default function WaiterDashboard() {
 
               {canBill && activeTable !== 'standing' && (
                 <div className="mt-4">
-                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Hash size={11} /> Table {activeTable} Actions</p>
-                  <div className="w-full rounded-xl border border-brand-red/30 bg-brand-red/[0.03] p-3 flex flex-col gap-2">
+                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Hash size={11} /> Table {activeTable} Actions</p>
+                  <div className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/[0.03] p-3.5 flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-black text-brand-ink truncate">Table {activeTable}</h4>
+                        <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Table {activeTable}</h4>
                         <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{activeOrdersForActiveTable.length} order{activeOrdersForActiveTable.length !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}</span></p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <button
                         onClick={() => setActiveTab('menu')}
-                        className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                        className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
                       >
                         <Plus size={14} /> Add Items
                       </button>
                       <button
                         onClick={() => setBillingSessionId(currentSessionId || null)}
-                        className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                        className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
                       >
                         <Banknote size={14} /> Bill
                       </button>
@@ -499,26 +499,26 @@ export default function WaiterDashboard() {
 
               {activeStandingSessions.length > 0 && (
                 <div className="mt-2.5">
-                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users size={11} /> Active Standing Sessions</p>
+                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Users size={11} /> Active Standing Sessions</p>
                   <div className="flex flex-col gap-1.5">
                     {activeStandingSessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-black text-brand-ink truncate">{s.label}</h4>
+                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">{s.label}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <button
                             onClick={() => { setActiveTable('standing'); setStandingLabel(s.label); setActiveTab('menu'); triggerToast(`Resumed: ${s.label}`); }}
-                            className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                            className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
                           >
                             <Plus size={14} /> Add Items
                           </button>
                           <button
                             onClick={() => setBillingSessionId(s.sessionId)}
-                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
                           >
                             <Banknote size={14} /> Bill
                           </button>
@@ -531,26 +531,26 @@ export default function WaiterDashboard() {
 
               {activeTableSessions.length > 0 && (
                 <div className="mt-2.5">
-                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Hash size={11} /> Active Floor Tables</p>
+                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Hash size={11} /> Active Floor Tables</p>
                   <div className="flex flex-col gap-1.5">
                     {activeTableSessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-black text-brand-ink truncate">Table {s.table}</h4>
+                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Table {s.table}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <button
                             onClick={() => { setActiveTable(s.table); setActiveTab('menu'); }}
-                            className="flex-1 py-2 rounded-lg bg-white border border-brand-red/30 text-brand-red text-xs font-black hover:bg-brand-red/5 transition-colors flex items-center justify-center gap-1.5"
+                            className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
                           >
                             <Plus size={14} /> Add Items
                           </button>
                           <button
                             onClick={() => setBillingSessionId(s.sessionId)}
-                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
                           >
                             <Banknote size={14} /> Bill
                           </button>
@@ -563,23 +563,67 @@ export default function WaiterDashboard() {
 
               {activeTakeawaySessions.length > 0 && (
                 <div className="mt-2.5">
-                  <p className="text-[10px] font-bold text-brand-ink/40 uppercase tracking-wider mb-1.5 flex items-center gap-1"><ShoppingBag size={11} /> Active Takeaway Orders</p>
+                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><ShoppingBag size={11} /> Active Takeaway Orders</p>
                   <div className="flex flex-col gap-1.5">
                     {activeTakeawaySessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-xl border border-brand-gold/30 bg-brand-cream/50 p-3 flex flex-col gap-2">
+                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-black text-brand-ink truncate">Takeaway #{s.id}</h4>
+                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Takeaway #{s.id}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <button
                             onClick={() => setBillingSessionId(s.sessionId)}
-                            className="flex-1 py-2 rounded-lg bg-brand-ink text-white text-xs font-black hover:bg-black transition-colors flex items-center justify-center gap-1.5"
+                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
                           >
                             <Banknote size={14} /> Bill
                           </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Delivery queue — admin-approved orders waiting for the
+                  driver / pickup handoff. One card per order (no sessions). */}
+              {activeDeliveryOrders.length > 0 && (
+                <div className="mt-2.5">
+                  <p className="text-[10px] font-medium text-brand-red uppercase tracking-[0.2em] mb-2 flex items-center gap-1">
+                    <ShoppingBag size={11} /> Deliveries Out
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {activeDeliveryOrders.map(o => (
+                      <div key={o.id} className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/5 p-3.5 flex flex-col gap-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">
+                              Delivery · {o.customer?.name || `#${o.id.split('-')[1]}`}
+                            </h4>
+                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">
+                              {o.customer?.phone ? `${o.customer.phone} · ` : ''}
+                              <span className="font-bold text-brand-red">{formatKWD(o.total)}</span>
+                            </p>
+                            {o.deliveryAddress && (
+                              <p className="text-[11px] text-brand-ink/55 mt-1 leading-relaxed">
+                                {[
+                                  o.deliveryAddress.governorate,
+                                  o.deliveryAddress.area,
+                                  o.deliveryAddress.street && `St ${o.deliveryAddress.street}`,
+                                  o.deliveryAddress.building && `Bldg ${o.deliveryAddress.building}`,
+                                ].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${
+                            o.status === 'ready' ? 'bg-emerald-500/15 text-emerald-700' :
+                            o.status === 'cooking' ? 'bg-brand-red/15 text-brand-red' :
+                            'bg-gray-500/15 text-gray-700'
+                          }`}>
+                            {o.status}
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -591,10 +635,10 @@ export default function WaiterDashboard() {
             {/* Kitchen live feed */}
             <div className={`${cardBase} p-4 flex-1 flex flex-col overflow-hidden min-h-[240px]`}>
               <div className="flex items-center justify-between mb-3 pb-2 border-b border-brand-gold/20">
-                <h3 className="text-xs font-black text-brand-ink/50 uppercase tracking-widest flex items-center gap-1.5">
+                <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
                   <Coffee size={14} className="text-brand-red" /> Kitchen Feed
                 </h3>
-                <span className="px-2 py-0.5 rounded-full bg-brand-red/10 text-brand-red text-[11px] font-black">
+                <span className="px-3 py-1 rounded-full bg-brand-red/10 text-brand-red text-[10px] font-medium uppercase tracking-[0.16em]">
                   {placedOrders.filter(o => o.status !== 'served').length} active
                 </span>
               </div>
@@ -608,7 +652,7 @@ export default function WaiterDashboard() {
                   placedOrders.filter(o => o.status !== 'served').map(ticket => (
                     <div
                       key={ticket.id}
-                      className={`p-3.5 rounded-xl border transition-all ${
+                      className={`p-3.5 rounded-2xl border transition-all ${
                         ticket.priority === 'high'
                           ? 'border-brand-red/40 bg-brand-red/5'
                           : ticket.status === 'ready'
@@ -619,7 +663,7 @@ export default function WaiterDashboard() {
                       <div className="flex justify-between items-start mb-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-black text-base">{orderLabel(ticket)}</span>
+                            <span className="font-display text-xl font-semibold text-brand-wine">{orderLabel(ticket)}</span>
                             <span className="text-[11px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
                             {ticket.source === 'customer' && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
@@ -630,7 +674,7 @@ export default function WaiterDashboard() {
                           </span>
                         </div>
                         {ticket.priority === 'high' && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-black uppercase bg-brand-red text-white shrink-0">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red text-white shrink-0">
                             <Flame size={11} /> Rush
                           </span>
                         )}
@@ -644,7 +688,7 @@ export default function WaiterDashboard() {
                         ))}
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-black uppercase ${
+                        <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
                           ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
                           : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
                           : 'bg-brand-ink/5 text-brand-ink/50'
@@ -655,7 +699,7 @@ export default function WaiterDashboard() {
                         {ticket.status === 'ready' && (
                           <button
                             onClick={() => serveOrder(ticket.id)}
-                            className="px-3 py-1.5 rounded-lg bg-brand-green text-white text-xs font-black hover:brightness-110 transition-all flex items-center gap-1"
+                            className="btn bg-brand-green text-white px-4 py-2.5 text-[10px] hover:brightness-110"
                           >
                             <Check size={13} /> Serve
                           </button>
@@ -672,12 +716,12 @@ export default function WaiterDashboard() {
           <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab !== 'menu' ? 'hidden' : 'flex'}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-black tracking-tight">Menu</h2>
-                <span className="text-xs px-2.5 py-1 rounded-full bg-brand-sand text-brand-ink/70 font-bold flex items-center gap-1">
+                <h2 className="font-display text-3xl font-medium leading-none text-brand-wine">Menu</h2>
+                <span className="text-[10px] px-3 py-1.5 rounded-full bg-brand-sand text-brand-wine font-medium uppercase tracking-[0.16em] flex items-center gap-1">
                   {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
                 </span>
                 {activeOrdersForActiveTable.length > 0 && (
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-brand-red/10 text-brand-red font-bold">
+                  <span className="text-[10px] px-3 py-1.5 rounded-full bg-brand-red/10 text-brand-red font-medium uppercase tracking-[0.16em]">
                     {activeOrdersForActiveTable.length} in · {formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}
                   </span>
                 )}
@@ -690,14 +734,14 @@ export default function WaiterDashboard() {
                     <button
                       key={cat}
                       onClick={() => setActiveCategory(cat)}
-                      className={`px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1.5 border transition-all ${
+                      className={`px-4 py-2 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] whitespace-nowrap flex items-center gap-1.5 border transition-all ${
                         isActive
-                          ? 'bg-brand-red text-white border-brand-red shadow-sm'
+                          ? 'bg-brand-wine text-brand-gold-light border-brand-wine shadow-sm'
                           : 'bg-white text-brand-ink/60 hover:text-brand-ink border-brand-gold/25'
                       }`}
                     >
                       {cat}
-                      <span className={`text-[10px] px-1.5 rounded-full font-black ${isActive ? 'bg-white/25' : 'bg-brand-sand text-brand-ink/50'}`}>{count}</span>
+                      <span className={`text-[10px] px-1.5 rounded-full font-semibold ${isActive ? 'bg-white/20' : 'bg-brand-sand text-brand-ink/50'}`}>{count}</span>
                     </button>
                   );
                 })}
@@ -717,7 +761,7 @@ export default function WaiterDashboard() {
                     return (
                       <div
                         key={item.id}
-                        className={`rounded-2xl p-3 border flex flex-col justify-between transition-all ${
+                        className={`rounded-[1.5rem] p-3 border flex flex-col justify-between transition-all ${
                           currentQty > 0 ? 'border-brand-red/50 bg-brand-red/[0.03]' : 'border-brand-gold/20 bg-white hover:border-brand-red/30'
                         }`}
                       >
@@ -730,29 +774,29 @@ export default function WaiterDashboard() {
                               className="w-full h-full object-cover"
                               onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                             />
-                            <div className="absolute top-2 left-2 px-2.5 py-1 rounded-full bg-white/90 backdrop-blur font-black text-xs text-brand-red shadow-sm">
+                            <div className="absolute top-2 left-2 px-3 py-1 rounded-full bg-white/90 backdrop-blur font-display font-semibold text-base leading-none text-brand-red shadow-sm">
                               {formatKWD(item.price)}
                             </div>
                             <div className="absolute top-2 right-2 flex gap-1">
-                              {item.isChefSpecial && <span className="px-1.5 py-0.5 rounded bg-brand-gold text-brand-ink text-[9px] font-black uppercase">Chef</span>}
-                              {item.isSpicy && <span className="px-1.5 py-0.5 rounded bg-brand-red text-white text-[9px] font-black uppercase">Spicy</span>}
+                              {item.isChefSpecial && <span className="px-1.5 py-0.5 rounded bg-brand-gold text-brand-ink text-[9px] font-semibold uppercase">Chef</span>}
+                              {item.isSpicy && <span className="px-1.5 py-0.5 rounded bg-brand-red text-white text-[9px] font-semibold uppercase">Spicy</span>}
                             </div>
                           </div>
-                          <h4 className="font-bold text-sm leading-snug">{item.name}</h4>
-                          <p className="text-xs text-brand-ink/50 line-clamp-2 mt-0.5 leading-relaxed">{item.description}</p>
+                          <h4 className="font-display text-xl font-medium leading-tight text-brand-wine">{item.name}</h4>
+                          <p className="text-xs font-light text-brand-ink/60 line-clamp-2 mt-1 leading-relaxed">{item.description}</p>
                         </div>
                         <div className="pt-2.5 mt-2.5 border-t border-brand-gold/15 flex items-center justify-between">
                           <span className="text-xs font-bold text-brand-ink/45">{currentQty > 0 ? `${currentQty} in ticket` : `${item.prepTime}`}</span>
                           {currentQty > 0 ? (
-                            <div className="flex items-center gap-1.5 bg-brand-cream p-1 rounded-full border border-brand-red/30">
+                            <div className="flex items-center gap-1.5 bg-brand-cream p-1 rounded-full border border-brand-gold/50">
                               <button onClick={() => removeFromOrder(item.id)} className="w-8 h-8 rounded-full bg-white text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={15} /></button>
-                              <span className="font-black text-sm w-5 text-center text-brand-red">{currentQty}</span>
-                              <button onClick={() => addToOrder(item.id)} className="w-8 h-8 rounded-full bg-brand-red text-white flex items-center justify-center hover:bg-brand-red-dark active:scale-95"><Plus size={15} /></button>
+                              <span className="font-display text-lg font-semibold w-5 text-center text-brand-wine">{currentQty}</span>
+                              <button onClick={() => addToOrder(item.id)} className="btn btn-wine h-8 w-8 p-0"><Plus size={15} /></button>
                             </div>
                           ) : (
                             <button
                               onClick={() => addToOrder(item.id)}
-                              className="px-3.5 py-2 rounded-xl bg-brand-red text-white font-bold text-xs flex items-center gap-1.5 hover:bg-brand-red-dark active:scale-95 shadow-sm shadow-brand-red/20"
+                              className="btn btn-wine px-5 py-3 text-[10px]"
                             >
                               <Plus size={15} /> Add
                             </button>
@@ -770,11 +814,11 @@ export default function WaiterDashboard() {
           <aside className={`w-full ${activeTab === 'menu' ? 'lg:w-[25%] lg:min-w-[320px] lg:shrink-0' : 'max-w-2xl mx-auto'} ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab === 'ticket' ? 'flex' : activeTab === 'menu' ? 'hidden lg:flex' : 'hidden'}`}>
             <div className="flex items-center justify-between mb-3 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center">
                   <Receipt size={20} />
                 </div>
                 <div>
-                  <h2 className="text-lg font-black">Current Ticket</h2>
+                  <h2 className="font-display text-2xl font-medium leading-none text-brand-wine">Current Ticket</h2>
                   <p className="text-xs text-brand-ink/50 flex items-center gap-1">
                     {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
                   </p>
@@ -795,7 +839,7 @@ export default function WaiterDashboard() {
                   value={standingLabel}
                   onChange={(e) => setStandingLabel(e.target.value)}
                   placeholder={`e.g. Ahmed, Family of 4 — defaults to "Walk-in #${standingEverCount + 1}"`}
-                  className="w-full bg-brand-cream/60 text-sm px-3 py-2 rounded-xl border border-brand-gold/25 focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
+                  className="w-full bg-brand-cream/60 text-sm px-4 py-2.5 rounded-full border border-brand-gold/30 focus:outline-none focus:border-brand-red transition-all"
                 />
               </div>
             )}
@@ -813,18 +857,18 @@ export default function WaiterDashboard() {
                   if (!item) return null;
                   const hasNote = Boolean(itemNotes[id]);
                   return (
-                    <div key={id} className="bg-brand-cream/50 p-2.5 rounded-xl border border-brand-gold/20 flex flex-col gap-2">
+                    <div key={id} className="bg-brand-cream/50 p-2.5 rounded-2xl border border-brand-gold/25 flex flex-col gap-2">
                       <div className="flex items-center gap-2.5">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={item.image} alt={item.name} className="w-11 h-11 rounded-lg object-cover shrink-0 bg-brand-sand" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                         <div className="flex-1 min-w-0">
-                          <h5 className="font-bold text-sm truncate">{item.name}</h5>
-                          <p className="text-brand-red font-black text-xs">{formatKWD(item.price * qty)}</p>
+                          <h5 className="font-display text-lg font-medium leading-tight text-brand-wine truncate">{item.name}</h5>
+                          <p className="font-display text-base font-semibold text-brand-red">{formatKWD(item.price * qty)}</p>
                         </div>
                         <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-brand-gold/25 shrink-0">
                           <button onClick={() => removeFromOrder(id)} className="w-7 h-7 rounded-md bg-brand-cream text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={13} /></button>
-                          <span className="font-black text-xs w-5 text-center">{qty}</span>
-                          <button onClick={() => addToOrder(id)} className="w-7 h-7 rounded-md bg-brand-red text-white flex items-center justify-center hover:bg-brand-red-dark active:scale-95"><Plus size={13} /></button>
+                          <span className="font-semibold text-xs w-5 text-center">{qty}</span>
+                          <button onClick={() => addToOrder(id)} className="btn btn-wine h-7 w-7 p-0"><Plus size={13} /></button>
                         </div>
                       </div>
                       <div className="flex items-center justify-between text-[11px] pt-1 border-t border-brand-gold/15">
@@ -838,7 +882,7 @@ export default function WaiterDashboard() {
                               className="flex-1 bg-white text-xs px-2 py-1 rounded border border-brand-red/40 focus:outline-none"
                               autoFocus
                             />
-                            <button onClick={() => setEditingNoteFor(null)} className="px-2 py-1 bg-brand-red text-white font-bold rounded text-[10px]">Done</button>
+                            <button onClick={() => setEditingNoteFor(null)} className="px-3 py-1 bg-brand-wine text-white font-medium rounded-full text-[10px] uppercase tracking-[0.14em]">Done</button>
                           </div>
                         ) : (
                           <>
@@ -864,7 +908,7 @@ export default function WaiterDashboard() {
                   </div>
                   <button
                     onClick={() => setIsPriorityRush(!isPriorityRush)}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-1 ${isPriorityRush ? 'bg-brand-red' : 'bg-brand-ink/20'}`}
+                    className={`w-11 h-6 rounded-full transition-colors relative p-1 ${isPriorityRush ? 'bg-brand-wine' : 'bg-brand-ink/20'}`}
                   >
                     <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isPriorityRush ? 'translate-x-5' : ''}`} />
                   </button>
@@ -874,21 +918,21 @@ export default function WaiterDashboard() {
                 <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
                 <div className="flex justify-between"><span>Tax (10%)</span><span className="text-brand-ink font-bold">{formatKWD(tax)}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
-                  <span className="font-black text-brand-ink">Total</span>
-                  <span className="font-black text-xl text-brand-red">{formatKWD(orderTotal)}</span>
+                  <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Total</span>
+                  <span className="font-display text-3xl font-semibold leading-none text-brand-red">{formatKWD(orderTotal)}</span>
                 </div>
               </div>
               <button
                 onClick={submitOrder}
                 disabled={orderItemCount === 0}
-                className="w-full py-3.5 rounded-2xl bg-brand-red text-white font-black text-base flex items-center justify-center gap-2 hover:bg-brand-red-dark disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-red/25 active:scale-[0.98]"
+                className="btn btn-wine w-full py-5 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Send size={18} /> Fire to Kitchen ({orderItemCount})
               </button>
               {canBill && activeTable !== 'standing' && (
                 <button
                   onClick={() => setBillingSessionId(currentSessionId || null)}
-                  className="w-full mt-2 py-3 rounded-2xl bg-brand-ink text-white font-black text-sm flex items-center justify-center gap-2 hover:bg-black transition-all active:scale-[0.98]"
+                  className="btn btn-outline w-full mt-2 py-4"
                 >
                   <Banknote size={18} /> Close Bill · Table {activeTable}
                 </button>
@@ -902,15 +946,15 @@ export default function WaiterDashboard() {
 
       {/* Mobile quick bar (menu tab, items selected) */}
       {orderItemCount > 0 && activeTab === 'menu' && (
-        <div className="lg:hidden fixed bottom-20 left-3 right-3 bg-brand-red text-white rounded-2xl p-3 shadow-xl shadow-brand-red/30 flex items-center justify-between z-40">
+        <div className="lg:hidden fixed bottom-20 left-3 right-3 bg-brand-wine text-white rounded-full border border-brand-gold/40 p-2.5 pl-3 shadow-xl shadow-black/30 flex items-center justify-between z-40">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center font-black">{orderItemCount}</div>
+            <div className="w-9 h-9 rounded-full bg-brand-gold-light/25 flex items-center justify-center font-display text-lg font-semibold">{orderItemCount}</div>
             <div>
               <p className="text-xs font-bold opacity-90">{activeLabel}</p>
-              <p className="text-base font-black">{formatKWD(orderTotal)}</p>
+              <p className="font-display text-xl font-semibold text-brand-gold-light leading-none">{formatKWD(orderTotal)}</p>
             </div>
           </div>
-          <button onClick={() => setActiveTab('ticket')} className="px-4 py-2 bg-white text-brand-red font-black text-xs rounded-xl flex items-center gap-1">
+          <button onClick={() => setActiveTab('ticket')} className="btn btn-gold px-5 py-3 text-[10px]">
             Review <ChevronRight size={15} />
           </button>
         </div>
@@ -932,7 +976,7 @@ export default function WaiterDashboard() {
       )}
 
       {/* Section nav — floating on desktop, fixed bottom on mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:bottom-4 lg:rounded-2xl lg:shadow-xl lg:border lg:px-2 bg-white border-t-2 border-brand-red/30 lg:border lg:border-brand-gold/25 flex items-center justify-around lg:justify-center lg:gap-1 p-2.5 z-50 shadow-[0_-6px_24px_rgba(0,0,0,0.1)]">
+      <nav className="fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:bottom-4 lg:rounded-full lg:shadow-xl lg:border lg:px-3 bg-[#4f070c]/95 backdrop-blur-md border-t border-brand-gold/30 lg:border-brand-gold/30 flex items-center justify-around lg:justify-center lg:gap-1 p-2.5 z-50 shadow-[0_-6px_24px_rgba(35,0,4,0.3)]">
         {([
           { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
           { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
@@ -942,16 +986,16 @@ export default function WaiterDashboard() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-xl transition-all ${
+            className={`relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-full transition-all ${
               tab.key === 'ticket' ? 'lg:hidden ' : ''
             }${
-              activeTab === tab.key ? 'text-brand-red bg-brand-red/10 font-bold' : 'text-brand-ink/50 hover:text-brand-ink'
+              activeTab === tab.key ? 'text-brand-gold-light bg-white/10' : 'text-white/55 hover:text-white'
             }`}
           >
             <tab.icon size={20} />
-            <span className="text-[10px] uppercase tracking-wider font-bold">{tab.label}</span>
+            <span className="text-[9px] uppercase tracking-[0.2em] font-medium">{tab.label}</span>
             {tab.badge > 0 && (
-              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-red text-white text-[10px] font-black rounded-full flex items-center justify-center border border-white animate-pulse">
+              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-gold text-brand-wine text-[10px] font-semibold rounded-full flex items-center justify-center animate-pulse">
                 {tab.badge}
               </span>
             )}
@@ -974,25 +1018,25 @@ function AlertsSection({
   items: { id: string; title: string; subtitle: string; actionLabel: string; actionIcon?: typeof Check; onAction: () => void }[];
 }) {
   return (
-    <div className="bg-white rounded-2xl sm:rounded-3xl border border-brand-gold/25 shadow-sm p-4 sm:p-5">
+    <div className="bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)] p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <Icon size={20} className="text-brand-red" />
-        <h3 className="font-black text-base sm:text-lg">{title}</h3>
-        <span className="ml-auto text-xs font-bold bg-brand-red/10 text-brand-red rounded-full px-2.5 py-1">{items.length}</span>
+        <h3 className="font-display text-2xl font-medium leading-none text-brand-wine">{title}</h3>
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red/10 text-brand-red rounded-full px-3 py-1.5">{items.length}</span>
       </div>
       {items.length === 0 ? (
         <p className="text-sm text-brand-ink/40 font-medium py-6 text-center">{emptyText}</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {items.map(item => (
-            <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-red/5 border-2 border-brand-red/20 rounded-2xl px-4 py-3.5">
+            <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-cream border border-brand-gold/40 rounded-2xl px-4 py-3.5">
               <div className="min-w-0">
-                <p className="font-black text-base truncate">{item.title}</p>
+                <p className="font-display text-xl font-semibold leading-tight text-brand-wine truncate">{item.title}</p>
                 <p className="text-xs text-brand-ink/50 mt-0.5">{item.subtitle}</p>
               </div>
               <button
                 onClick={item.onAction}
-                className="shrink-0 px-4 py-2.5 rounded-xl bg-brand-green text-white text-sm font-black hover:brightness-110 transition-all flex items-center gap-1.5"
+                className="btn shrink-0 bg-brand-green text-white px-5 py-3 text-[10px] hover:brightness-110"
               >
                 {item.actionIcon ? <item.actionIcon size={15} /> : null} {item.actionLabel}
               </button>
@@ -1022,13 +1066,13 @@ function BillingModal({
   const label = sessionOrders[0] ? orderLabel(sessionOrders[0]) : 'Session';
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#2a0a0a]/45 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-brand-cream rounded-[2rem] border border-brand-gold/30 w-full max-w-md max-h-[90vh] overflow-y-auto p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-brand-red/10 text-brand-red flex items-center justify-center"><Banknote size={20} /></div>
+            <div className="w-10 h-10 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center"><Banknote size={20} /></div>
             <div>
-              <h2 className="text-lg font-black">Close Bill</h2>
+              <h2 className="font-display text-3xl font-medium leading-none text-brand-wine">Close Bill</h2>
               <p className="text-xs text-brand-ink/50">{label} · {sessionOrders.length} ticket{sessionOrders.length > 1 ? 's' : ''}</p>
             </div>
           </div>
@@ -1037,7 +1081,7 @@ function BillingModal({
 
         <div className="flex flex-col gap-3 mb-5">
           {sessionOrders.map(o => (
-            <div key={o.id} className="bg-brand-cream/50 border border-brand-gold/20 rounded-xl p-3">
+            <div key={o.id} className="bg-white border border-brand-gold/25 rounded-2xl p-3.5">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs font-bold text-brand-ink/50">#{o.id}</span>
                 <span className="text-xs text-brand-ink/40">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -1056,21 +1100,21 @@ function BillingModal({
           ))}
         </div>
 
-        <div className="bg-brand-ink/[0.03] rounded-2xl p-4 space-y-2 mb-5">
+        <div className="bg-brand-sand/60 rounded-2xl p-4 space-y-2 mb-5">
           <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Subtotal</span><span className="font-bold">{formatKWD(grandSubtotal)}</span></div>
           <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Tax (10%)</span><span className="font-bold">{formatKWD(grandTax)}</span></div>
           {grandDiscount > 0 && (
-            <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-black">−{formatKWD(grandDiscount)}</span></div>
+            <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-semibold">−{formatKWD(grandDiscount)}</span></div>
           )}
           <div className="flex justify-between items-center pt-2 mt-1 border-t-2 border-black/10">
-            <span className="font-black text-lg">Grand Total</span>
-            <span className="font-black text-2xl text-brand-red">{formatKWD(grandTotal)}</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Grand Total</span>
+            <span className="font-display text-4xl font-semibold leading-none text-brand-red">{formatKWD(grandTotal)}</span>
           </div>
         </div>
 
         <button
           onClick={onConfirm}
-          className="w-full py-4 rounded-2xl bg-brand-green text-white font-black text-base flex items-center justify-center gap-2 hover:brightness-110 transition-all shadow-lg active:scale-[0.98]"
+          className="btn w-full py-5 bg-brand-green text-white shadow-[0_14px_30px_-12px_rgba(63,143,58,0.7)] hover:brightness-110"
         >
           <Check size={20} /> Confirm Payment & Close
         </button>

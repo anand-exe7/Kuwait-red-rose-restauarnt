@@ -124,22 +124,32 @@ create index waiter_calls_open_idx on waiter_calls (resolved) where (resolved = 
 -- ORDERS  (line items kept as JSONB — mirrors the app's OrderItem[])
 -- ===========================================================================
 create table orders (
-  id             text primary key,
-  table_number   integer not null default 0,
-  items          jsonb   not null default '[]'::jsonb,
-  status         text    not null default 'pending',   -- pending|cooking|ready|served
-  priority       text    not null default 'normal',    -- normal|high
-  subtotal       numeric not null default 0,
-  tax            numeric not null default 0,
-  total          numeric not null default 0,
-  source         text    not null default 'customer',  -- customer|waiter
-  mode           text    not null default 'table',      -- table|standing|takeaway
-  discount       numeric,
-  coupon_code    text,
-  standing_label text,
-  session_id     text,
-  billed         boolean not null default false,
-  created_at     bigint  not null default now_ms()
+  id               text primary key,
+  table_number     integer not null default 0,
+  items            jsonb   not null default '[]'::jsonb,
+  status           text    not null default 'pending',   -- pending|cooking|ready|served
+  priority         text    not null default 'normal',    -- normal|high
+  subtotal         numeric not null default 0,
+  tax              numeric not null default 0,
+  total            numeric not null default 0,
+  source           text    not null default 'customer',  -- customer|waiter
+  mode             text    not null default 'table',     -- table|standing|takeaway|delivery
+  discount         numeric,
+  coupon_code      text,
+  standing_label   text,
+  session_id       text,
+  billed           boolean not null default false,
+  -- Customer identity (from Supabase Google auth) + off-premise contact.
+  -- All optional: dine-in walk-ins pre-dating customer auth leave them null.
+  user_id          uuid,
+  customer_name    text,
+  customer_phone   text,
+  customer_email   text,
+  -- Structured Kuwait address, present only when mode = 'delivery'.
+  -- Shape mirrors the DeliveryAddress TS type (governorate, area, block,
+  -- street, avenue?, building, floor?, apartment?, landmark?).
+  delivery_address jsonb,
+  created_at       bigint  not null default now_ms()
 );
 create index orders_session_idx on orders (session_id);
 create index orders_billed_idx  on orders (billed);

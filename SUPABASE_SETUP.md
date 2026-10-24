@@ -22,16 +22,35 @@ time via **Supabase Realtime**. Follow these steps once to wire it up.
 1. **Settings → API** (or **Data API**).
 2. Copy the **Project URL** and the **anon / public** key.
 
-## 4. Configure env vars
+## 4. Enable Google sign-in (for customer accounts)
+
+Customers must sign in with Google before placing an order (dine-in, takeaway,
+or delivery). Supabase handles the OAuth round-trip.
+
+1. In the Supabase dashboard: **Authentication → Providers → Google** → toggle on.
+2. Create a Google OAuth client (<https://console.cloud.google.com/apis/credentials>
+   → **Create credentials → OAuth client ID → Web application**).
+3. Add the **Authorized redirect URI** Supabase shows you — it looks like
+   `https://<your-project>.supabase.co/auth/v1/callback`.
+4. Paste the resulting **Client ID** and **Client secret** back into the Supabase
+   Google provider panel and save.
+5. Still in Supabase: **Authentication → URL Configuration → Site URL** → set to
+   `http://localhost:3000` for dev (plus your production URL when you deploy).
+   Also add `http://localhost:3000/auth/callback` under **Redirect URLs**.
+
+## 5. Configure env vars
 
 1. Copy the template: `cp .env.example .env.local`
 2. Fill in:
    - `NEXT_PUBLIC_SUPABASE_URL` — the Project URL
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — the anon key
+   - `NEXT_PUBLIC_SHOP_WHATSAPP` — the shop's WhatsApp number (international
+     format, digits only, no `+` — e.g. `96522000000`). This is the number
+     delivery / takeaway orders are sent to via `https://wa.me/<number>`.
    - `ADMIN_PASSWORD` / `WAITER_PASSWORD` / `CHEF_PASSWORD` — staff passwords
    - `AUTH_SECRET` — a long random string
 
-## 5. Run
+## 6. Run
 
 ```bash
 npm install

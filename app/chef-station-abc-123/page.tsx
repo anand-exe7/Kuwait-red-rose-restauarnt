@@ -4,7 +4,8 @@ import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkl
 import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
 import { Pagination, usePagination } from '../components/Pagination';
-import { BRAND } from '../lib/brand';
+import { landingFonts } from '../fonts';
+import BrandMark from '../components/BrandMark';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
 
 export default function ChefDashboard() {
@@ -70,62 +71,69 @@ export default function ChefDashboard() {
   const historyPager = usePagination(servedOrders, 15);
 
   const waitMinutes = (createdAt: number) => Math.max(0, Math.floor((now - createdAt) / 60000));
-  const waitColor = (mins: number) => (mins >= 20 ? 'text-red-400' : mins >= 10 ? 'text-brand-gold' : 'text-gray-400');
+  const waitColor = (mins: number) => (mins >= 20 ? 'text-brand-red' : mins >= 10 ? 'text-brand-gold-dark' : 'text-brand-ink/55');
 
   return (
-    <div className="staff-themed min-h-screen bg-[#050505] text-white p-4 md:p-6 font-sans">
+    <div className={`landing ${landingFonts} relative min-h-screen overflow-x-clip bg-brand-red p-3 font-body text-white sm:p-5 md:p-6`}>
+      {/* The landing page's red stage, fixed behind the tickets */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{ backgroundImage: 'linear-gradient(172deg, #b81a27 0%, #9d1420 28%, #7c0e19 64%, #5f070f 100%)' }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0"
+        style={{ background: 'radial-gradient(70% 45% at 50% 0%, rgba(255,120,132,0.28) 0%, transparent 70%)' }}
+      />
+      <div aria-hidden className="grain pointer-events-none fixed inset-0 opacity-[0.055] mix-blend-overlay" />
+
+
       {/* New Ticket Toast */}
       {toastMessage && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-red-500 to-brand-red text-white px-6 py-3 rounded-full font-bold shadow-[0_10px_30px_rgba(239,68,68,0.4)] flex items-center gap-2 animate-bounce">
-          <Sparkles size={18} />
+        <div className="btn btn-gold fixed left-1/2 top-5 z-50 -translate-x-1/2 animate-bounce">
+          <Sparkles size={16} />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      <div className="max-w-[1400px] mx-auto flex flex-col gap-4 sm:gap-6">
+      <div className="relative z-10 mx-auto flex max-w-[1400px] flex-col gap-4 sm:gap-6">
 
-        {/* Header */}
-        <header className="flex flex-col md:flex-row items-center justify-between bg-[#111] p-4 sm:p-6 rounded-3xl sm:rounded-[2rem] border border-white/5 relative overflow-hidden shrink-0 gap-4">
-          <div className="absolute top-0 right-1/4 w-[30%] h-full bg-brand-red/10 rounded-full blur-[100px] pointer-events-none" />
-
-          <div className="flex items-center gap-4 sm:gap-6 relative z-10 w-full md:w-auto">
-            <div className="relative shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={BRAND.logo} alt={BRAND.fullName} className="w-14 h-14 md:w-16 md:h-16 rounded-2xl object-cover border border-white/10 shadow-[0_0_25px_rgba(239,68,68,0.3)]" />
-              <div className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-lg bg-gradient-to-tr from-red-600 to-brand-red flex items-center justify-center border-2 border-[#111] shadow-md">
-                <ChefHat size={15} className="text-white" />
-              </div>
-            </div>
+        {/* Header — the landing nav island */}
+        <header className="flex shrink-0 flex-col items-center justify-between gap-4 rounded-[2rem] border border-brand-gold/25 bg-[#4f070c]/90 p-3 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md sm:p-4 md:flex-row md:rounded-full md:py-3 md:pl-4 md:pr-3">
+          <div className="flex w-full items-center gap-4 md:w-auto md:gap-6">
+            <BrandMark sub="Chef Station" />
+            <div className="hidden h-9 w-px bg-brand-gold/30 md:block" />
             <div className="min-w-0">
-              <h1 className="text-xl sm:text-2xl md:text-3xl font-black tracking-tight">Active Orders</h1>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                <span className="flex items-center gap-1.5 text-sm font-bold text-gray-400"><CircleDashed size={14} className="text-gray-400" /> {orders.filter(o => o.status === 'pending').length} Pending</span>
-                <span className="flex items-center gap-1.5 text-sm font-bold text-brand-red"><Flame size={14} /> {orders.filter(o => o.status === 'cooking').length} Cooking</span>
-                <span className="flex items-center gap-1.5 text-sm font-bold text-emerald-500"><PackageCheck size={14} /> {readyOrders.length} Ready for pickup</span>
+              <h1 className="flex items-center gap-2 font-display text-2xl font-medium leading-none text-white sm:text-3xl">
+                <ChefHat size={20} className="text-brand-gold-light" /> Active <em className="font-normal text-brand-gold-light">orders</em>
+              </h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-body text-[10px] font-medium uppercase tracking-[0.2em]">
+                <span className="flex items-center gap-1.5 text-white/70"><CircleDashed size={13} /> {orders.filter(o => o.status === 'pending').length} Pending</span>
+                <span className="flex items-center gap-1.5 text-brand-gold-light"><Flame size={13} /> {orders.filter(o => o.status === 'cooking').length} Cooking</span>
+                <span className="flex items-center gap-1.5 text-green-300"><PackageCheck size={13} /> {readyOrders.length} Ready</span>
               </div>
             </div>
           </div>
 
-          <div className="w-full md:w-auto relative z-10 flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 md:w-auto">
             <button
               onClick={() => setMuted(m => !m)}
               title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
-              className={`shrink-0 flex items-center justify-center w-11 h-11 rounded-xl border transition-colors ${
-                muted ? 'bg-[#1a1a1a] text-gray-500 border-white/5 hover:text-white' : 'bg-brand-red/10 text-brand-red border-brand-red/30 hover:bg-brand-red/20'
-              }`}
+              className={`btn h-11 w-11 shrink-0 p-0 ${muted ? 'text-white/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] hover:text-white' : 'btn-outline-light'}`}
             >
-              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
             </button>
-            <div className="flex-1 md:flex-none bg-[#1a1a1a] p-1.5 rounded-xl border border-white/5 flex gap-2">
+            <div className="flex flex-1 gap-1 rounded-full border border-brand-gold/30 p-1 md:flex-none">
               <button
                 onClick={() => setView('active')}
-                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-black transition-colors ${view === 'active' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
+                className={`btn flex-1 px-6 py-3 text-[10px] md:flex-none ${view === 'active' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
               >
                 All Orders
               </button>
               <button
                 onClick={() => setView('history')}
-                className={`flex-1 md:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-colors ${view === 'history' ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
+                className={`btn flex-1 px-6 py-3 text-[10px] md:flex-none ${view === 'history' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
               >
                 History
               </button>
@@ -135,12 +143,12 @@ export default function ChefDashboard() {
 
         {/* Ready for Pickup strip */}
         {view === 'active' && readyOrders.length > 0 && (
-          <div className="shrink-0 bg-emerald-950/20 border border-emerald-500/20 rounded-2xl p-3 flex items-center gap-3 overflow-x-auto no-scrollbar">
-            <span className="text-xs font-black uppercase tracking-widest text-emerald-400 shrink-0 pl-2 flex items-center gap-1.5">
+          <div className="no-scrollbar flex shrink-0 items-center gap-3 overflow-x-auto rounded-full border border-brand-gold/30 bg-[#4f070c]/60 p-2.5 backdrop-blur-sm">
+            <span className="flex shrink-0 items-center gap-2 pl-3 font-body text-[10px] font-medium uppercase tracking-[0.24em] text-brand-gold-light">
               <PackageCheck size={14} /> Waiting on waiter
             </span>
             {readyOrders.map(o => (
-              <span key={o.id} className="shrink-0 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold whitespace-nowrap">
+              <span key={o.id} className="shrink-0 whitespace-nowrap rounded-full bg-brand-cream px-4 py-2 font-body text-xs font-medium text-brand-wine">
                 {orderLabel(o)} · #{o.id.split('-')[1]}
               </span>
             ))}
@@ -151,49 +159,49 @@ export default function ChefDashboard() {
         {view === 'history' && (
           <div className="pb-6">
             {servedOrders.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
-                <Clock size={64} className="opacity-20" />
-                <h2 className="text-2xl font-black text-white/50">No served orders yet</h2>
-                <p className="font-bold">Completed tickets will show up here once the waiter serves them.</p>
+              <div className="flex flex-col items-center justify-center gap-4 py-20 text-center text-white/70">
+                <Clock size={56} strokeWidth={1.2} className="opacity-50" />
+                <h2 className="font-display text-4xl font-medium italic text-white">No served orders yet</h2>
+                <p className="font-body text-sm font-light">Completed tickets will show up here once the waiter serves them.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {historyPager.items.map(order => (
-                  <div key={order.id} className="bg-[#111] rounded-2xl p-4 md:p-5 border border-white/5 flex flex-col sm:flex-row sm:items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-[#1a1a1a] flex flex-col items-center justify-center font-black text-sm shrink-0 border border-white/5 text-center leading-none px-1">
+                  <div key={order.id} className="flex flex-col gap-4 rounded-[1.75rem] border border-brand-gold/40 bg-brand-cream p-4 text-brand-ink shadow-[0_24px_50px_-32px_rgba(30,0,4,0.7)] sm:flex-row sm:items-center md:p-5">
+                    <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-full bg-brand-wine px-1 text-center leading-none text-brand-gold-light ring-1 ring-brand-gold/60">
                       {order.mode === 'standing' ? (
-                        <span className="text-[10px] uppercase tracking-wide">Stand</span>
-                      ) : order.mode === 'delivery' ? (
-                        <span className="text-[10px] uppercase tracking-wide">Deliv</span>
+                        <span className="font-body text-[10px] font-medium uppercase tracking-[0.14em]">Stand</span>
                       ) : order.mode === 'takeaway' ? (
-                        <span className="text-[10px] uppercase tracking-wide">To-go</span>
+                        <span className="font-body text-[10px] font-medium uppercase tracking-[0.14em]">To-go</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="font-body text-[10px] font-medium uppercase tracking-[0.14em]">Deliv</span>
                       ) : (
                         <>
-                          <span className="text-[9px] uppercase tracking-widest opacity-60 mb-0.5">Tbl</span>
-                          <span className="text-lg">{order.table}</span>
+                          <span className="mb-0.5 font-body text-[8px] font-medium uppercase tracking-[0.2em] opacity-70">Tbl</span>
+                          <span className="font-display text-2xl font-semibold">{order.table}</span>
                         </>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-black text-white">Ticket #{order.id.split('-')[1]}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-display text-xl font-semibold text-brand-wine">Ticket #{order.id.split('-')[1]}</span>
                         {order.source === 'customer' && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold uppercase tracking-wider">Self-order</span>
+                          <span className="rounded-full bg-brand-plum/10 px-2.5 py-1 font-body text-[9px] font-medium uppercase tracking-[0.18em] text-brand-plum">Self-order</span>
                         )}
-                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold uppercase tracking-wider flex items-center gap-1">
+                        <span className="flex items-center gap-1 rounded-full bg-brand-green/10 px-2.5 py-1 font-body text-[9px] font-medium uppercase tracking-[0.18em] text-brand-green">
                           <CheckCircle size={10} /> Served
                         </span>
                         {order.mode === 'standing' && order.standingLabel && (
-                          <span className="text-xs font-bold text-brand-gold">{orderLabel(order)}</span>
+                          <span className="font-body text-xs font-medium text-brand-gold-dark">{orderLabel(order)}</span>
                         )}
                       </div>
-                      <p className="text-sm text-gray-400 mt-1 truncate">
+                      <p className="mt-1 truncate font-body text-sm font-light text-brand-ink/65">
                         {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
                       </p>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-black text-white">{formatKWD(order.total)}</p>
-                      <p className="text-xs text-gray-500">{new Date(order.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                    <div className="shrink-0 text-right">
+                      <p className="font-display text-2xl font-semibold text-brand-red">{formatKWD(order.total)}</p>
+                      <p className="font-body text-xs font-light text-brand-ink/50">{new Date(order.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
                   </div>
                 ))}
@@ -206,49 +214,67 @@ export default function ChefDashboard() {
         {/* Single Feed Grid */}
         {view === 'active' && (
         <div className="pb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-6 xl:grid-cols-3">
             {activeOrders.map(order => {
               const mins = waitMinutes(order.createdAt);
               return (
-              <div key={order.id} className={`bg-[#111] rounded-[2rem] p-5 md:p-6 border relative overflow-hidden transition-all flex flex-col ${order.status === 'cooking' ? 'border-brand-red/30 shadow-[0_0_30px_rgba(176,30,40,0.1)]' : 'border-white/5'}`}>
+              <div key={order.id} className={`relative flex flex-col overflow-hidden rounded-[2rem] border bg-brand-cream p-5 text-brand-ink shadow-[0_28px_56px_-30px_rgba(30,0,4,0.75)] transition-all md:p-6 ${order.status === 'cooking' ? 'border-brand-gold ring-1 ring-brand-gold/70' : 'border-brand-gold/40'}`}>
 
                 {/* Priority Indicator */}
                 {order.priority === 'high' && (
-                  <div className="absolute top-0 left-0 w-full h-1.5 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)]" />
+                  <div className="absolute left-0 top-0 h-1.5 w-full bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
                 )}
 
                 {/* Top Row: Table and Meta */}
-                <div className="flex justify-between items-start mb-6">
+                <div className="mb-5 flex items-start justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl flex flex-col items-center justify-center font-black shadow-inner text-center leading-none px-1 ${order.status === 'cooking' ? 'bg-brand-red text-white shadow-[0_0_15px_rgba(176,30,40,0.4)]' : order.priority === 'high' ? 'bg-red-500/20 text-red-500' : 'bg-[#222] text-white'}`}>
+                    <div className={`flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-full px-1 text-center leading-none ring-1 ring-brand-gold/60 md:h-[72px] md:w-[72px] ${order.status === 'cooking' ? 'bg-brand-red text-white' : 'bg-brand-wine text-brand-gold-light'}`}>
                       {order.mode === 'standing' ? (
-                        <span className="text-xs uppercase tracking-wide">Stand</span>
-                      ) : order.mode === 'delivery' ? (
-                        <span className="text-xs uppercase tracking-wide">Deliv</span>
+                        <span className="font-body text-xs font-medium uppercase tracking-[0.14em]">Stand</span>
                       ) : order.mode === 'takeaway' ? (
-                        <span className="text-xs uppercase tracking-wide">To-go</span>
+                        <span className="font-body text-xs font-medium uppercase tracking-[0.14em]">To-go</span>
+                      ) : order.mode === 'delivery' ? (
+                        <span className="font-body text-xs font-medium uppercase tracking-[0.14em]">Deliv</span>
                       ) : (
                         <>
-                          <span className="text-[10px] uppercase tracking-widest opacity-70 mb-0.5">Table</span>
-                          <span className="text-2xl">{order.table}</span>
+                          <span className="mb-0.5 font-body text-[9px] font-medium uppercase tracking-[0.2em] opacity-75">Table</span>
+                          <span className="font-display text-3xl font-semibold">{order.table}</span>
                         </>
                       )}
                     </div>
-                    <div>
-                      <h3 className="text-lg font-black text-white flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0">
+                      <h3 className="flex flex-wrap items-center gap-2 font-display text-2xl font-semibold leading-none text-brand-wine">
                         Ticket #{order.id.split('-')[1]}
                         {order.source === 'customer' && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-bold uppercase tracking-wider">Self-order</span>
+                          <span className="rounded-full bg-brand-plum/10 px-2.5 py-1 font-body text-[9px] font-medium uppercase tracking-[0.18em] text-brand-plum">Self-order</span>
                         )}
                       </h3>
                       {order.mode === 'standing' && order.standingLabel && (
-                        <p className="text-sm font-bold text-brand-gold mt-0.5">{orderLabel(order)}</p>
+                        <p className="mt-1 font-body text-sm font-medium text-brand-gold-dark">{orderLabel(order)}</p>
                       )}
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`flex items-center gap-1 text-xs font-bold bg-white/5 px-2 py-1 rounded-md ${waitColor(mins)}`}>
+                      {(order.mode === 'delivery' || order.mode === 'takeaway') && order.customer && (
+                        <p className="mt-1 font-body text-sm font-medium text-brand-gold-dark">
+                          {order.customer.name || 'Customer'}{order.customer.phone ? ` · ${order.customer.phone}` : ''}
+                        </p>
+                      )}
+                      {order.mode === 'delivery' && order.deliveryAddress && (
+                        <p className="mt-0.5 font-body text-xs leading-relaxed text-brand-ink/60">
+                          {[
+                            order.deliveryAddress.governorate,
+                            order.deliveryAddress.area,
+                            order.deliveryAddress.street && `St ${order.deliveryAddress.street}`,
+                            order.deliveryAddress.building && `Bldg ${order.deliveryAddress.building}`,
+                            order.deliveryAddress.floor && `Fl ${order.deliveryAddress.floor}`,
+                            order.deliveryAddress.apartment && `Apt ${order.deliveryAddress.apartment}`,
+                          ].filter(Boolean).join(' · ')}
+                          {order.deliveryAddress.landmark && <> — <em className="not-italic text-brand-ink/50">{order.deliveryAddress.landmark}</em></>}
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`flex items-center gap-1 rounded-full bg-white px-2.5 py-1 font-body text-[11px] font-medium ${waitColor(mins)}`}>
                           <Clock size={12} /> {mins < 1 ? 'just now' : `${mins} min wait`}
                         </span>
-                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md ${order.status === 'cooking' ? 'bg-brand-red/20 text-brand-red' : 'bg-gray-500/20 text-gray-400'}`}>
+                        <span className={`rounded-full px-2.5 py-1 font-body text-[9px] font-medium uppercase tracking-[0.2em] ${order.status === 'cooking' ? 'bg-brand-red/10 text-brand-red' : 'bg-brand-ink/5 text-brand-ink/55'}`}>
                           {order.status}
                         </span>
                       </div>
@@ -257,18 +283,18 @@ export default function ChefDashboard() {
                 </div>
 
                 {/* Items List */}
-                <div className="flex-1 space-y-3 mb-6 bg-[#1a1a1a] p-4 md:p-5 rounded-2xl border border-white/5">
+                <div className="mb-5 flex-1 space-y-3 rounded-[1.5rem] border border-brand-gold/25 bg-white p-4 md:p-5">
                   {order.items.map((item, i) => (
-                    <div key={i} className="flex gap-4 items-start border-b border-white/5 last:border-0 pb-3 last:pb-0">
-                      <div className="w-9 h-9 rounded-lg bg-[#222] flex items-center justify-center font-black text-base text-brand-red shrink-0 border border-white/5">
+                    <div key={i} className="flex items-start gap-4 border-b border-brand-gold/20 pb-3 last:border-0 last:pb-0">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-brand-gold/50 bg-brand-cream font-display text-xl font-semibold text-brand-red">
                         {item.qty}
                       </div>
                       <div className="flex-1 pt-1">
-                        <p className="font-black text-white text-lg md:text-xl leading-tight">{item.name}</p>
+                        <p className="font-display text-xl font-medium leading-tight text-brand-wine md:text-2xl">{item.name}</p>
                         {item.notes && (
-                          <div className="flex items-start gap-1.5 mt-1.5 text-brand-gold bg-brand-gold/10 p-2 rounded-lg border border-brand-gold/20">
+                          <div className="mt-1.5 flex items-start gap-1.5 rounded-xl border border-brand-gold/40 bg-brand-gold-light/30 p-2 text-brand-wine">
                             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                            <p className="text-xs font-bold">{item.notes}</p>
+                            <p className="font-body text-xs font-medium">{item.notes}</p>
                           </div>
                         )}
                       </div>
@@ -277,29 +303,29 @@ export default function ChefDashboard() {
                 </div>
 
                 {/* Action Button */}
-                <div className="flex gap-3 mt-auto">
+                <div className="mt-auto flex gap-3">
                   {order.status === 'pending' && (
                     <button
                       onClick={() => updateStatus(order.id, 'cooking')}
-                      className="flex-1 py-4 md:py-5 rounded-xl bg-[#222] hover:bg-brand-red text-white font-black text-base flex items-center justify-center gap-2 transition-all active:scale-95 group border border-white/5 hover:border-brand-red"
+                      className="btn btn-wine group flex-1 py-5"
                     >
-                      <Flame size={20} className="group-hover:animate-pulse" /> Start Cooking
+                      <Flame size={17} className="group-hover:animate-pulse" /> Start Cooking
                     </button>
                   )}
                   {order.status === 'cooking' && (
                     confirmReadyId === order.id ? (
                       <button
                         onClick={() => { updateStatus(order.id, 'ready'); setConfirmReadyId(null); }}
-                        className="flex-1 py-4 md:py-5 rounded-xl bg-green-600 hover:bg-green-500 text-white font-black text-base flex items-center justify-center gap-2 transition-all active:scale-95 ring-2 ring-white/50 animate-pulse"
+                        className="btn flex-1 animate-pulse bg-brand-green py-5 text-white shadow-[0_14px_30px_-12px_rgba(63,143,58,0.7)] hover:brightness-110"
                       >
-                        <AlertTriangle size={20} /> Are you sure? Send to waiter
+                        <AlertTriangle size={17} /> Are you sure? Send to waiter
                       </button>
                     ) : (
                       <button
                         onClick={() => setConfirmReadyId(order.id)}
-                        className="flex-1 py-4 md:py-5 rounded-xl bg-brand-red hover:bg-brand-red-dark text-white font-black text-base flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(176,30,40,0.4)] active:scale-95"
+                        className="btn btn-red flex-1 py-5"
                       >
-                        <CheckCircle size={20} /> Mark as Ready
+                        <CheckCircle size={17} /> Mark as Ready
                       </button>
                     )
                   )}
@@ -308,10 +334,10 @@ export default function ChefDashboard() {
             );})}
 
             {activeOrders.length === 0 && (
-               <div className="col-span-1 sm:col-span-2 xl:col-span-3 flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
-                 <CheckCircle size={64} className="opacity-20" />
-                 <h2 className="text-2xl font-black text-white/50">All caught up!</h2>
-                 <p className="font-bold">No active orders right now. New tickets from the customer or waiter app will show up here automatically.</p>
+               <div className="col-span-1 flex flex-col items-center justify-center gap-4 py-20 text-center text-white/70 sm:col-span-2 xl:col-span-3">
+                 <CheckCircle size={56} strokeWidth={1.2} className="opacity-50" />
+                 <h2 className="font-display text-4xl font-medium italic text-white md:text-5xl">All caught up!</h2>
+                 <p className="max-w-md font-body text-sm font-light">No active orders right now. New tickets from the customer or waiter app will show up here automatically.</p>
                </div>
             )}
           </div>
@@ -319,10 +345,6 @@ export default function ChefDashboard() {
         )}
       </div>
       <style dangerouslySetInnerHTML={{__html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}} />

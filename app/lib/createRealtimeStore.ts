@@ -44,13 +44,55 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   let channel: RealtimeChannel | null = null;
   const listeners = new Set<() => void>();
 
+  // ---------- Local-storage demo persistence ----------
+  // When Supabase isn't configured we still want the whole app to feel real:
+  // orders placed in /menu should show up in /admin on another tab, bills
+  // closed in /admin should show up on the customer's /customer tab, etc.
+  // So in demo mode we persist each store's cache to localStorage and listen
+  // for 'storage' events to resync. This hop is removed the moment Supabase
+  // env vars appear — the Supabase path takes precedence.
+  const LS_KEY = `cenexa_demo_store_${opts.table}`;
+  const demoMode = () => !getSupabase() && typeof window !== 'undefined';
+  const loadFromLS = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) cache = parsed as T[];
+    } catch { /* corrupt JSON — ignore */ }
+  };
+  const persistToLS = () => {
+    if (typeof window === 'undefined') return;
+    try { localStorage.setItem(LS_KEY, JSON.stringify(cache)); } catch { /* quota — ignore */ }
+  };
+  let storageHandlerAttached = false;
+  const attachStorageHandler = () => {
+    if (storageHandlerAttached || typeof window === 'undefined') return;
+    storageHandlerAttached = true;
+    window.addEventListener('storage', (e) => {
+      if (e.key !== LS_KEY || !demoMode()) return;
+      try {
+        const parsed = e.newValue ? JSON.parse(e.newValue) : [];
+        if (Array.isArray(parsed)) {
+          cache = parsed as T[];
+          notify();
+        }
+      } catch { /* ignore */ }
+    });
+  };
+
   const notify = () => {
     for (const l of listeners) l();
   };
 
   const refetch = async (): Promise<void> => {
     const sb = getSupabase();
-    if (!sb) return;
+    if (!sb) {
+      // Demo mode: hydrate from localStorage once.
+      if (!hydrated) { loadFromLS(); hydrated = true; notify(); }
+      return;
+    }
     const { data, error } = await sb.from(opts.table).select('*');
     if (error) {
       console.error(`[store:${opts.table}] fetch failed`, error.message);
@@ -63,6 +105,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
 
   const ensureHydrated = () => {
     if (hydrated || hydrating) return;
+    attachStorageHandler();
     hydrating = refetch().finally(() => {
       hydrating = null;
     });
@@ -134,6 +177,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
       cache = fn(cache);
       hydrated = true;
       notify();
+      if (demoMode()) persistToLS();
     },
   };
 }
