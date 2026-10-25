@@ -35,6 +35,17 @@ export function getSupabase(): SupabaseClient | null {
   if (!client) {
     client = createClient(url, anonKey, {
       realtime: { params: { eventsPerSecond: 10 } },
+      auth: {
+        // Implicit flow instead of PKCE: Google puts the access token
+        // directly in the URL hash on return, so there is no code-verifier
+        // handshake that can get lost from localStorage (which was failing
+        // with "PKCE code verifier not found in storage" on this app's
+        // SPA setup — PKCE needs @supabase/ssr on both sides to survive).
+        flowType: 'implicit',
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
     });
   }
   return client;

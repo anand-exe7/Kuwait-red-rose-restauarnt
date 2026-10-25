@@ -30,7 +30,9 @@ const COLUMNS: Record<string, string[]> = {
   sessions: ['id', 'table_number', 'mode', 'status', 'standing_label', 'customer_name', 'customer_phone', 'guests',
     'opened_at', 'closed_at', 'bill_requested_at', 'bill_id', 'created_at'],
   orders: ['id', 'table_number', 'items', 'status', 'priority', 'subtotal', 'tax', 'total', 'source', 'mode',
-    'discount', 'coupon_code', 'standing_label', 'session_id', 'billed', 'created_at'],
+    'discount', 'coupon_code', 'standing_label', 'session_id', 'billed', 'created_at',
+    // Customer identity + delivery address — see supabase/add_customer_columns.sql.
+    'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
   bills: ['id', 'session_id', 'subtotal', 'tax', 'discount', 'total', 'coupon_code', 'paid_method', 'created_at'],
   waiter_calls: ['id', 'table_number', 'resolved', 'created_at'],
 };
@@ -170,12 +172,32 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   }
 
   const sessionId = typeof v.session_id === 'string' && /^SN-[0-9]+-[0-9]+$/.test(v.session_id) ? v.session_id : null;
+
+  // Customer identity + delivery address — carried from the browser so the
+  // admin profile view, order history and WhatsApp dispatch can find the
+  // shopper later. We trust name/phone/email as free text (short-capped) and
+  // only store user_id when it looks like a real Supabase uuid; a demo id
+  // like "demo-abc-123" would be rejected by the uuid column.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const userId = typeof v.user_id === 'string' && UUID_RE.test(v.user_id) ? v.user_id : null;
+  const customerName  = typeof v.customer_name  === 'string' ? v.customer_name.slice(0, 80)  : null;
+  const customerPhone = typeof v.customer_phone === 'string' ? v.customer_phone.slice(0, 24) : null;
+  const customerEmail = typeof v.customer_email === 'string' ? v.customer_email.slice(0, 120) : null;
+  const deliveryAddress = (mode === 'delivery' && v.delivery_address && typeof v.delivery_address === 'object')
+    ? v.delivery_address
+    : null;
+
   const row = {
     id, table_number: tableNumber, items, status, priority, subtotal, tax, total, source, mode,
     discount: discount > 0 ? round3(discount) : null,
     coupon_code: coupon?.code ?? null,
     standing_label: typeof v.standing_label === 'string' ? v.standing_label.slice(0, 40) : null,
     session_id: sessionId, billed, created_at: Date.now(),
+    user_id: userId,
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    customer_email: customerEmail,
+    delivery_address: deliveryAddress,
   };
   const res = await sb.from('orders').insert(row);
   if (!res.error && coupon) await consumeCoupon(sb, coupon);

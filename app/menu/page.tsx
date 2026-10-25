@@ -33,6 +33,7 @@ import {
   signOut,
 } from '../lib/customerAuthStore';
 import { sendOrderToShop, isWhatsAppConfigured } from '../lib/whatsapp';
+import { subscribeToTables, getTablesSnapshot, getTablesServerSnapshot } from '../lib/tableStore';
 
 const PETALS = [
   { src: 'petal-a', left: '8%', w: '26px', dur: 17, delay: 0, sway: 40 },
@@ -109,6 +110,13 @@ export default function MenuPage() {
 
   const auth = useSyncExternalStore(subscribeToCustomerAuth, getCustomerAuthSnapshot, getCustomerAuthServerSnapshot);
   const allOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  // Live list of tables the admin has created. We only let the customer pick
+  // from active ones, so a deactivated table never shows up as a choice.
+  const tables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
+  const activeTables = React.useMemo(
+    () => [...tables].filter(t => t.active).sort((a, b) => a.number - b.number),
+    [tables]
+  );
 
   // Subscribe to coupons purely to trigger hydration — the customer page
   // doesn't render the list, but without this, store.get() in validateCoupon
@@ -150,6 +158,20 @@ export default function MenuPage() {
   };
   const removeCoupon = () => { setAppliedCoupon(null); setCouponInput(''); setCouponError(null); };
 
+  // Advance checkout to the mode-picker step. Shared by the normal "Checkout"
+  // button, the SignInGate's onSignedIn callback (so sign-in → mode happens in
+  // one click with no useEffect race), and the Google-OAuth resume path.
+  const advanceToCheckoutMode = () => {
+    setPendingCheckout(false);
+    setSignInOpen(false);
+    setIsCartOpen(true);
+    setStep('mode');
+    try {
+      sessionStorage.removeItem(RESUME_CHECKOUT_KEY);
+      sessionStorage.removeItem(CART_STORAGE_KEY);
+    } catch { /* ignore */ }
+  };
+
   const openCheckout = () => {
     if (cartItemCount === 0) return;
     if (!auth.user) {
@@ -164,7 +186,7 @@ export default function MenuPage() {
       setSignInOpen(true);
       return;
     }
-    setStep('mode');
+    advanceToCheckoutMode();
   };
 
   // On mount after returning from Google OAuth: restore the stashed cart +
@@ -184,22 +206,33 @@ export default function MenuPage() {
     } catch { /* ignore */ }
   }, []);
 
-  // When sign-in completes mid-checkout, advance straight into the mode
-  // picker. We ONLY react to the user becoming truthy — never clear the
-  // pending flag while auth.user is still null, because `pendingCheckout`
-  // is also set the moment the user clicks "Sign in to checkout" (before
-  // they've had a chance to type anything).
+  // Fallback for the Google-OAuth round-trip: on return, sessionStorage says
+  // we were mid-checkout, and the Supabase listener eventually flips auth.user
+  // truthy. When that happens we advance the drawer. The demo-sign-in path is
+  // handled synchronously via SignInGate's onSignedIn callback.
   useEffect(() => {
     if (!pendingCheckout || !auth.user) return;
-    setPendingCheckout(false);
-    setSignInOpen(false);
-    setIsCartOpen(true);
-    setStep('mode');
-    try {
-      sessionStorage.removeItem(RESUME_CHECKOUT_KEY);
-      sessionStorage.removeItem(CART_STORAGE_KEY);
-    } catch { /* ignore */ }
+    advanceToCheckoutMode();
+    // advanceToCheckoutMode is stable within one render; running it as part of
+    // this effect is safe because it only mutates state we own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.user, pendingCheckout]);
+
+  // Sign-out mid-checkout: the drawer was sitting at a signed-in-only step
+  // (mode / details / submitting), but we can't go through those without a
+  // user. Bounce back to browse so the drawer shows "Sign in to checkout"
+  // again instead of trapping the shopper at a step they can't finish.
+  useEffect(() => {
+    if (auth.user) return;
+    if (step === 'mode' || step === 'details' || step === 'submitting') {
+      setStep('browse');
+      setSelectedMode(null);
+      setFormError(null);
+      setPendingCheckout(false);
+      setSignInOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.user]);
 
   // The checkout drawer slides over the hero; letting the body scroll behind
   // it pulls the whole page out from under the sheet. Lock scroll while it's
@@ -222,7 +255,7 @@ export default function MenuPage() {
     if (!phone.trim()) { setFormError('A phone number is required so we can reach you.'); return; }
     if (selectedMode === 'table') {
       const n = Number(tableInput);
-      if (!Number.isFinite(n) || n <= 0) { setFormError('Please enter a valid table number.'); return; }
+      if (!Number.isFinite(n) || n <= 0) { setFormError('Please choose your table from the list.'); return; }
     }
     if (selectedMode === 'delivery') {
       if (!address.governorate || !address.area || !address.street || !address.building) {
@@ -827,8 +860,25 @@ export default function MenuPage() {
                       </Field>
 
                       {selectedMode === 'table' && (
-                        <Field label="Table number" required>
-                          <input value={tableInput} onChange={e => setTableInput(e.target.value)} placeholder="e.g. 7" inputMode="numeric" className="input-plain" />
+                        <Field label="Table" required>
+                          {activeTables.length === 0 ? (
+                            <p className="rounded-xl border border-brand-gold/30 bg-brand-sand/40 px-4 py-3 font-body text-xs text-brand-wine/70">
+                              No tables available yet. Please ask a waiter.
+                            </p>
+                          ) : (
+                            <select
+                              value={tableInput}
+                              onChange={e => setTableInput(e.target.value)}
+                              className="input-plain"
+                            >
+                              <option value="">Choose your table…</option>
+                              {activeTables.map(t => (
+                                <option key={t.id} value={String(t.number)}>
+                                  Table {t.number}{t.label ? ` · ${t.label}` : ''}{t.zone ? ` — ${t.zone}` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </Field>
                       )}
 
@@ -893,7 +943,13 @@ export default function MenuPage() {
 
       <SignInGate
         open={signInOpen}
-        onClose={() => setSignInOpen(false)}
+        onClose={() => { setSignInOpen(false); setPendingCheckout(false); }}
+        onSignedIn={() => {
+          // The viewer just signed in. Only advance if they were in the
+          // middle of a checkout — a profile-wide sign-in from the header
+          // shouldn't pop the drawer open.
+          if (pendingCheckout) advanceToCheckoutMode();
+        }}
         message="Enter your name to continue — we use it to tie this order to you. Google sign-in is optional."
       />
 

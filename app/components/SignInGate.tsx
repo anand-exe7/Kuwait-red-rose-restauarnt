@@ -9,12 +9,15 @@
 //     user acts on first.
 
 import { useEffect, useState } from 'react';
-import { X, ArrowRight } from 'lucide-react';
+import { X, ArrowRight, Loader2 } from 'lucide-react';
 import { signInWithGoogle, signInAsDemo, customerAuthAvailable } from '../lib/customerAuthStore';
 
 interface SignInGateProps {
   open: boolean;
   onClose: () => void;
+  /** Fires once the viewer is actually signed in — the parent then advances
+   *  checkout without waiting on a useEffect to notice the auth change. */
+  onSignedIn?: () => void;
   title?: string;
   message?: string;
 }
@@ -22,16 +25,25 @@ interface SignInGateProps {
 export default function SignInGate({
   open,
   onClose,
+  onSignedIn,
   title = 'Sign in to continue',
   message = 'Enter your name to place your order. We only use this to tie the order to you.',
 }: SignInGateProps) {
   const [name, setName] = useState('');
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Reset per-open state so a stale error / spinner from a previous attempt
+  // doesn't carry over.
+  useEffect(() => {
+    if (!open) { setGoogleBusy(false); setGoogleError(null); }
+  }, [open]);
 
   if (!open) return null;
 
@@ -42,6 +54,24 @@ export default function SignInGate({
     if (!trimmed) return;
     signInAsDemo(trimmed);
     onClose();
+    // Tell the parent we signed in *right now*, so it can advance the flow
+    // without waiting for an effect to notice the external-store change.
+    if (onSignedIn) onSignedIn();
+  };
+
+  const continueWithGoogle = async () => {
+    setGoogleError(null);
+    setGoogleBusy(true);
+    const ok = await signInWithGoogle();
+    if (!ok) {
+      setGoogleBusy(false);
+      setGoogleError(
+        'Google sign-in is not available on this deploy. The admin needs to enable Google in Supabase → Authentication → Providers and add this origin to the allowed redirect URLs.'
+      );
+      return;
+    }
+    // ok === true means the browser is being redirected to Google now.
+    // Leave the spinner on until the page navigates away.
   };
 
   return (
@@ -94,12 +124,18 @@ export default function SignInGate({
               <span className="h-px flex-1 bg-brand-wine/10" />
             </div>
             <button
-              onClick={() => void signInWithGoogle()}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream"
+              onClick={() => void continueWithGoogle()}
+              disabled={googleBusy}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream disabled:cursor-not-allowed disabled:opacity-70"
             >
-              <GoogleG />
-              Continue with Google
+              {googleBusy ? <Loader2 size={16} className="animate-spin" /> : <GoogleG />}
+              {googleBusy ? 'Redirecting to Google…' : 'Continue with Google'}
             </button>
+            {googleError && (
+              <p className="mt-3 rounded-xl border border-brand-red/30 bg-brand-red/5 px-3 py-2 font-body text-[11px] leading-relaxed text-brand-red">
+                {googleError}
+              </p>
+            )}
           </>
         )}
       </div>
