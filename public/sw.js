@@ -3,7 +3,9 @@
 // assets and fall back to cache when the network is unavailable. Order data is
 // intentionally NOT cached here (it is live state); this only caches the shell.
 
-const CACHE = 'red-rose-shell-v2';
+// Bump this whenever landing shell changes (logo/footer/nav) so every browser
+// drops the previous cache instead of serving a stale page.
+const CACHE = 'red-rose-shell-v3';
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',

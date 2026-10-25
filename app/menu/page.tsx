@@ -12,9 +12,13 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X,
-  Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode,
+  Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone, Hash,
+  ClipboardList, CalendarClock, Home,
 } from 'lucide-react';
-import { addOrder, type DeliveryAddress, type OrderMode } from '../lib/orderStore';
+import {
+  addOrder, type DeliveryAddress, type OrderMode,
+  getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel,
+} from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
 import {
@@ -72,6 +76,7 @@ export default function MenuPage() {
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [signInOpen, setSignInOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   // True while we're waiting on sign-in to continue the user's checkout —
   // once auth.user flips to truthy, we close the modal and jump to mode select.
   const [pendingCheckout, setPendingCheckout] = useState(false);
@@ -103,6 +108,7 @@ export default function MenuPage() {
   }, []);
 
   const auth = useSyncExternalStore(subscribeToCustomerAuth, getCustomerAuthSnapshot, getCustomerAuthServerSnapshot);
+  const allOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
 
   // Subscribe to coupons purely to trigger hydration — the customer page
   // doesn't render the list, but without this, store.get() in validateCoupon
@@ -322,18 +328,33 @@ export default function MenuPage() {
       />
       <header className="fixed inset-x-0 top-0 z-40 px-2 pt-2 sm:px-5 sm:pt-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-brand-gold/25 bg-[#4f070c]/90 py-1 pl-1.5 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md sm:gap-3 sm:py-1.5 sm:pl-2">
-          <BrandMark href="/" sub="" compact />
+          <BrandMark href="/" sub="Pastry · Kuwait" compact />
 
           <div className="flex items-center gap-1.5 sm:gap-2">
             {auth.user ? (
               <>
-                <span className="hidden items-center gap-2 rounded-full border border-brand-gold/30 bg-white/10 px-3 py-2 font-body text-[10.5px] text-brand-gold-light sm:flex">
-                  {auth.user.avatarUrl && (
+                <button
+                  onClick={() => setProfileOpen(true)}
+                  aria-label="Your profile"
+                  className="hidden items-center gap-2 rounded-full border border-brand-gold/30 bg-white/10 px-3 py-2 font-body text-[10.5px] text-brand-gold-light transition-colors hover:border-brand-gold hover:bg-white/15 sm:flex"
+                >
+                  {auth.user.avatarUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={auth.user.avatarUrl} alt="" className="h-5 w-5 rounded-full" />
+                  ) : (
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-gold/30 text-[9px] font-black">
+                      {(auth.user.name || auth.user.email || 'U').charAt(0).toUpperCase()}
+                    </span>
                   )}
                   <span className="max-w-[120px] truncate">{auth.user.name || auth.user.email}</span>
-                </span>
+                </button>
+                <button
+                  onClick={() => setProfileOpen(true)}
+                  aria-label="Your profile"
+                  className="btn btn-outline-light h-9 w-9 p-0 sm:hidden"
+                >
+                  <User size={14} />
+                </button>
                 <button onClick={() => void signOut()} aria-label="Sign out" className="btn btn-outline-light h-9 w-9 p-0 sm:h-10 sm:w-10">
                   <LogOut size={14} />
                 </button>
@@ -875,6 +896,210 @@ export default function MenuPage() {
         onClose={() => setSignInOpen(false)}
         message="Enter your name to continue — we use it to tie this order to you. Google sign-in is optional."
       />
+
+      {profileOpen && auth.user && (
+        <CustomerProfileModal
+          user={auth.user}
+          allOrders={allOrders}
+          onClose={() => setProfileOpen(false)}
+          onSignOut={() => { setProfileOpen(false); void signOut(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CustomerProfileModal({
+  user, allOrders, onClose, onSignOut,
+}: {
+  user: { id: string; email: string | null; name: string | null; avatarUrl: string | null };
+  allOrders: ReturnType<typeof getOrdersSnapshot>;
+  onClose: () => void;
+  onSignOut: () => void;
+}) {
+  // Match my orders: userId wins when we have one, else fall back to email
+  // (demo sign-ins get a synthesized @demo.local email).
+  const myOrders = React.useMemo(() => {
+    return allOrders
+      .filter(o => {
+        if (o.customer?.userId && o.customer.userId === user.id) return true;
+        if (user.email && o.customer?.email && o.customer.email === user.email) return true;
+        return false;
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }, [allOrders, user.id, user.email]);
+
+  const lifetimeSpend = myOrders.reduce((s, o) => s + o.total, 0);
+  const itemsOrdered = myOrders.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0);
+  const latest = myOrders[0];
+  const latestAddress = myOrders.find(o => o.deliveryAddress)?.deliveryAddress;
+  const latestPhone = latest?.customer?.phone;
+
+  const statusTone = (s: string) => {
+    switch (s) {
+      case 'awaiting_admin': return 'bg-brand-gold/15 text-brand-gold-dark border-brand-gold/40';
+      case 'pending':        return 'bg-brand-sand/80 text-brand-wine/70 border-brand-gold/25';
+      case 'cooking':        return 'bg-brand-red/10 text-brand-red border-brand-red/25';
+      case 'ready':          return 'bg-brand-plum/10 text-brand-plum border-brand-plum/25';
+      case 'served':         return 'bg-brand-green/10 text-brand-green border-brand-green/25';
+      default:               return 'bg-brand-sand text-brand-wine/70 border-brand-gold/25';
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-[#2a0a0a]/55 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-brand-gold/30 bg-brand-cream shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="relative flex items-center justify-between gap-3 border-b border-brand-gold/25 bg-gradient-to-r from-brand-red/10 via-transparent to-transparent p-5">
+          <div className="flex items-center gap-3">
+            {user.avatarUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={user.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-brand-gold/40" />
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-red font-black text-xl text-white ring-2 ring-brand-gold/40">
+                {(user.name || user.email || 'U').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <h2 className="font-wordmark text-2xl text-brand-wine" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
+                {user.name || 'Your profile'}
+              </h2>
+              <p className="font-body text-xs text-brand-wine/60">{user.email || 'Guest member'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="rounded-full p-2 text-brand-wine/60 transition-colors hover:bg-brand-sand hover:text-brand-wine">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Lifetime stats */}
+          <div className="grid grid-cols-3 gap-3 border-b border-brand-gold/20 p-5">
+            <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+              <p className="font-body text-[10px] font-black uppercase tracking-wide text-brand-wine/50">Orders</p>
+              <p className="mt-1 font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{myOrders.length}</p>
+            </div>
+            <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+              <p className="font-body text-[10px] font-black uppercase tracking-wide text-brand-wine/50">Spent</p>
+              <p className="mt-1 font-wordmark text-2xl text-brand-wine" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{formatKWD(lifetimeSpend)}</p>
+            </div>
+            <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+              <p className="font-body text-[10px] font-black uppercase tracking-wide text-brand-wine/50">Items</p>
+              <p className="mt-1 font-wordmark text-2xl text-brand-plum" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{itemsOrdered}</p>
+            </div>
+          </div>
+
+          {/* Contact */}
+          <div className="border-b border-brand-gold/20 p-5">
+            <p className="mb-3 font-body text-[10px] font-black uppercase tracking-[0.24em] text-brand-wine/60">Contact</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <ProfileRow icon={User}  label="Name"  value={user.name || '—'} />
+              <ProfileRow icon={Mail}  label="Email" value={user.email || '—'} />
+              <ProfileRow icon={Phone} label="Phone" value={latestPhone || 'Add at next checkout'} />
+              <ProfileRow icon={Hash}  label="User ID" value={user.id} mono />
+            </div>
+          </div>
+
+          {/* Latest address */}
+          {latestAddress && (
+            <div className="border-b border-brand-gold/20 p-5">
+              <p className="mb-3 font-body text-[10px] font-black uppercase tracking-[0.24em] text-brand-wine/60">Last delivery address</p>
+              <div className="flex items-start gap-3 rounded-2xl border border-brand-red/20 bg-brand-red/5 p-4 text-sm text-brand-wine">
+                <Home size={16} className="mt-0.5 shrink-0 text-brand-red" />
+                <div>
+                  <p>
+                    {[latestAddress.governorate, latestAddress.area,
+                      latestAddress.street && `Street ${latestAddress.street}`,
+                      latestAddress.avenue && `Avenue ${latestAddress.avenue}`,
+                      latestAddress.building && `Building ${latestAddress.building}`,
+                      latestAddress.floor && `Floor ${latestAddress.floor}`,
+                      latestAddress.apartment && `Apt ${latestAddress.apartment}`,
+                    ].filter(Boolean).join(', ')}
+                  </p>
+                  {latestAddress.landmark && (
+                    <p className="mt-1 italic text-brand-wine/70">Landmark: {latestAddress.landmark}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Order history */}
+          <div className="p-5">
+            <p className="mb-3 flex items-center gap-2 font-body text-[10px] font-black uppercase tracking-[0.24em] text-brand-wine/60">
+              <ClipboardList size={14} /> Order history ({myOrders.length})
+            </p>
+            {myOrders.length === 0 ? (
+              <p className="rounded-2xl border border-brand-gold/25 bg-white p-6 text-center font-body text-sm text-brand-wine/60">
+                No orders yet. Add something to your cart and your history will show up here.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {myOrders.map(o => (
+                  <div key={o.id} className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm font-black text-brand-red">{o.id}</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 font-body text-xs text-brand-wine/60">
+                          <CalendarClock size={11} />
+                          {new Date(o.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          <span className="opacity-50">·</span> {orderLabel(o)}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <p className="font-wordmark text-xl text-brand-wine" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
+                          {formatKWD(o.total)}
+                        </p>
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 font-body text-[9px] font-black uppercase tracking-wide ${statusTone(o.status)}`}>
+                          {o.status.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </div>
+                    <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-body text-xs text-brand-wine/70">
+                      {o.items.map(it => (
+                        <li key={it.id}><span className="font-bold">{it.qty}×</span> {it.name}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center gap-2 border-t border-brand-gold/25 bg-brand-sand/40 p-4">
+          <button onClick={onSignOut} className="btn btn-outline flex-1 py-3 text-[11px]">
+            <LogOut size={14} /> Sign out
+          </button>
+          <button onClick={onClose} className="btn btn-wine flex-1 py-3 text-[11px]">
+            Back to menu
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileRow({
+  icon: Icon, label, value, mono,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  label: string; value: string; mono?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-brand-gold/25 bg-white p-3">
+      <Icon size={16} className="shrink-0 text-brand-red" />
+      <div className="min-w-0">
+        <p className="font-body text-[9.5px] font-black uppercase tracking-wide text-brand-wine/50">{label}</p>
+        <p className={`${mono ? 'font-mono' : 'font-body'} truncate text-sm font-bold text-brand-wine`}>{value}</p>
+      </div>
     </div>
   );
 }

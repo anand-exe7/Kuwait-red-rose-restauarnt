@@ -30,7 +30,14 @@ export default function BrandMark({ href, sub = 'Pastry · Kuwait', compact = fa
       {sub ? (
         <span className="leading-none">
           <span className="sr-only">{BRAND.fullName}</span>
-          <span aria-hidden className={subCls}>{sub}</span>
+          <span
+            aria-hidden
+            className={`block font-wordmark uppercase tracking-[0.04em] text-white ${compact ? 'text-[18px] sm:text-[22px]' : 'text-[22px] sm:text-[26px]'}`}
+            style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
+          >
+            Red Rose
+          </span>
+          <span aria-hidden className={`mt-0.5 ${subCls}`}>{sub}</span>
         </span>
       ) : (
         <span className="sr-only">{BRAND.fullName}</span>

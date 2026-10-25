@@ -124,7 +124,8 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   if (!staff) throttle(`o:${ctx.ip}`, 20);
   const source = v.source === 'waiter' ? 'waiter' : 'customer';
   if (source === 'waiter' && !isFloor(role)) throw deny('Waiter orders need a staff login');
-  const mode = v.mode === 'standing' || v.mode === 'takeaway' ? v.mode : 'table';
+  const mode =
+    v.mode === 'standing' || v.mode === 'takeaway' || v.mode === 'delivery' ? v.mode : 'table';
   const id = str(v.id, 24, 'id');
   if (!/^TK-[A-Z0-9]{3,16}$/.test(id)) throw bad('Invalid id');
 
@@ -134,15 +135,20 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     if (!data) throw bad('Unknown table');
   }
 
-  // Only the admin POS may record an order that is already served/billed.
-  let status = 'pending';
+  // Customer-placed orders start in the admin approval queue; staff orders
+  // skip it. Admin POS may create one that is already further along.
+  let status = source === 'customer' ? 'awaiting_admin' : 'pending';
   let billed = false;
+  const allowedStatuses = ['awaiting_admin', 'pending', 'cooking', 'ready', 'served'];
   if (role === 'admin') {
     if (v.status !== undefined) {
-      if (!['pending', 'cooking', 'ready', 'served'].includes(String(v.status))) throw bad('Invalid status');
+      if (!allowedStatuses.includes(String(v.status))) throw bad('Invalid status');
       status = String(v.status);
     }
     billed = v.billed === true;
+  } else if (source === 'customer' && v.status !== undefined) {
+    // A customer can only send 'awaiting_admin'; any other hint is ignored.
+    if (String(v.status) === 'awaiting_admin') status = 'awaiting_admin';
   }
   const priority = staff && v.priority === 'high' ? 'high' : 'normal';
 

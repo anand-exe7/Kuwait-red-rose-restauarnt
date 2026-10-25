@@ -150,7 +150,7 @@ function TabCard({ session, orders, menu }: { session: Session; orders: Order[];
       <div className="mt-3 border-t border-brand-gold/40 pt-3">
         <div className="flex items-end justify-between">
           <div className="text-xs text-brand-wine/70">
-            Subtotal {formatKWD(subtotal)} · Tax {formatKWD(tax)}
+            Subtotal {formatKWD(subtotal)}
           </div>
           <div className="text-right">
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-wine/70">Total</div>

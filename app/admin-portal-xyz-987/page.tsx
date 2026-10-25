@@ -56,14 +56,13 @@ import {
 const fmt = (n: number) => formatKWD(n);
 
 function exportOrdersToCSV(orders: Order[]) {
-  const headers = ['Ticket ID', 'Table', 'Source', 'Items', 'Subtotal', 'Tax', 'Total', 'Status', 'Date'];
+  const headers = ['Ticket ID', 'Table', 'Source', 'Items', 'Subtotal', 'Total', 'Status', 'Date'];
   const rows = orders.map(o => [
     o.id,
     String(o.table),
     o.source === 'customer' ? 'Self-order' : 'Waiter',
     o.items.map(i => `${i.qty}x ${i.name}`).join('; '),
     o.subtotal.toFixed(2),
-    o.tax.toFixed(2),
     o.total.toFixed(2),
     o.status,
     new Date(o.createdAt).toLocaleString(),
@@ -426,10 +425,6 @@ function OrdersSection({ orders }: { orders: Order[] }) {
                               <span className="text-brand-wine/60">Subtotal</span>
                               <span className="font-bold text-brand-wine">{fmt(o.subtotal)}</span>
                             </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-brand-wine/60">Tax & Fees</span>
-                              <span className="font-bold text-brand-wine">{fmt(o.tax)}</span>
-                            </div>
                             {o.discount ? (
                               <div className="flex justify-between text-sm items-center">
                                 <span className="text-brand-red font-bold flex items-center gap-1.5">
@@ -633,11 +628,24 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
   const [isChefSpecial, setIsChefSpecial] = useState(!!item?.isChefSpecial);
   const [isSpicy, setIsSpicy] = useState(!!item?.isSpicy);
   const [sku, setSku] = useState(item?.sku || '');
+  const [stock, setStock] = useState(item?.stock != null ? String(item.stock) : '');
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return; // Guard against double-click save.
+    setError(null);
     const priceNum = Number(price);
-    if (!name.trim() || !Number.isFinite(priceNum) || priceNum <= 0) return;
+    if (!name.trim()) { setError('Please enter a product name.'); return; }
+    if (!Number.isFinite(priceNum) || priceNum <= 0) { setError('Please enter a valid price.'); return; }
+
+    const stockNum = stock.trim() === '' ? undefined : Number(stock);
+    if (stockNum != null && (!Number.isFinite(stockNum) || stockNum < 0)) {
+      setError('Please enter a valid stock quantity.');
+      return;
+    }
 
     const payload = {
       name: name.trim(),
@@ -651,11 +659,19 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
       isChefSpecial,
       isSpicy,
       sku: sku.trim() || undefined,
+      stock: stockNum,
     };
 
-    if (item) updateMenuItem(item.id, payload);
-    else addMenuItem(payload);
-    onClose();
+    setSaving(true);
+    try {
+      if (item) updateMenuItem(item.id, payload);
+      else addMenuItem(payload);
+      setToast(item ? 'Product updated' : 'Product added');
+      setTimeout(() => { onClose(); }, 650);
+    } catch {
+      setSaving(false);
+      setError('Could not save. Please try again.');
+    }
   };
 
   return (
@@ -701,9 +717,15 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
             <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
           </div>
 
-          <div>
-            <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">SKU / Code</label>
-            <input value={sku} onChange={e => setSku(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. AS-BKL" />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">SKU / Code</label>
+              <input value={sku} onChange={e => setSku(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. AS-BKL" />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Stock Quantity</label>
+              <input value={stock} onChange={e => setStock(e.target.value)} type="number" min="0" step="1" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="Optional" />
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-4 text-brand-wine">
@@ -721,14 +743,27 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
             </label>
           </div>
 
+          {error && (
+            <p className="rounded-xl border border-brand-red/30 bg-brand-red/5 px-4 py-3 font-body text-xs font-bold text-brand-red">{error}</p>
+          )}
+
           <button
             type="submit"
-            className="w-full py-3.5 text-white rounded-xl font-black text-sm transition-all mt-2 shadow-[0_14px_28px_-10px_rgba(74,21,21,0.65)] hover:shadow-[0_18px_32px_-10px_rgba(74,21,21,0.8)]"
-            style={{ backgroundImage: 'linear-gradient(135deg, #75201f 0%, #4a1515 50%, #2b0a0a 100%)' }}
+            disabled={saving}
+            className="relative w-full py-3.5 text-white rounded-xl font-black text-sm uppercase tracking-wide transition-all mt-2 shadow-[0_14px_28px_-10px_rgba(74,21,21,0.65)] hover:shadow-[0_18px_32px_-10px_rgba(74,21,21,0.8)] disabled:opacity-70 disabled:cursor-not-allowed"
+            style={{ backgroundImage: 'linear-gradient(135deg, #b01e28 0%, #8f1720 50%, #4a1515 100%)' }}
           >
-            {item ? 'Save Changes' : 'Add Product'}
+            {saving
+              ? 'Saving…'
+              : item ? 'Save Changes' : 'Add Product'}
           </button>
         </form>
+
+        {toast && (
+          <div className="pointer-events-none fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-brand-green text-white text-xs font-bold px-5 py-2.5 shadow-xl z-[60] flex items-center gap-2">
+            <CheckCircle2 size={14} /> {toast}
+          </div>
+        )}
       </div>
     </div>
   );
