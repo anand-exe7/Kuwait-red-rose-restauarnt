@@ -48,11 +48,11 @@ const srcSet = (id: string, widths: number[]) => widths.map((w) => `${img(id, w)
 const CONTAINER = 'mx-auto w-full max-w-6xl px-5 sm:px-8';
 
 const FOOTER_LINKS = [
-  { label: 'Menu', href: '/customer' },
+  { label: 'Home', href: '/' },
+  { label: 'Menu', href: '/menu' },
   { label: 'Our Story', href: '#story' },
-  { label: 'Gifting', href: '#gifting' },
-  { label: 'Visit Us', href: '#locations' },
-  { label: 'Order Online', href: '/customer' },
+  { label: 'Visit', href: '#locations' },
+  { label: 'Contact', href: '#contact' },
 ];
 
 const BESTSELLERS = [
@@ -567,8 +567,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Two in a row, two rows deep — same shape on every screen. */}
-            <div className="stagger mt-12 grid grid-cols-2 gap-x-5 gap-y-12 sm:mt-16 sm:gap-x-7 sm:gap-y-14">
+            {/* Four across in a single row on tablet and up; two columns on phones. */}
+            <div className="stagger mt-12 grid grid-cols-2 gap-x-4 gap-y-10 sm:mt-16 sm:grid-cols-4 sm:gap-x-5 sm:gap-y-14">
               {BESTSELLERS.map((p, i) => (
                 <Link
                   key={p.name}
@@ -758,7 +758,7 @@ export default function Home() {
           Not wrapped in one Reveal: each block below reveals as it is
           reached, so How it works isn't spent before anyone scrolls to it. */}
         <section
-          id="gifting"
+          id="celebrations"
           className="relative overflow-clip text-white"
           style={{
             backgroundImage: 'linear-gradient(172deg, #b81a27 0%, #9d1420 28%, #7c0e19 64%, #5f070f 100%)',
@@ -819,13 +819,13 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-              <p className="eyebrow text-brand-gold-light">Luxury Gifting</p>
+              <p className="eyebrow text-brand-gold-light">Our Collections</p>
               <h2 className="heading mt-5 text-white">
-                The Art of <em className="text-brand-gold-light">Gifting</em>
+                Made for <em className="text-brand-gold-light">Celebrations</em>
               </h2>
               <p className="lede rise mt-6 max-w-lg text-[#fbe6d8]/85">
                 Hand-tied silk ribbon, a hand-written card, and a box built to
-                survive the drive — delivered anywhere in Kuwait, on the day you name.
+                survive the drive — ready in-store for the day you name.
               </p>
 
               <ul className="mt-9 w-full max-w-lg border-t border-white/15 text-left">
@@ -850,11 +850,11 @@ export default function Home() {
 
               <div className="rise mt-10 flex flex-col items-center gap-6 sm:flex-row" style={{ '--i': 6 } as React.CSSProperties}>
                 <Link href="/menu" className="btn btn-gold">
-                  Explore gift boxes
+                  Explore the menu
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </Link>
                 <a href="tel:+96522000000" className="text-link text-white/80 hover:text-white">
-                  Corporate orders
+                  Call the shop
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </a>
               </div>
@@ -1027,7 +1027,7 @@ export default function Home() {
               <Link href="/" className="inline-flex items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src="/rose-mark.webp"
+                  src="/finallogo.jpeg"
                   alt=""
                   width={48}
                   height={48}
@@ -1051,20 +1051,6 @@ export default function Home() {
                 Artisanal Arabic and French pastries, baked fresh every morning in
                 Kuwait City and delivered to your door.
               </p>
-              <div className="mt-7 flex items-center gap-2.5">
-                <SocialIcon label="Instagram">
-                  <path d="M12 2.2c3.2 0 3.6 0 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.25.07 1.62.07 4.81s0 3.56-.07 4.81c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.25.06-1.62.07-4.85.07s-3.6 0-4.85-.07c-1.17-.05-1.8-.25-2.23-.41a3.8 3.8 0 0 1-1.38-.9 3.8 3.8 0 0 1-.9-1.38c-.16-.42-.36-1.06-.41-2.23C2.2 15.56 2.2 15.19 2.2 12s0-3.56.07-4.81c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38a3.8 3.8 0 0 1 1.38-.9c.42-.16 1.06-.36 2.23-.41C8.44 2.2 8.8 2.2 12 2.2zm0 3.05A6.75 6.75 0 1 0 18.75 12 6.75 6.75 0 0 0 12 5.25zm0 11.13A4.38 4.38 0 1 1 16.38 12 4.38 4.38 0 0 1 12 16.38zm6.99-11.4a1.58 1.58 0 1 1-1.58-1.57 1.58 1.58 0 0 1 1.58 1.57z" />
-                </SocialIcon>
-                <SocialIcon label="Facebook">
-                  <path d="M13.5 21v-7.5h2.5l.5-3h-3V8.8c0-.9.25-1.5 1.5-1.5H16.5V4.6c-.3 0-1.3-.13-2.4-.13-2.4 0-4.1 1.5-4.1 4.2v2.3H7.5v3H10V21h3.5z" />
-                </SocialIcon>
-                <SocialIcon label="LinkedIn">
-                  <path d="M4.5 4.5h3.2v3.2H4.5V4.5zm0 5h3.2V20H4.5V9.5zm5.4 0h3.06v1.44h.04c.43-.8 1.47-1.65 3.02-1.65 3.23 0 3.83 2.03 3.83 4.68V20h-3.2v-5.35c0-1.28-.03-2.92-1.83-2.92-1.84 0-2.12 1.39-2.12 2.83V20H9.9V9.5z" />
-                </SocialIcon>
-                <SocialIcon label="Email">
-                  <path d="M3 5.5h18c.55 0 1 .45 1 1V17.5c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1V6.5c0-.55.45-1 1-1zm9 7.1 8-4.85V6.9l-8 4.85L4 6.9v.85l8 4.85z" />
-                </SocialIcon>
-              </div>
             </div>
 
             <div className="lg:col-span-2">
@@ -1101,48 +1087,44 @@ export default function Home() {
             </div>
 
             <div className="sm:col-span-2 lg:col-span-3">
-              <FooterHeading>Newsletter</FooterHeading>
-              <p className="mt-5 font-display text-[24px] font-medium leading-tight">
-                Letters from <em className="font-normal italic text-brand-gold-light">the kitchen</em>
+              <FooterHeading>From our kitchen</FooterHeading>
+              <p className="mt-5 font-display text-[22px] font-medium leading-tight">
+                Baked fresh <em className="font-normal italic text-brand-gold-light">every morning</em>
               </p>
               <p className="mt-2 font-body text-[13px] font-light leading-relaxed text-white/60">
-                New flavours, seasonal boxes and Eid pre-orders. Never more than once a month.
+                Call ahead for Eid hampers, wedding favours and corporate boxes — we&apos;ll match them to your colours.
               </p>
-              <div className="mt-5 flex items-end gap-3 border-b border-white/30 transition-colors focus-within:border-brand-gold-light">
-                <label htmlFor="newsletter-email" className="sr-only">
-                  Email address
-                </label>
-                <input
-                  id="newsletter-email"
-                  type="email"
-                  placeholder="Your email address"
-                  className="min-w-0 flex-1 bg-transparent py-3 font-body text-[14px] font-light text-white outline-none placeholder:text-white/40"
-                />
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 py-3 font-body text-[10.5px] font-medium uppercase tracking-[0.24em] text-brand-gold-light transition-colors hover:text-white"
-                >
-                  Subscribe
-                  <ArrowRight size={13} strokeWidth={1.8} />
-                </button>
-              </div>
+              <a href="tel:+96522000000" className="mt-5 inline-flex items-center gap-2 font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-gold-light transition-colors hover:text-white">
+                +965 2200 0000
+                <ArrowRight size={13} strokeWidth={1.8} />
+              </a>
             </div>
           </div>
 
-          <div className="flex flex-col items-center justify-between gap-3 py-7 font-body text-[11.5px] font-light tracking-[0.06em] text-white/55 sm:flex-row">
+          <div className="flex flex-col items-center gap-2 py-7 font-body text-[11.5px] font-light tracking-[0.06em] text-white/55">
             <span>
               © {new Date().getFullYear()} {BRAND.fullName} · {BRAND.city}
             </span>
-            <Link href="#" className="transition-colors hover:text-white">
-              Privacy Policy
-            </Link>
+            <span>
+              Powered by{' '}
+              <a
+                href="https://www.cenexasystems.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-brand-gold-light transition-colors hover:text-white hover:underline"
+              >
+                Cenexa Systems
+              </a>{' '}
+              © {new Date().getFullYear()}
+            </span>
           </div>
         </div>
 
-        {/* The wordmark returns, very faint, to close the page. */}
-        <div aria-hidden className="pointer-events-none relative h-[15vw] select-none overflow-hidden">
+        {/* The wordmark returns, very faint, to close the page.
+            Clamped so it doesn't bleed past the frame on wide screens. */}
+        <div aria-hidden className="pointer-events-none relative h-[12vw] max-h-[160px] select-none overflow-hidden">
           <p
-            className="rise-in absolute inset-x-0 top-0 text-center font-wordmark text-[26vw] uppercase leading-[0.8] tracking-[-0.01em] text-white/[0.06]"
+            className="rise-in absolute inset-x-0 top-0 whitespace-nowrap text-center font-wordmark text-[clamp(60px,18vw,200px)] uppercase leading-[0.8] tracking-[-0.01em] text-white/[0.06]"
           >
             Red Rose
           </p>
@@ -1291,7 +1273,7 @@ function Seal() {
       </svg>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/rose-mark.webp"
+        src="/finallogo.jpeg"
         alt=""
         width={56}
         height={56}
@@ -1329,16 +1311,3 @@ function FooterHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SocialIcon({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <a
-      href="#"
-      aria-label={label}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-white/25 text-white/80 transition-colors hover:border-brand-gold-light hover:text-brand-gold-light"
-    >
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
-        {children}
-      </svg>
-    </a>
-  );
-}

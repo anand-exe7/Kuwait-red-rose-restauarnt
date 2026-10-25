@@ -6,10 +6,9 @@ import { Menu, X, ArrowRight, ShoppingBag } from 'lucide-react';
 import { BRAND } from '../lib/brand';
 
 const LINKS = [
+  { label: 'Home', href: '/' },
   { label: 'Menu', href: '/menu' },
-  { label: 'Delivery', href: '/delivery' },
   { label: 'Our Story', href: '#story' },
-  { label: 'Gifting', href: '#gifting' },
   { label: 'Visit', href: '#locations' },
   { label: 'Contact', href: '#contact' },
 ];
@@ -62,7 +61,7 @@ export default function HeroNav() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/rose-mark.webp"
+              src="/finallogo.jpeg"
               alt=""
               width={40}
               height={40}

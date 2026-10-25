@@ -74,7 +74,6 @@ export function buildOrderMessage({ order, mode, customer, address }: WhatsAppOr
       `Discount${order.couponCode ? ` (${order.couponCode})` : ''}: -${formatKWD(order.discount)}`
     );
   }
-  lines.push(`Tax: ${formatKWD(order.tax)}`);
   lines.push(`Total: ${formatKWD(order.total)}`);
   lines.push('Payment: Cash on ' + (mode === 'delivery' ? 'delivery' : 'pickup'));
 

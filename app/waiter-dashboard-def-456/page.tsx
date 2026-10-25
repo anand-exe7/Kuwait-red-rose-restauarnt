@@ -26,6 +26,7 @@ import {
   Banknote,
   Users,
   ShoppingBag,
+  Truck,
 } from 'lucide-react';
 import type { Order } from '../lib/orderStore';
 import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, getActiveStandingSessions, getSessionOrders, billSession } from '../lib/orderStore';
@@ -231,7 +232,8 @@ export default function WaiterDashboard() {
     const item = menu.find(m => m.id === id);
     return acc + (item?.price || 0) * qty;
   }, 0);
-  const tax = round3(subtotal * 0.1);
+  // Shop runs tax-inclusive pricing.
+  const tax = 0;
   const orderTotal = round3(subtotal + tax);
   const orderItemCount = useMemo(() => Object.values(order).reduce((a, b) => a + b, 0), [order]);
 
@@ -344,7 +346,7 @@ export default function WaiterDashboard() {
           </div>
         </header>
 
-        {/* ============ ALERTS PAGE (ready pickups + waiter calls) ============ */}
+        {/* ============ ALERTS PAGE (ready pickups + waiter calls + deliveries + incoming) ============ */}
         {activeTab === 'alerts' ? (
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 content-start gap-4 min-h-0 overflow-y-auto custom-scrollbar pb-20 lg:pb-20">
             <AlertsSection
@@ -372,6 +374,33 @@ export default function WaiterDashboard() {
                 subtitle: new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 actionLabel: 'Resolve',
                 onAction: () => resolveWaiterCall(call.id),
+              }))}
+            />
+            <AlertsSection
+              title="Deliveries out"
+              icon={Truck}
+              emptyText="No active deliveries."
+              pageLabel="deliveries"
+              items={activeDeliveryOrders.map(o => ({
+                id: o.id,
+                title: `Delivery · ${o.customer?.name || o.id.split('-')[1]}`,
+                subtitle: `${formatKWD(o.total)} · ${o.status} · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                actionLabel: o.status === 'ready' ? 'Mark served' : 'View',
+                actionIcon: o.status === 'ready' ? Check : undefined,
+                onAction: () => { if (o.status === 'ready') serveOrder(o.id); },
+              }))}
+            />
+            <AlertsSection
+              title="Incoming — need admin approval"
+              icon={Bell}
+              emptyText="No incoming orders waiting."
+              pageLabel="incoming"
+              items={placedOrders.filter(o => o.status === 'awaiting_admin').map(o => ({
+                id: o.id,
+                title: `${orderLabel(o)}${o.customer?.name ? ' · ' + o.customer.name : ''}`,
+                subtitle: `${formatKWD(o.total)} · ${o.items.reduce((s, i) => s + i.qty, 0)} items · waiting approval`,
+                actionLabel: 'View',
+                onAction: () => { /* notification only — admin approves it */ },
               }))}
             />
           </div>
@@ -845,7 +874,6 @@ export default function WaiterDashboard() {
             <div className="mt-3 pt-3 border-t border-brand-gold/20 shrink-0">
               <div className="space-y-1.5 mb-3 text-xs font-medium text-brand-ink/60">
                 <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
-                <div className="flex justify-between"><span>Tax (10%)</span><span className="text-brand-ink font-bold">{formatKWD(tax)}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
                   <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Total</span>
                   <span className="font-wordmark text-3xl text-brand-red">{formatKWD(orderTotal)}</span>
@@ -911,7 +939,7 @@ export default function WaiterDashboard() {
           { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
           { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
           { key: 'ticket', icon: Receipt, label: 'Ticket', badge: orderItemCount },
-          { key: 'alerts', icon: Bell, label: 'Alerts', badge: activeWaiterCalls.length + readyOrders.length },
+          { key: 'alerts', icon: Bell, label: 'Alerts', badge: activeWaiterCalls.length + readyOrders.length + activeDeliveryOrders.length + placedOrders.filter(o => o.status === 'awaiting_admin').length },
         ] as const).map(tab => (
           <button
             key={tab.key}
@@ -1138,7 +1166,6 @@ function BillingModal({
 
         <div className="bg-brand-sand/60 rounded-2xl p-4 space-y-2 mb-5">
           <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Subtotal</span><span className="font-bold">{formatKWD(grandSubtotal)}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Tax (10%)</span><span className="font-bold">{formatKWD(grandTax)}</span></div>
           {grandDiscount > 0 && (
             <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-semibold">−{formatKWD(grandDiscount)}</span></div>
           )}

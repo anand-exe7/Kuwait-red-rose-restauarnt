@@ -14,11 +14,11 @@ interface Props {
   orders: Order[];
 }
 
-const MODE_META: Record<string, { label: string; Icon: React.ComponentType<{ size?: number; className?: string }>; tone: string }> = {
-  table:    { label: 'Dine-in',  Icon: MapPin,        tone: 'bg-brand-wine/10 text-brand-wine' },
-  standing: { label: 'Standing', Icon: MapPin,        tone: 'bg-brand-wine/10 text-brand-wine' },
-  takeaway: { label: 'Takeaway', Icon: PackageCheck,  tone: 'bg-amber-500/10 text-amber-700' },
-  delivery: { label: 'Delivery', Icon: Bike,          tone: 'bg-brand-red/10 text-brand-red' },
+const MODE_META: Record<string, { label: string; Icon: React.ComponentType<{ size?: number; className?: string }>; tone: string; strip: string }> = {
+  table:    { label: 'Dine-in',  Icon: MapPin,        tone: 'bg-brand-wine text-white shadow-[0_8px_18px_-6px_rgba(74,21,21,0.5)]', strip: 'from-brand-wine/70 to-brand-wine/30' },
+  standing: { label: 'Standing', Icon: MapPin,        tone: 'bg-brand-wine text-white shadow-[0_8px_18px_-6px_rgba(74,21,21,0.5)]', strip: 'from-brand-wine/70 to-brand-wine/30' },
+  takeaway: { label: 'Takeaway', Icon: PackageCheck,  tone: 'bg-amber-500 text-white shadow-[0_8px_18px_-6px_rgba(217,119,6,0.5)]', strip: 'from-amber-500/70 to-amber-500/30' },
+  delivery: { label: 'Delivery', Icon: Bike,          tone: 'bg-brand-red text-white shadow-[0_8px_18px_-6px_rgba(176,30,40,0.55)]', strip: 'from-brand-red/80 to-brand-red/30' },
 };
 
 export default function IncomingOrdersSection({ orders }: Props) {
@@ -57,15 +57,16 @@ export default function IncomingOrdersSection({ orders }: Props) {
           const meta = MODE_META[o.mode ?? 'table'];
           const minsAgo = Math.max(0, Math.floor((Date.now() - o.createdAt) / 60000));
           return (
-            <div key={o.id} className="rounded-3xl border border-brand-gold/30 bg-brand-cream p-5 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
+            <div key={o.id} className="relative overflow-hidden rounded-3xl border border-brand-gold/30 bg-brand-cream p-5 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_48px_-20px_rgba(74,21,21,0.5)]">
+              <span className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${meta.strip}`} aria-hidden />
+              <div className="flex items-start justify-between gap-3 pl-2">
                 <div className="flex items-center gap-3">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-body text-[10px] font-semibold uppercase tracking-[0.18em] ${meta.tone}`}>
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-body text-[10px] font-black uppercase tracking-[0.18em] ${meta.tone}`}>
                     <meta.Icon size={12} /> {meta.label}
                   </span>
-                  <span className="font-mono text-xs text-brand-wine/70">#{o.id}</span>
+                  <span className="font-mono text-xs font-bold text-brand-wine/70">#{o.id}</span>
                 </div>
-                <span className="inline-flex items-center gap-1 font-body text-xs text-brand-wine/70">
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand-wine/5 border border-brand-wine/10 px-2.5 py-1 font-body text-xs font-bold text-brand-wine/80">
                   <Clock size={12} /> {minsAgo < 1 ? 'just now' : `${minsAgo} min ago`}
                 </span>
               </div>
@@ -122,7 +123,7 @@ export default function IncomingOrdersSection({ orders }: Props) {
 
               <div className="mt-3 flex items-end justify-between border-t border-brand-gold/40 pt-3">
                 <div className="text-xs text-brand-wine/70">
-                  Subtotal {formatKWD(o.subtotal)} · Tax {formatKWD(o.tax)}
+                  Subtotal {formatKWD(o.subtotal)}
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-wine/70">Total</div>

@@ -47,11 +47,11 @@ export default function BillingSection() {
   const change = received - grandTotal;
 
   const addCustom = () => setLines(ls => [...ls, { key: uid(), name: '', price: 0, qty: 1 }]);
-  const addFromCatalog = (name: string, price: number) => {
+  const addFromCatalog = (name: string, price: number, qty = 1) => {
     setLines(ls => {
       const existing = ls.find(l => l.name === name && l.price === price);
-      if (existing) return ls.map(l => (l === existing ? { ...l, qty: l.qty + 1 } : l));
-      return [...ls, { key: uid(), name, price, qty: 1 }];
+      if (existing) return ls.map(l => (l === existing ? { ...l, qty: l.qty + qty } : l));
+      return [...ls, { key: uid(), name, price, qty }];
     });
   };
   const updateLine = (key: string, patch: Partial<Line>) => setLines(ls => ls.map(l => (l.key === key ? { ...l, ...patch } : l)));
@@ -274,7 +274,7 @@ export default function BillingSection() {
       {catalogOpen && (
         <CatalogModal
           items={menu.filter(m => m.status === 'active')}
-          onPick={(name, price) => addFromCatalog(name, price)}
+          onPick={(name, price, qty) => addFromCatalog(name, price, qty)}
           onClose={() => setCatalogOpen(false)}
         />
       )}
@@ -282,9 +282,36 @@ export default function BillingSection() {
   );
 }
 
-function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: string; price: number; category: string; image: string }[]; onPick: (n: string, p: number) => void; onClose: () => void }) {
+function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: string; price: number; category: string; image: string }[]; onPick: (n: string, p: number, qty: number) => void; onClose: () => void }) {
   const [q, setQ] = useState('');
-  const filtered = items.filter(i => i.name.toLowerCase().includes(q.toLowerCase()));
+  const [cat, setCat] = useState<string>('All');
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [addedToast, setAddedToast] = useState<string | null>(null);
+
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach(i => s.add(i.category));
+    return ['All', ...Array.from(s)];
+  }, [items]);
+
+  const filtered = items.filter(i => {
+    const nameHit = i.name.toLowerCase().includes(q.toLowerCase());
+    const catHit = cat === 'All' || i.category === cat;
+    return nameHit && catHit;
+  });
+
+  const getQty = (id: string) => qty[id] ?? 1;
+  const bump = (id: string, delta: number) =>
+    setQty(prev => ({ ...prev, [id]: Math.max(1, Math.min(99, (prev[id] ?? 1) + delta)) }));
+
+  const pick = (i: { id: string; name: string; price: number }) => {
+    const count = getQty(i.id);
+    onPick(i.name, i.price, count);
+    setAddedToast(`Added ${count} × ${i.name}`);
+    setTimeout(() => setAddedToast(null), 1800);
+    setQty(prev => ({ ...prev, [i.id]: 1 }));
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2a0a0a]/60 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-brand-cream rounded-3xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col border border-brand-gold/30 shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]" onClick={e => e.stopPropagation()}>
@@ -292,15 +319,26 @@ function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: s
           <h3 className="text-lg font-black flex items-center gap-2 text-brand-wine"><ShoppingCart size={18} /> Catalog</h3>
           <button onClick={onClose} className="p-2 rounded-full hover:bg-brand-sand text-brand-wine"><X size={18} /></button>
         </div>
-        <div className="p-4 border-b border-brand-gold/25">
+        <div className="p-4 border-b border-brand-gold/25 flex flex-col gap-3">
           <div className="relative">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
             <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Search menu…" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-brand-ink text-sm focus:outline-none focus:border-brand-red" />
           </div>
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+            {categories.map(c => (
+              <button
+                key={c}
+                onClick={() => setCat(c)}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${cat === c ? 'bg-brand-red text-white shadow-sm' : 'bg-brand-sand/70 text-brand-wine/70 hover:bg-brand-sand'}`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
           {filtered.map(i => (
-            <button key={i.id} onClick={() => onPick(i.name, i.price)} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-brand-sand/60 text-left transition-colors">
+            <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-brand-sand/60 transition-colors">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={i.image} alt={i.name} className="w-11 h-11 rounded-lg object-cover bg-brand-sand" />
               <div className="flex-1 min-w-0">
@@ -308,11 +346,21 @@ function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: s
                 <p className="text-xs text-brand-wine/60">{i.category}</p>
               </div>
               <span className="font-black text-sm text-brand-red">{formatKWD(i.price)}</span>
-              <Plus size={16} className="text-brand-wine/40" />
-            </button>
+              <div className="flex items-center gap-1 rounded-full border border-brand-gold/40 bg-white p-0.5">
+                <button type="button" onClick={() => bump(i.id, -1)} className="h-6 w-6 flex items-center justify-center rounded-full text-brand-wine hover:bg-brand-sand"><Minus size={12} /></button>
+                <span className="w-6 text-center text-xs font-black text-brand-wine">{getQty(i.id)}</span>
+                <button type="button" onClick={() => bump(i.id, 1)} className="h-6 w-6 flex items-center justify-center rounded-full text-brand-wine hover:bg-brand-sand"><Plus size={12} /></button>
+              </div>
+              <button onClick={() => pick(i)} className="px-3 py-1.5 rounded-lg bg-brand-red text-white text-xs font-bold hover:bg-brand-red-dark">Add</button>
+            </div>
           ))}
           {filtered.length === 0 && <p className="text-center text-brand-wine/50 font-bold py-8 text-sm">No items found.</p>}
         </div>
+        {addedToast && (
+          <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-brand-wine text-white text-xs font-bold px-4 py-2 shadow-lg">
+            {addedToast}
+          </div>
+        )}
       </div>
     </div>
   );

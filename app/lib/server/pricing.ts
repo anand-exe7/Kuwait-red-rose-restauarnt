@@ -6,7 +6,8 @@ import { HttpError, bad, int, isObj, money, round3, str } from './http';
 // (/api/db for dine-in/takeaway/POS, /api/delivery/customer for delivery).
 // Prices come from the menu table, never from the browser.
 
-export const TAX_RATE = 0.1;
+// Shop runs tax-inclusive pricing — there is no separate line.
+export const TAX_RATE = 0;
 
 export interface PricedItem {
   id: string;

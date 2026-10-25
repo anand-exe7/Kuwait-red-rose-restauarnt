@@ -1,9 +1,82 @@
 "use client";
 import React, { useMemo, useState } from 'react';
-import { DollarSign, Activity, Users, TrendingUp, Star, CheckCircle2, Package, Search, Percent, Receipt, CalendarClock } from 'lucide-react';
+import { DollarSign, Activity, Users, TrendingUp, Star, CheckCircle2, Package, Search, Percent, Receipt, CalendarClock, X } from 'lucide-react';
 import { Order, orderLabel } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
 import { Period, isInPeriod } from './analyticsHelpers';
+
+/** Describes which slice of orders a stat tile stands for, so a click
+ *  can show that slice in a modal. */
+interface StatDetails {
+  title: string;
+  value: string;
+  hint: string;
+  orders?: Order[];
+  topItems?: { name: string; qty: number; revenue: number }[];
+}
+
+function StatDetailsModal({ details, onClose }: { details: StatDetails; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2a0a0a]/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-brand-cream rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col border border-brand-gold/30 shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]" onClick={e => e.stopPropagation()}>
+        <div className="p-5 border-b border-brand-gold/25 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-black text-brand-wine">{details.title}</h3>
+            <p className="text-xs text-brand-wine/55 mt-0.5">{details.hint}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-brand-sand text-brand-wine"><X size={18} /></button>
+        </div>
+        <div className="p-5 bg-gradient-to-br from-brand-red/5 to-transparent border-b border-brand-gold/15">
+          <p className="text-xs font-bold uppercase tracking-wide text-brand-wine/50">Value</p>
+          <p className="text-3xl font-black text-brand-red mt-1">{details.value}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {details.topItems && details.topItems.length > 0 && (
+            <div>
+              <p className="text-sm font-black text-brand-wine mb-3">Top items</p>
+              <div className="flex flex-col gap-2">
+                {details.topItems.map((it, i) => (
+                  <div key={it.name} className="flex items-center justify-between p-3 rounded-xl bg-white border border-brand-gold/25">
+                    <span className="flex items-center gap-2 min-w-0 text-sm font-bold text-brand-wine">
+                      <span className="text-brand-gold-dark w-5 shrink-0">{i + 1}</span>
+                      <span className="truncate">{it.name}</span>
+                    </span>
+                    <span className="flex items-center gap-3 text-sm shrink-0">
+                      <span className="text-brand-wine/60">{it.qty} pcs</span>
+                      <span className="font-black text-brand-red">{formatKWD(it.revenue)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {details.orders && details.orders.length > 0 && (
+            <div className={details.topItems && details.topItems.length > 0 ? 'mt-5' : ''}>
+              <p className="text-sm font-black text-brand-wine mb-3">Orders ({details.orders.length})</p>
+              <div className="flex flex-col gap-2">
+                {details.orders.slice(0, 25).map(o => (
+                  <div key={o.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-brand-gold/25 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-bold text-brand-red truncate">{o.id}</p>
+                      <p className="text-xs text-brand-wine/60">{orderLabel(o)} · {new Date(o.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <span className="font-black text-brand-wine shrink-0">{formatKWD(o.total)}</span>
+                  </div>
+                ))}
+                {details.orders.length > 25 && (
+                  <p className="text-xs text-brand-wine/50 text-center pt-2">Showing first 25 of {details.orders.length}</p>
+                )}
+              </div>
+            </div>
+          )}
+          {(!details.orders || details.orders.length === 0) && (!details.topItems || details.topItems.length === 0) && (
+            <p className="text-sm text-brand-wine/50 text-center py-10">No records in this slice yet.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const fmt = (n: number) => formatKWD(n);
 
@@ -114,6 +187,7 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
 function RevenueTab({ completed }: { completed: Order[] }) {
   const [hoveredMonth, setHoveredMonth] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const [open, setOpen] = useState<StatDetails | null>(null);
 
   const staffOrders = useMemo(() => completed.filter(o => o.source === 'waiter'), [completed]);
   const selfOrders = useMemo(() => completed.filter(o => o.source === 'customer'), [completed]);
@@ -165,19 +239,21 @@ function RevenueTab({ completed }: { completed: Order[] }) {
     ((startOfWeek.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7
   );
 
-  const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'From served orders' },
-    { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Fully served bills' },
-    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-placed orders' },
-    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer QR orders' },
+  const topItemsAll = useMemo(() => aggregateItems(completed).slice(0, 10), [completed]);
+
+  const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; details: StatDetails }[] = [
+    { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'From served orders', details: { title: 'Total Revenue', value: fmt(totalRevenue), hint: 'Every served order in this period.', orders: completed, topItems: topItemsAll } },
+    { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Fully served bills', details: { title: 'Completed Orders', value: String(completed.length), hint: 'Served bills in this period.', orders: completed } },
+    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-placed orders', details: { title: 'Staff-Taken Revenue', value: fmt(staffRevenue), hint: 'Orders placed by a waiter.', orders: staffOrders, topItems: aggregateItems(staffOrders).slice(0, 10) } },
+    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer QR orders', details: { title: 'Self-Ordered Revenue', value: fmt(selfRevenue), hint: 'Orders placed by customers themselves.', orders: selfOrders, topItems: aggregateItems(selfOrders).slice(0, 10) } },
   ];
 
-  const stats2: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-taken bills' },
-    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer self-ordered' },
-    { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'From completed bills' },
-    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per completed order' },
-    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Most sold item' },
+  const stats2: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; details: StatDetails }[] = [
+    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-taken bills', details: { title: 'Staff Orders', value: String(staffOrders.length), hint: 'Each bill a waiter rang up.', orders: staffOrders } },
+    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer self-ordered', details: { title: 'Self-Orders', value: String(selfOrders.length), hint: 'Each self-placed customer order.', orders: selfOrders } },
+    { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'From completed bills', details: { title: 'Items Sold', value: String(totalItemsSold), hint: 'Every unit sold in this period.', topItems: topItemsAll } },
+    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per completed order', details: { title: 'Avg Order Value', value: fmt(avgOrderValue), hint: 'Mean total across the orders below.', orders: completed } },
+    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Most sold item', details: { title: 'Top Items', value: topItem ? topItem.name : '—', hint: 'Leaderboard by revenue.', topItems: topItemsAll } },
   ];
 
   return (
@@ -185,38 +261,41 @@ function RevenueTab({ completed }: { completed: Order[] }) {
       <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 md:p-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
           {stats.map((s, i) => (
-            <StatCard key={i} {...s} />
+            <StatCard key={i} {...s} onOpen={() => setOpen(s.details)} />
           ))}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
           {stats2.map((s, i) => (
-            <StatCard key={i} {...s} />
+            <StatCard key={i} {...s} onOpen={() => setOpen(s.details)} />
           ))}
         </div>
       </div>
+      {open && <StatDetailsModal details={open} onClose={() => setOpen(null)} />}
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 flex flex-col gap-6">
           <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
             <p className="text-sm font-bold text-brand-wine/60">Revenue Trend This Year <span className="text-brand-red">{year}</span></p>
             <p className="text-2xl sm:text-3xl font-black mt-1 text-brand-wine">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
-            <div className="mt-8 flex items-end justify-between gap-0.5 sm:gap-2 h-48">
+            <div className="mt-8 flex items-stretch justify-between gap-0.5 sm:gap-2 h-56">
               {monthly.map((v, i) => (
-                <div key={i} className="flex-1 min-w-0 flex flex-col items-center gap-1.5 sm:gap-2 relative group">
+                <div key={i} className="flex-1 min-w-0 flex flex-col items-center relative group">
                   {hoveredMonth === i && (
                     <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
                       {fmt(v)}
                     </div>
                   )}
-                  <div
-                    onMouseEnter={() => setHoveredMonth(i)}
-                    onMouseLeave={() => setHoveredMonth(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
-                    style={v > 0
-                      ? { height: `${Math.max(3, (v / maxMonthly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #d8313d 0%, #b01e28 60%, #8f1720 100%)' }
-                      : { height: `${Math.max(3, (v / maxMonthly) * 100)}%` }}
-                  />
-                  <span className="text-[7px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{monthLabels[i]}</span>
+                  <div className="flex-1 w-full flex items-end">
+                    <div
+                      onMouseEnter={() => setHoveredMonth(i)}
+                      onMouseLeave={() => setHoveredMonth(null)}
+                      className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
+                      style={v > 0
+                        ? { height: `${Math.max(6, (v / maxMonthly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #d8313d 0%, #b01e28 60%, #8f1720 100%)' }
+                        : { height: '6%' }}
+                    />
+                  </div>
+                  <span className="mt-2 text-[7px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{monthLabels[i]}</span>
                 </div>
               ))}
             </div>
@@ -227,23 +306,25 @@ function RevenueTab({ completed }: { completed: Order[] }) {
               Revenue This Week <span className="text-brand-red">(Week {weekNumber} of {year})</span>
             </p>
             <p className="text-xs text-brand-wine/50 mt-1">{fmt(weekTotal)} total</p>
-            <div className="mt-8 flex items-end justify-between gap-1 sm:gap-2 h-40">
+            <div className="mt-8 flex items-stretch justify-between gap-1 sm:gap-2 h-48">
               {weekly.map((v, i) => (
-                <div key={i} className="flex-1 min-w-0 flex flex-col items-center gap-1.5 sm:gap-2 relative group">
+                <div key={i} className="flex-1 min-w-0 flex flex-col items-center relative group">
                   {hoveredDay === i && (
                     <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
                       {fmt(v)}
                     </div>
                   )}
-                  <div
-                    onMouseEnter={() => setHoveredDay(i)}
-                    onMouseLeave={() => setHoveredDay(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
-                    style={v > 0
-                      ? { height: `${Math.max(3, (v / maxWeekly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #ecd8a6 0%, #c9a961 60%, #a5843f 100%)' }
-                      : { height: `${Math.max(3, (v / maxWeekly) * 100)}%` }}
-                  />
-                  <span className="text-[8px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{weekDayLabels[i]}</span>
+                  <div className="flex-1 w-full flex items-end">
+                    <div
+                      onMouseEnter={() => setHoveredDay(i)}
+                      onMouseLeave={() => setHoveredDay(null)}
+                      className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
+                      style={v > 0
+                        ? { height: `${Math.max(6, (v / maxWeekly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #ecd8a6 0%, #c9a961 60%, #a5843f 100%)' }
+                        : { height: '6%' }}
+                    />
+                  </div>
+                  <span className="mt-2 text-[8px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{weekDayLabels[i]}</span>
                 </div>
               ))}
             </div>
@@ -571,11 +652,14 @@ const CARD_ACCENTS: Record<string, { panel: string; iconBg: string; iconColor: s
   'text-brand-gold-dark': { panel: 'linear-gradient(140deg, #f3e2b1 0%, #fdf6df 70%)', iconBg: 'bg-brand-gold/25',  iconColor: 'text-brand-gold-dark', ring: 'border-brand-gold/40',     valueColor: 'text-brand-gold-dark' },
 };
 
-function StatCard({ label, value, icon: Icon, color, hint }: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }) {
+function StatCard({ label, value, icon: Icon, color, hint, onOpen }: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; onOpen?: () => void }) {
   const accent = CARD_ACCENTS[color] ?? CARD_ACCENTS['text-brand-wine'];
+  const clickable = typeof onOpen === 'function';
+  const Tag = clickable ? 'button' : 'div';
   return (
-    <div
-      className={`p-4 sm:p-5 rounded-2xl border ${accent.ring} shadow-[0_12px_30px_-24px_rgba(74,21,21,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-20px_rgba(74,21,21,0.55)]`}
+    <Tag
+      {...(clickable ? { type: 'button' as const, onClick: onOpen } : {})}
+      className={`text-left p-4 sm:p-5 rounded-2xl border ${accent.ring} shadow-[0_12px_30px_-24px_rgba(74,21,21,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-20px_rgba(74,21,21,0.55)] ${clickable ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-red/40' : ''}`}
       style={{ backgroundImage: accent.panel }}
     >
       <div className={`w-9 h-9 rounded-xl ${accent.iconBg} ${accent.iconColor} flex items-center justify-center mb-3 border border-current/20`}>
@@ -584,6 +668,6 @@ function StatCard({ label, value, icon: Icon, color, hint }: { label: string; va
       <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/55">{label}</p>
       <p className={`text-lg sm:text-xl font-black mt-0.5 truncate ${accent.valueColor}`}>{value}</p>
       <p className="text-[11px] text-brand-wine/45 mt-0.5">{hint}</p>
-    </div>
+    </Tag>
   );
 }
