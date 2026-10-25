@@ -5,17 +5,17 @@ import { staffCall } from './staffApi';
 import AreasPanel from './AreasPanel';
 import { DAY_NAMES, DEFAULT_SETTINGS, type DeliverySettings, type FeeTier } from '../lib/delivery/shared';
 
-const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red bg-white';
-const card = 'bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6';
-const label = 'text-[11px] font-bold uppercase tracking-wide text-black/40 mb-1 block';
+const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red bg-white';
+const card = 'bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-sm p-5 sm:p-6';
+const label = 'text-[11px] font-bold uppercase tracking-wide text-brand-wine/60 mb-1 block';
 
 function Toggle({ on, onChange, text, hint }: { on: boolean; onChange: (v: boolean) => void; text: string; hint?: string }) {
   return (
     <button type="button" onClick={() => onChange(!on)} className="flex items-center gap-3 text-left">
-      <span className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-black/20'}`}>
+      <span className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-brand-wine/30'}`}>
         <span className={`block w-5 h-5 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : ''}`} />
       </span>
-      <span><b className="text-sm block">{text}</b>{hint && <span className="text-xs text-black/50">{hint}</span>}</span>
+      <span><b className="text-sm block">{text}</b>{hint && <span className="text-xs text-brand-wine/70">{hint}</span>}</span>
     </button>
   );
 }
@@ -52,7 +52,7 @@ export default function DeliverySettingsSection() {
       <div className={`${card} flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${s.busy ? 'border-amber-300 bg-amber-50' : ''}`}>
         <div>
           <h2 className="text-xl font-black">Delivery settings</h2>
-          <p className="text-xs text-black/50">Changes apply to the next customer immediately.</p>
+          <p className="text-xs text-brand-wine/70">Changes apply to the next customer immediately.</p>
         </div>
         <div className="flex flex-col gap-3">
           <Toggle on={s.enabled} onChange={(v) => save({ ...s, enabled: v }, v ? 'Delivery is ON.' : 'Delivery is OFF.')} text="Accept delivery orders" />
@@ -62,20 +62,20 @@ export default function DeliverySettingsSection() {
 
       <div className={card}>
         <h3 className="font-black mb-1">How is the delivery fee decided?</h3>
-        <p className="text-xs text-black/50 mb-3">Delivery areas needs no maps: you list the areas and a fee for each. Distance uses the customer&apos;s map pin and Google.</p>
+        <p className="text-xs text-brand-wine/70 mb-3">Delivery areas needs no maps: you list the areas and a fee for each. Distance uses the customer&apos;s map pin and Google.</p>
         <select className={`${inputCls} max-w-sm`} value={s.pricingMode} onChange={(e) => set('pricingMode', e.target.value as DeliverySettings['pricingMode'])}>
           <option value="areas">By delivery area (no maps)</option>
           <option value="distance">By distance (map pin)</option>
         </select>
-        <p className="text-xs text-black/50 mt-2">Press &quot;Save settings&quot; at the bottom after changing this.</p>
+        <p className="text-xs text-brand-wine/70 mt-2">Press &quot;Save settings&quot; at the bottom after changing this.</p>
       </div>
 
       {s.pricingMode === 'areas' && (
         <div className={card}>
           <h3 className="font-black mb-1">Delivery areas and fees</h3>
-          <p className="text-xs text-black/50 mb-4">The customer picks one of these at checkout and is charged its fee. Each row saves on its own.</p>
+          <p className="text-xs text-brand-wine/70 mb-4">The customer picks one of these at checkout and is charged its fee. Each row saves on its own.</p>
           <AreasPanel />
-          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-black/5 pt-4">
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-brand-gold/25 pt-4">
             <div><span className={label}>General minimum order (KD)</span><input type="number" step="0.5" min="0" className={inputCls} value={s.minOrder} onChange={numField('minOrder')} /></div>
           </div>
           <div className="mt-4"><Toggle on={s.taxOnFee} onChange={(v) => set('taxOnFee', v)} text="Charge 10% tax on the delivery fee too" /></div>
@@ -102,12 +102,12 @@ export default function DeliverySettingsSection() {
         </div>
         {s.feeMode === 'tiers' && (
           <div className="mt-4 flex flex-col gap-2">
-            <p className="text-xs text-black/50">Within the free distance is free. Beyond it, the first tier the distance fits applies.</p>
+            <p className="text-xs text-brand-wine/70">Within the free distance is free. Beyond it, the first tier the distance fits applies.</p>
             {s.feeTiers.map((t, i) => (
               <div key={i} className="flex items-center gap-2">
-                <span className="text-sm text-black/60 w-24">Up to (km)</span>
+                <span className="text-sm text-brand-wine/75 w-24">Up to (km)</span>
                 <input type="number" step="0.5" className={inputCls} value={t.upToKm} onChange={(e) => setTier(i, { upToKm: Number(e.target.value) })} />
-                <span className="text-sm text-black/60 w-16">Fee KD</span>
+                <span className="text-sm text-brand-wine/75 w-16">Fee KD</span>
                 <input type="number" step="0.05" className={inputCls} value={t.fee} onChange={(e) => setTier(i, { fee: Number(e.target.value) })} />
                 <button type="button" onClick={() => set('feeTiers', s.feeTiers.filter((_, j) => j !== i))} className="p-2 text-red-500"><Trash2 size={16} /></button>
               </div>
@@ -123,7 +123,7 @@ export default function DeliverySettingsSection() {
       {s.pricingMode === 'distance' && (
       <div className={card}>
         <h3 className="font-black mb-1">Shop location</h3>
-        <p className="text-xs text-black/50 mb-4">Distances are measured from here. Copy the latitude and longitude from Google Maps (right-click your shop).</p>
+        <p className="text-xs text-brand-wine/70 mb-4">Distances are measured from here. Copy the latitude and longitude from Google Maps (right-click your shop).</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div><span className={label}>Name</span><input className={inputCls} value={s.shopLabel} onChange={(e) => set('shopLabel', e.target.value)} /></div>
           <div><span className={label}>Latitude</span><input type="number" step="0.0001" className={inputCls} value={s.shopLat} onChange={numField('shopLat')} /></div>
@@ -143,13 +143,13 @@ export default function DeliverySettingsSection() {
                 <span className="w-24 text-sm font-bold">{name}</span>
                 <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={h.closed} onChange={(e) => upd({ closed: e.target.checked })} /> Closed</label>
                 <input type="time" disabled={h.closed} className={`${inputCls} !w-32 disabled:opacity-40`} value={h.open} onChange={(e) => upd({ open: e.target.value })} />
-                <span className="text-black/40">to</span>
+                <span className="text-brand-wine/60">to</span>
                 <input type="time" disabled={h.closed} className={`${inputCls} !w-32 disabled:opacity-40`} value={h.close} onChange={(e) => upd({ close: e.target.value })} />
               </div>
             );
           })}
         </div>
-        <p className="text-xs text-black/50 mt-3">A closing time earlier than the opening time means after midnight (for example 10:00 to 02:00).</p>
+        <p className="text-xs text-brand-wine/70 mt-3">A closing time earlier than the opening time means after midnight (for example 10:00 to 02:00).</p>
       </div>
 
       <div className={card}>
@@ -179,7 +179,7 @@ export default function DeliverySettingsSection() {
             </select>
           </div>
         </div>
-        <p className="text-xs text-black/50 mt-3">The refund rules apply to online payments only; cash orders have nothing to refund.</p>
+        <p className="text-xs text-brand-wine/70 mt-3">The refund rules apply to online payments only; cash orders have nothing to refund.</p>
       </div>
 
       <div className="flex items-center gap-4 sticky bottom-4">

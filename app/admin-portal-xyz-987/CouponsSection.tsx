@@ -75,8 +75,8 @@ export default function CouponsSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="bg-blue-50 border border-blue-200 text-blue-700 rounded-2xl px-4 py-3 text-sm font-semibold flex items-center gap-2">
-        <Info size={16} /> Coupon discount applies to product subtotal only — not delivery charge.
+      <div className="rounded-2xl border border-brand-gold/40 bg-brand-wine px-4 py-3 text-sm font-semibold text-brand-gold-light shadow-[0_12px_30px_-20px_rgba(74,21,21,0.55)] flex items-center gap-2">
+        <Info size={16} className="text-brand-gold" /> Coupon discount applies to product subtotal only — not delivery charge.
       </div>
 
       <div className="flex items-center justify-between">
@@ -85,22 +85,22 @@ export default function CouponsSection() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Form */}
-        <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+        <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-sm p-5 sm:p-6">
           <div className="flex items-center justify-between mb-5">
             <h3 className="text-lg font-black">{editingId ? 'Edit Coupon' : '+ New Coupon'}</h3>
             {editingId && (
-              <button onClick={resetForm} className="text-xs font-bold text-black/50 hover:text-black">Cancel edit</button>
+              <button onClick={resetForm} className="text-xs font-bold text-brand-wine/70 hover:text-brand-wine">Cancel edit</button>
             )}
           </div>
           <form onSubmit={submit} className="flex flex-col gap-4">
             <div>
-              <label className="text-xs font-bold text-black/50 mb-1.5 block uppercase tracking-wide">Coupon Code *</label>
+              <label className="text-xs font-bold text-brand-wine/70 mb-1.5 block uppercase tracking-wide">Coupon Code *</label>
               <div className="flex gap-2">
                 <input
                   value={form.code}
                   onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
                   placeholder="E.G. SUMMER20"
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-black/10 text-sm font-bold uppercase tracking-wide focus:outline-none focus:border-brand-red"
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm font-bold uppercase tracking-wide focus:outline-none focus:border-brand-red"
                 />
                 <button type="button" onClick={() => setForm(f => ({ ...f, code: randomCode() }))} className="px-4 py-2.5 rounded-xl bg-brand-red text-white text-sm font-bold hover:bg-brand-red-dark flex items-center gap-1.5">
                   <Sparkles size={14} /> Generate
@@ -109,20 +109,20 @@ export default function CouponsSection() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-black/50 mb-1.5 block uppercase tracking-wide">Discount % *</label>
-                <input value={form.discountPercent} onChange={e => setForm(f => ({ ...f, discountPercent: e.target.value }))} type="number" min="1" max="100" placeholder="e.g. 15" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+                <label className="text-xs font-bold text-brand-wine/70 mb-1.5 block uppercase tracking-wide">Discount % *</label>
+                <input value={form.discountPercent} onChange={e => setForm(f => ({ ...f, discountPercent: e.target.value }))} type="number" min="1" max="100" placeholder="e.g. 15" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red" />
               </div>
               <div>
-                <label className="text-xs font-bold text-black/50 mb-1.5 block uppercase tracking-wide">Min Order (KD)</label>
-                <input value={form.minOrder} onChange={e => setForm(f => ({ ...f, minOrder: e.target.value }))} type="number" min="0" step="0.001" placeholder="e.g. 5" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+                <label className="text-xs font-bold text-brand-wine/70 mb-1.5 block uppercase tracking-wide">Min Order (KD)</label>
+                <input value={form.minOrder} onChange={e => setForm(f => ({ ...f, minOrder: e.target.value }))} type="number" min="0" step="0.001" placeholder="e.g. 5" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red" />
               </div>
               <div>
-                <label className="text-xs font-bold text-black/50 mb-1.5 block uppercase tracking-wide">Expiry Date</label>
-                <input value={form.expiry} onChange={e => setForm(f => ({ ...f, expiry: e.target.value }))} type="date" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+                <label className="text-xs font-bold text-brand-wine/70 mb-1.5 block uppercase tracking-wide">Expiry Date</label>
+                <input value={form.expiry} onChange={e => setForm(f => ({ ...f, expiry: e.target.value }))} type="date" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red" />
               </div>
               <div>
-                <label className="text-xs font-bold text-black/50 mb-1.5 block uppercase tracking-wide">Usage Limit</label>
-                <input value={form.usageLimit} onChange={e => setForm(f => ({ ...f, usageLimit: e.target.value }))} type="number" min="0" placeholder="e.g. 50 (0 = ∞)" className="w-full px-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+                <label className="text-xs font-bold text-brand-wine/70 mb-1.5 block uppercase tracking-wide">Usage Limit</label>
+                <input value={form.usageLimit} onChange={e => setForm(f => ({ ...f, usageLimit: e.target.value }))} type="number" min="0" placeholder="e.g. 50 (0 = ∞)" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red" />
               </div>
             </div>
             <label className="flex items-center gap-2 text-sm font-medium">
@@ -136,36 +136,36 @@ export default function CouponsSection() {
         </div>
 
         {/* List */}
-        <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+        <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-sm p-5 sm:p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-black">All Coupons ({coupons.length})</h3>
-            <button onClick={() => { /* store is live; this is a visual refresh affordance */ setSearch(s => s); }} className="flex items-center gap-1.5 text-sm font-bold text-black/50 hover:text-black">
+            <button onClick={() => { /* store is live; this is a visual refresh affordance */ setSearch(s => s); }} className="flex items-center gap-1.5 text-sm font-bold text-brand-wine/70 hover:text-brand-wine">
               <RefreshCw size={14} /> Refresh
             </button>
           </div>
           <div className="relative mb-4">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/30" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search coupons by code…" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red" />
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-wine/55" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search coupons by code…" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red" />
           </div>
           <div className="flex flex-col gap-3 max-h-[520px] overflow-y-auto pr-1">
             {sorted.length === 0 ? (
-              <p className="text-sm text-black/40 font-bold py-8 text-center">No coupons found.</p>
+              <p className="text-sm text-brand-wine/60 font-bold py-8 text-center">No coupons found.</p>
             ) : (
               pager.items.map(c => {
                 const expired = isExpired(c);
                 const rem = remainingUses(c);
                 return (
-                  <div key={c.id} className="bg-[#fafafa] rounded-2xl border border-black/5 p-4">
+                  <div key={c.id} className="bg-brand-sand/60 rounded-2xl border border-brand-gold/25 p-4">
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
                         <p className="font-black tracking-wide">{c.code}</p>
                         <p className="text-sm font-bold text-emerald-600">{c.discountPercent}% off · min KD {c.minOrder.toFixed(3)}</p>
-                        <p className="text-xs text-black/40 mt-0.5">
+                        <p className="text-xs text-brand-wine/60 mt-0.5">
                           {rem === null ? 'Unlimited uses' : `${rem} remaining`}
                           {c.expiry ? ` · expires ${new Date(c.expiry).toLocaleDateString()}` : ' · no expiry'}
                         </p>
                         <div className="flex items-center gap-1.5 mt-1">
-                          {!c.active && <span className="text-[10px] font-bold text-black/50 bg-black/10 rounded px-1.5 py-0.5 uppercase">Inactive</span>}
+                          {!c.active && <span className="text-[10px] font-bold text-brand-wine/70 bg-brand-sand rounded px-1.5 py-0.5 uppercase">Inactive</span>}
                           {expired && <span className="text-[11px] font-bold text-brand-red">Expired</span>}
                         </div>
                       </div>

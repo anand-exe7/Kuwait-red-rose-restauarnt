@@ -56,18 +56,18 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6 md:p-8">
+      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 md:p-8">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
           <div>
-            <h2 className="text-2xl font-black">Restaurant Analytics</h2>
-            <p className="text-sm text-black/50">Real-time revenue & order channel insights</p>
+            <h2 className="text-2xl font-black text-brand-wine">Restaurant Analytics</h2>
+            <p className="text-sm text-brand-wine/60">Real-time revenue & order channel insights</p>
           </div>
-          <div className="flex flex-wrap gap-2 bg-black/5 p-1 rounded-full">
+          <div className="flex flex-wrap gap-2 bg-brand-sand/60 p-1 rounded-full border border-brand-gold/25">
             {PERIODS.map(p => (
               <button
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${period === p.key ? 'bg-brand-red text-white shadow' : 'text-black/50 hover:text-black'}`}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${period === p.key ? 'bg-brand-red text-white shadow-sm' : 'text-brand-wine/60 hover:text-brand-wine'}`}
               >
                 {p.label}
               </button>
@@ -76,21 +76,21 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
         </div>
 
         {period === 'custom' && (
-          <div className="flex flex-wrap items-center gap-3 mb-6 bg-black/5 rounded-xl p-3">
-            <label className="text-xs font-bold text-black/60">From</label>
-            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="px-3 py-1.5 rounded-lg border border-black/10 text-sm" />
-            <label className="text-xs font-bold text-black/60">To</label>
-            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="px-3 py-1.5 rounded-lg border border-black/10 text-sm" />
+          <div className="flex flex-wrap items-center gap-3 mb-6 bg-brand-sand/50 rounded-xl p-3 border border-brand-gold/25">
+            <label className="text-xs font-bold text-brand-wine/60 uppercase tracking-wide">From</label>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="px-3 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-sm text-brand-ink" />
+            <label className="text-xs font-bold text-brand-wine/60 uppercase tracking-wide">To</label>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="px-3 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-sm text-brand-ink" />
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5 border-b border-black/5">
+        <div className="flex flex-wrap gap-1.5 border-b border-brand-gold/25">
           {TABS.map(t => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-4 py-2.5 text-sm font-black uppercase tracking-wide border-b-2 -mb-px transition-colors ${
-                tab === t.key ? 'border-brand-red text-brand-red' : 'border-transparent text-black/40 hover:text-black'
+                tab === t.key ? 'border-brand-red text-brand-red' : 'border-transparent text-brand-wine/50 hover:text-brand-wine'
               }`}
             >
               {t.label}
@@ -166,23 +166,23 @@ function RevenueTab({ completed }: { completed: Order[] }) {
   );
 
   const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-500/10', hint: 'From served orders' },
-    { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'Fully served bills' },
+    { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'From served orders' },
+    { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Fully served bills' },
     { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-placed orders' },
-    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-purple-500', bg: 'bg-purple-500/10', hint: 'Customer QR orders' },
+    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer QR orders' },
   ];
 
   const stats2: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
     { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-taken bills' },
-    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-purple-500', bg: 'bg-purple-500/10', hint: 'Customer self-ordered' },
-    { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'From completed bills' },
-    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold', bg: 'bg-brand-gold/10', hint: 'Per completed order' },
-    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-yellow-500', bg: 'bg-yellow-500/10', hint: 'Most sold item' },
+    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer self-ordered' },
+    { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'From completed bills' },
+    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per completed order' },
+    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Most sold item' },
   ];
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6 md:p-8">
+      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 md:p-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
           {stats.map((s, i) => (
             <StatCard key={i} {...s} />
@@ -197,74 +197,78 @@ function RevenueTab({ completed }: { completed: Order[] }) {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-2 flex flex-col gap-6">
-          <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
-            <p className="text-sm font-bold text-black/50">Revenue Trend This Year <span className="text-brand-red">{year}</span></p>
-            <p className="text-2xl sm:text-3xl font-black mt-1">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
+          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
+            <p className="text-sm font-bold text-brand-wine/60">Revenue Trend This Year <span className="text-brand-red">{year}</span></p>
+            <p className="text-2xl sm:text-3xl font-black mt-1 text-brand-wine">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
             <div className="mt-8 flex items-end justify-between gap-0.5 sm:gap-2 h-48">
               {monthly.map((v, i) => (
                 <div key={i} className="flex-1 min-w-0 flex flex-col items-center gap-1.5 sm:gap-2 relative group">
                   {hoveredMonth === i && (
-                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-black text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10">
+                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
                       {fmt(v)}
                     </div>
                   )}
                   <div
                     onMouseEnter={() => setHoveredMonth(i)}
                     onMouseLeave={() => setHoveredMonth(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-brand-red hover:bg-brand-red-dark' : 'bg-black/5'}`}
-                    style={{ height: `${Math.max(3, (v / maxMonthly) * 100)}%` }}
+                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
+                    style={v > 0
+                      ? { height: `${Math.max(3, (v / maxMonthly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #d8313d 0%, #b01e28 60%, #8f1720 100%)' }
+                      : { height: `${Math.max(3, (v / maxMonthly) * 100)}%` }}
                   />
-                  <span className="text-[7px] sm:text-[10px] font-bold text-black/40 truncate w-full text-center">{monthLabels[i]}</span>
+                  <span className="text-[7px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{monthLabels[i]}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
-            <p className="text-sm font-bold text-black/50">
+          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
+            <p className="text-sm font-bold text-brand-wine/60">
               Revenue This Week <span className="text-brand-red">(Week {weekNumber} of {year})</span>
             </p>
-            <p className="text-xs text-black/40 mt-1">{fmt(weekTotal)} total</p>
+            <p className="text-xs text-brand-wine/50 mt-1">{fmt(weekTotal)} total</p>
             <div className="mt-8 flex items-end justify-between gap-1 sm:gap-2 h-40">
               {weekly.map((v, i) => (
                 <div key={i} className="flex-1 min-w-0 flex flex-col items-center gap-1.5 sm:gap-2 relative group">
                   {hoveredDay === i && (
-                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-black text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10">
+                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
                       {fmt(v)}
                     </div>
                   )}
                   <div
                     onMouseEnter={() => setHoveredDay(i)}
                     onMouseLeave={() => setHoveredDay(null)}
-                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'bg-brand-red hover:bg-brand-red-dark' : 'bg-black/5'}`}
-                    style={{ height: `${Math.max(3, (v / maxWeekly) * 100)}%` }}
+                    className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
+                    style={v > 0
+                      ? { height: `${Math.max(3, (v / maxWeekly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #ecd8a6 0%, #c9a961 60%, #a5843f 100%)' }
+                      : { height: `${Math.max(3, (v / maxWeekly) * 100)}%` }}
                   />
-                  <span className="text-[8px] sm:text-[10px] font-bold text-black/40 truncate w-full text-center">{weekDayLabels[i]}</span>
+                  <span className="text-[8px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{weekDayLabels[i]}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6 h-fit">
-          <p className="font-black mb-5">Order Source</p>
+        <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 h-fit">
+          <p className="font-black mb-5 text-brand-wine">Order Source</p>
           <div className="flex flex-col gap-4">
             <div>
               <div className="flex justify-between text-xs font-bold mb-1.5">
                 <span className="text-brand-red uppercase tracking-wide">Staff-Taken</span>
-                <span>{staffOrders.length}</span>
+                <span className="text-brand-wine">{staffOrders.length}</span>
               </div>
-              <div className="h-2 rounded-full bg-black/5 overflow-hidden">
+              <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
                 <div className="h-full bg-brand-red rounded-full" style={{ width: `${completed.length ? (staffOrders.length / completed.length) * 100 : 0}%` }} />
               </div>
             </div>
             <div>
               <div className="flex justify-between text-xs font-bold mb-1.5">
-                <span className="text-purple-500 uppercase tracking-wide">Self-Ordered</span>
-                <span>{selfOrders.length}</span>
+                <span className="text-brand-plum uppercase tracking-wide">Self-Ordered</span>
+                <span className="text-brand-wine">{selfOrders.length}</span>
               </div>
-              <div className="h-2 rounded-full bg-black/5 overflow-hidden">
-                <div className="h-full bg-purple-500 rounded-full" style={{ width: `${completed.length ? (selfOrders.length / completed.length) * 100 : 0}%` }} />
+              <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
+                <div className="h-full bg-brand-plum rounded-full" style={{ width: `${completed.length ? (selfOrders.length / completed.length) * 100 : 0}%` }} />
               </div>
             </div>
           </div>
@@ -296,10 +300,10 @@ function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Orde
   }, [orders, search]);
 
   const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: "Today's Revenue", value: fmt(totalRevenue), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-500/10', hint: 'Completed today' },
-    { label: "Today's Bills", value: String(completed.length), icon: Receipt, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'Completed today' },
-    { label: "Today's Items Sold", value: `${totalItems} pcs`, icon: Package, color: 'text-purple-500', bg: 'bg-purple-500/10', hint: 'Quantity sold today' },
-    { label: "Today's Avg Order Value", value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold', bg: 'bg-brand-gold/10', hint: 'Per invoice today' },
+    { label: "Today's Revenue", value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'Completed today' },
+    { label: "Today's Bills", value: String(completed.length), icon: Receipt, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Completed today' },
+    { label: "Today's Items Sold", value: `${totalItems} pcs`, icon: Package, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Quantity sold today' },
+    { label: "Today's Avg Order Value", value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per invoice today' },
   ];
 
   return (
@@ -311,23 +315,23 @@ function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Orde
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+        <div className="xl:col-span-2 bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-            <p className="font-black">Today's Transactions</p>
+            <p className="font-black text-brand-wine">Today&apos;s Transactions</p>
             <div className="relative w-full sm:w-64">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/30" />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search invoice or table..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-black/10 text-xs focus:outline-none focus:border-brand-red"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-brand-gold/40 bg-white text-xs text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
               />
             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left min-w-[560px]">
               <thead>
-                <tr className="text-black/40 text-xs uppercase tracking-wide border-b border-black/5">
+                <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
                   <th className="py-2.5 pr-4 font-bold">Invoice ID</th>
                   <th className="py-2.5 pr-4 font-bold">Table / Mode</th>
                   <th className="py-2.5 pr-4 font-bold">Source</th>
@@ -337,21 +341,21 @@ function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Orde
               </thead>
               <tbody>
                 {transactions.map(o => (
-                  <tr key={o.id} className="border-b border-black/5 last:border-0">
+                  <tr key={o.id} className="border-b border-brand-gold/15 last:border-0">
                     <td className="py-2.5 pr-4 font-bold text-brand-red text-sm">{o.id}</td>
-                    <td className="py-2.5 pr-4 text-sm">{orderLabel(o)}</td>
+                    <td className="py-2.5 pr-4 text-sm text-brand-wine">{orderLabel(o)}</td>
                     <td className="py-2.5 pr-4 text-xs">
-                      <span className={`px-2 py-0.5 rounded-full font-bold ${o.source === 'customer' ? 'bg-purple-500/10 text-purple-600' : 'bg-brand-red/10 text-brand-red-dark'}`}>
+                      <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full font-bold ${o.source === 'customer' ? 'bg-brand-plum/10 text-brand-plum border border-brand-plum/25' : 'bg-brand-red/10 text-brand-red-dark border border-brand-red/25'}`}>
                         {o.source === 'customer' ? 'Self-Order' : 'Staff-Taken'}
                       </span>
                     </td>
-                    <td className="py-2.5 pr-4 text-sm text-black/60">{o.items.reduce((s, i) => s + i.qty, 0)}</td>
-                    <td className="py-2.5 pr-4 text-sm font-bold text-right">{fmt(o.total)}</td>
+                    <td className="py-2.5 pr-4 text-sm text-brand-wine/60">{o.items.reduce((s, i) => s + i.qty, 0)}</td>
+                    <td className="py-2.5 pr-4 text-sm font-bold text-right text-brand-wine">{fmt(o.total)}</td>
                   </tr>
                 ))}
                 {transactions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-black/30 font-bold text-sm">No transactions found for today.</td>
+                    <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No transactions found for today.</td>
                   </tr>
                 )}
               </tbody>
@@ -360,44 +364,44 @@ function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Orde
         </div>
 
         <div className="flex flex-col gap-6">
-          <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
-            <p className="font-black mb-5">Today's Channel Split</p>
+          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
+            <p className="font-black mb-5 text-brand-wine">Today&apos;s Channel Split</p>
             {completed.length === 0 ? (
-              <p className="text-sm text-black/40">No sales today.</p>
+              <p className="text-sm text-brand-wine/50">No sales today.</p>
             ) : (
               <div className="flex flex-col gap-4">
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1.5">
                     <span className="text-brand-red uppercase tracking-wide">Staff-Taken</span>
-                    <span>{staffOrders.length}</span>
+                    <span className="text-brand-wine">{staffOrders.length}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-black/5 overflow-hidden">
+                  <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
                     <div className="h-full bg-brand-red rounded-full" style={{ width: `${(staffOrders.length / completed.length) * 100}%` }} />
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-xs font-bold mb-1.5">
-                    <span className="text-purple-500 uppercase tracking-wide">Self-Ordered</span>
-                    <span>{selfOrders.length}</span>
+                    <span className="text-brand-plum uppercase tracking-wide">Self-Ordered</span>
+                    <span className="text-brand-wine">{selfOrders.length}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-black/5 overflow-hidden">
-                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${(selfOrders.length / completed.length) * 100}%` }} />
+                  <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
+                    <div className="h-full bg-brand-plum rounded-full" style={{ width: `${(selfOrders.length / completed.length) * 100}%` }} />
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
-            <p className="font-black mb-5">Today's Top Items</p>
+          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
+            <p className="font-black mb-5 text-brand-wine">Today&apos;s Top Items</p>
             {topItems.length === 0 ? (
-              <p className="text-sm text-black/40">No items sold today.</p>
+              <p className="text-sm text-brand-wine/50">No items sold today.</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {topItems.map((item, i) => (
                   <div key={item.name} className="flex justify-between items-baseline gap-2 text-sm">
-                    <span className="font-bold flex items-center gap-2 min-w-0">
-                      <span className="text-black/30 shrink-0">{i + 1}</span>
+                    <span className="font-bold flex items-center gap-2 min-w-0 text-brand-wine">
+                      <span className="text-brand-gold-dark shrink-0">{i + 1}</span>
                       <span className="truncate">{item.name}</span>
                     </span>
                     <span className="text-brand-red font-black shrink-0">{fmt(item.revenue)}</span>
@@ -423,23 +427,23 @@ function ProductsTab({ completed }: { completed: Order[] }) {
   const filtered = leaderboard.filter(i => i.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
-    <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+    <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <p className="text-lg font-black">Product Sales Leaderboard</p>
+        <p className="text-lg font-black text-brand-wine">Product Sales Leaderboard</p>
         <div className="relative w-full sm:w-72">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/30" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search product..."
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red"
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
           />
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left min-w-[640px]">
           <thead>
-            <tr className="text-black/40 text-xs uppercase tracking-wide border-b border-black/5">
+            <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
               <th className="py-3 pr-4 font-bold">Rank</th>
               <th className="py-3 pr-4 font-bold">Product Name</th>
               <th className="py-3 pr-4 font-bold text-right">Qty Sold</th>
@@ -449,24 +453,24 @@ function ProductsTab({ completed }: { completed: Order[] }) {
           </thead>
           <tbody>
             {filtered.map((item, i) => (
-              <tr key={item.name} className="border-b border-black/5 last:border-0">
-                <td className="py-3 pr-4 font-bold text-black/40">{i + 1}</td>
-                <td className="py-3 pr-4 font-bold">{item.name}</td>
-                <td className="py-3 pr-4 text-right">{item.qty} pcs</td>
+              <tr key={item.name} className="border-b border-brand-gold/15 last:border-0">
+                <td className="py-3 pr-4 font-bold text-brand-gold-dark">{i + 1}</td>
+                <td className="py-3 pr-4 font-bold text-brand-wine">{item.name}</td>
+                <td className="py-3 pr-4 text-right text-brand-wine/70">{item.qty} pcs</td>
                 <td className="py-3 pr-4 text-right font-bold text-brand-red">{fmt(item.revenue)}</td>
                 <td className="py-3 pr-4">
                   <div className="flex items-center gap-2 min-w-[140px]">
-                    <div className="flex-1 h-1.5 rounded-full bg-black/5 overflow-hidden">
+                    <div className="flex-1 h-1.5 rounded-full bg-brand-sand/70 overflow-hidden">
                       <div className="h-full bg-brand-red rounded-full" style={{ width: `${(item.revenue / totalRevenue) * 100}%` }} />
                     </div>
-                    <span className="text-xs font-bold text-black/50 w-10 text-right">{((item.revenue / totalRevenue) * 100).toFixed(1)}%</span>
+                    <span className="text-xs font-bold text-brand-wine/60 w-10 text-right">{((item.revenue / totalRevenue) * 100).toFixed(1)}%</span>
                   </div>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-10 text-center text-black/30 font-bold text-sm">No products sold in this period yet.</td>
+                <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No products sold in this period yet.</td>
               </tr>
             )}
           </tbody>
@@ -496,8 +500,8 @@ function CouponsTab({ completed }: { completed: Order[] }) {
 
   const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
     { label: 'Total Discounts Given', value: fmt(totalDiscount), icon: Percent, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'From completed orders' },
-    { label: 'Discounted Orders', value: String(discounted.length), icon: CalendarClock, color: 'text-blue-500', bg: 'bg-blue-500/10', hint: 'Used a coupon code' },
-    { label: 'Avg Discount per Order', value: fmt(avgDiscount), icon: TrendingUp, color: 'text-brand-gold', bg: 'bg-brand-gold/10', hint: 'Per discounted order' },
+    { label: 'Discounted Orders', value: String(discounted.length), icon: CalendarClock, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Used a coupon code' },
+    { label: 'Avg Discount per Order', value: fmt(avgDiscount), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per discounted order' },
   ];
 
   return (
@@ -508,23 +512,23 @@ function CouponsTab({ completed }: { completed: Order[] }) {
         ))}
       </div>
 
-      <div className="bg-white rounded-3xl border border-black/5 shadow-sm p-5 sm:p-6">
+      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <p className="text-lg font-black">Promo Campaign Performance</p>
+          <p className="text-lg font-black text-brand-wine">Promo Campaign Performance</p>
           <div className="relative w-full sm:w-72">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-black/30" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search code/table/amount..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-black/10 text-sm focus:outline-none focus:border-brand-red"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
             />
           </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[640px]">
             <thead>
-              <tr className="text-black/40 text-xs uppercase tracking-wide border-b border-black/5">
+              <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
                 <th className="py-3 pr-4 font-bold">Transaction ID</th>
                 <th className="py-3 pr-4 font-bold">Table / Mode</th>
                 <th className="py-3 pr-4 font-bold">Coupon</th>
@@ -534,19 +538,19 @@ function CouponsTab({ completed }: { completed: Order[] }) {
             </thead>
             <tbody>
               {filtered.map(o => (
-                <tr key={o.id} className="border-b border-black/5 last:border-0">
+                <tr key={o.id} className="border-b border-brand-gold/15 last:border-0">
                   <td className="py-3 pr-4 font-bold text-brand-red text-sm">{o.id}</td>
-                  <td className="py-3 pr-4 text-sm">{orderLabel(o)}</td>
+                  <td className="py-3 pr-4 text-sm text-brand-wine">{orderLabel(o)}</td>
                   <td className="py-3 pr-4 text-sm">
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-gold/10 text-brand-gold-dark border border-brand-gold/20">{o.couponCode || '—'}</span>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-gold/15 text-brand-gold-dark border border-brand-gold/40">{o.couponCode || '—'}</span>
                   </td>
-                  <td className="py-3 pr-4 text-right text-sm">{fmt(o.total)}</td>
+                  <td className="py-3 pr-4 text-right text-sm text-brand-wine">{fmt(o.total)}</td>
                   <td className="py-3 pr-4 text-right text-sm font-bold text-brand-red">−{fmt(o.discount || 0)}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-10 text-center text-black/30 font-bold text-sm">No discounted orders in this period yet.</td>
+                  <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No discounted orders in this period yet.</td>
                 </tr>
               )}
             </tbody>
@@ -557,15 +561,29 @@ function CouponsTab({ completed }: { completed: Order[] }) {
   );
 }
 
-function StatCard({ label, value, icon: Icon, color, bg, hint }: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }) {
+// Each accent tells us which brand color the card leans on, so cards look
+// distinct instead of the whole dashboard being one flat tone.
+const CARD_ACCENTS: Record<string, { panel: string; iconBg: string; iconColor: string; ring: string; valueColor: string }> = {
+  'text-brand-green':     { panel: 'linear-gradient(140deg, #e6f1dd 0%, #ffffff 70%)', iconBg: 'bg-brand-green/15', iconColor: 'text-brand-green',     ring: 'border-brand-green/30',    valueColor: 'text-brand-green' },
+  'text-brand-wine':      { panel: 'linear-gradient(140deg, #efe6c9 0%, #fbf8ee 70%)', iconBg: 'bg-brand-wine/15',  iconColor: 'text-brand-wine',      ring: 'border-brand-gold/35',     valueColor: 'text-brand-wine' },
+  'text-brand-red':       { panel: 'linear-gradient(140deg, #fce1e3 0%, #fff6f6 70%)', iconBg: 'bg-brand-red/15',   iconColor: 'text-brand-red',       ring: 'border-brand-red/30',      valueColor: 'text-brand-red' },
+  'text-brand-plum':      { panel: 'linear-gradient(140deg, #f0d9e8 0%, #fff6fb 70%)', iconBg: 'bg-brand-plum/15',  iconColor: 'text-brand-plum',      ring: 'border-brand-plum/30',     valueColor: 'text-brand-plum' },
+  'text-brand-gold-dark': { panel: 'linear-gradient(140deg, #f3e2b1 0%, #fdf6df 70%)', iconBg: 'bg-brand-gold/25',  iconColor: 'text-brand-gold-dark', ring: 'border-brand-gold/40',     valueColor: 'text-brand-gold-dark' },
+};
+
+function StatCard({ label, value, icon: Icon, color, hint }: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }) {
+  const accent = CARD_ACCENTS[color] ?? CARD_ACCENTS['text-brand-wine'];
   return (
-    <div className="bg-[#fafafa] p-4 sm:p-5 rounded-2xl border border-black/5">
-      <div className={`w-9 h-9 rounded-xl ${bg} ${color} flex items-center justify-center mb-3`}>
+    <div
+      className={`p-4 sm:p-5 rounded-2xl border ${accent.ring} shadow-[0_12px_30px_-24px_rgba(74,21,21,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-20px_rgba(74,21,21,0.55)]`}
+      style={{ backgroundImage: accent.panel }}
+    >
+      <div className={`w-9 h-9 rounded-xl ${accent.iconBg} ${accent.iconColor} flex items-center justify-center mb-3 border border-current/20`}>
         <Icon size={18} />
       </div>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-black/40">{label}</p>
-      <p className="text-lg sm:text-xl font-black mt-0.5 truncate">{value}</p>
-      <p className="text-[11px] text-black/30 mt-0.5">{hint}</p>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/55">{label}</p>
+      <p className={`text-lg sm:text-xl font-black mt-0.5 truncate ${accent.valueColor}`}>{value}</p>
+      <p className="text-[11px] text-brand-wine/45 mt-0.5">{hint}</p>
     </div>
   );
 }
