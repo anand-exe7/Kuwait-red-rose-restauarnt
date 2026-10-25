@@ -17,7 +17,10 @@ import {
 import { addOrder, type DeliveryAddress, type OrderMode } from '../lib/orderStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
-import { validateCoupon, incrementCouponUsage } from '../lib/couponStore';
+import {
+  validateCoupon, incrementCouponUsage,
+  subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot,
+} from '../lib/couponStore';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import SignInGate from '../components/SignInGate';
@@ -51,6 +54,13 @@ const EMPTY_ADDRESS: DeliveryAddress = {
 type CheckoutStep = 'browse' | 'mode' | 'details' | 'submitting' | 'success';
 type CheckoutMode = Exclude<OrderMode, 'standing'>; // 'table' | 'takeaway' | 'delivery'
 
+// Keys for cart + checkout-resume state persisted across the OAuth round-trip.
+// Google sign-in replaces the whole document, which wipes in-memory React
+// state; without this, returning from auth drops the user back on an empty
+// menu instead of the next checkout step.
+const CART_STORAGE_KEY = 'rrs_menu_cart_v1';
+const RESUME_CHECKOUT_KEY = 'rrs_menu_resume_checkout';
+
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<Record<string, number>>({});
@@ -62,6 +72,9 @@ export default function MenuPage() {
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [signInOpen, setSignInOpen] = useState(false);
+  // True while we're waiting on sign-in to continue the user's checkout —
+  // once auth.user flips to truthy, we close the modal and jump to mode select.
+  const [pendingCheckout, setPendingCheckout] = useState(false);
 
   const [selectedMode, setSelectedMode] = useState<CheckoutMode | null>(null);
   const [phone, setPhone] = useState('');
@@ -91,6 +104,11 @@ export default function MenuPage() {
 
   const auth = useSyncExternalStore(subscribeToCustomerAuth, getCustomerAuthSnapshot, getCustomerAuthServerSnapshot);
 
+  // Subscribe to coupons purely to trigger hydration — the customer page
+  // doesn't render the list, but without this, store.get() in validateCoupon
+  // sees an empty cache and every code reads as "invalid".
+  useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
+
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
   const categories = ['All', ...MENU_CATEGORIES];
@@ -110,9 +128,9 @@ export default function MenuPage() {
   }, 0);
   const cartItemCount = Object.values(cart).reduce((a, b) => a + b, 0);
   const discount = appliedCoupon ? (cartTotal * appliedCoupon.discountPercent) / 100 : 0;
-  const taxable = Math.max(0, cartTotal - discount);
-  const taxAmt = taxable * 0.1;
-  const grandTotal = taxable + taxAmt;
+  // No tax: shop prefers all-inclusive pricing.
+  const taxAmt = 0;
+  const grandTotal = Math.max(0, cartTotal - discount);
 
   const applyCoupon = () => {
     const res = validateCoupon(couponInput, cartTotal);
@@ -128,9 +146,64 @@ export default function MenuPage() {
 
   const openCheckout = () => {
     if (cartItemCount === 0) return;
-    if (!auth.user) { setSignInOpen(true); return; }
+    if (!auth.user) {
+      // Google OAuth replaces the whole document, so stash the cart and a
+      // resume flag now — on the way back we rehydrate the cart and jump
+      // straight to the mode step.
+      try {
+        sessionStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+        sessionStorage.setItem(RESUME_CHECKOUT_KEY, '1');
+      } catch { /* storage disabled — demo flow still works */ }
+      setPendingCheckout(true);
+      setSignInOpen(true);
+      return;
+    }
     setStep('mode');
   };
+
+  // On mount after returning from Google OAuth: restore the stashed cart +
+  // resume flag and open the drawer immediately, so the user sees the
+  // checkout picking up instead of landing on a bare menu while auth loads.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(CART_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, number>;
+        if (parsed && typeof parsed === 'object') setCart(parsed);
+      }
+      if (sessionStorage.getItem(RESUME_CHECKOUT_KEY) === '1') {
+        setPendingCheckout(true);
+        setIsCartOpen(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // When sign-in completes mid-checkout, advance straight into the mode
+  // picker. We ONLY react to the user becoming truthy — never clear the
+  // pending flag while auth.user is still null, because `pendingCheckout`
+  // is also set the moment the user clicks "Sign in to checkout" (before
+  // they've had a chance to type anything).
+  useEffect(() => {
+    if (!pendingCheckout || !auth.user) return;
+    setPendingCheckout(false);
+    setSignInOpen(false);
+    setIsCartOpen(true);
+    setStep('mode');
+    try {
+      sessionStorage.removeItem(RESUME_CHECKOUT_KEY);
+      sessionStorage.removeItem(CART_STORAGE_KEY);
+    } catch { /* ignore */ }
+  }, [auth.user, pendingCheckout]);
+
+  // The checkout drawer slides over the hero; letting the body scroll behind
+  // it pulls the whole page out from under the sheet. Lock scroll while it's
+  // open and release it on close.
+  useEffect(() => {
+    if (!isCartOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isCartOpen]);
 
   const chooseMode = (mode: CheckoutMode) => {
     setSelectedMode(mode);
@@ -247,11 +320,11 @@ export default function MenuPage() {
           WebkitMaskImage: 'linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%)',
         }}
       />
-      <header className="fixed inset-x-0 top-0 z-40 px-3 pt-3 sm:px-5 sm:pt-4">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 rounded-full border border-brand-gold/25 bg-[#4f070c]/90 py-1.5 pl-2 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md">
-          <BrandMark href="/" />
+      <header className="fixed inset-x-0 top-0 z-40 px-2 pt-2 sm:px-5 sm:pt-4">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-brand-gold/25 bg-[#4f070c]/90 py-1 pl-1.5 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md sm:gap-3 sm:py-1.5 sm:pl-2">
+          <BrandMark href="/" sub="" compact />
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {auth.user ? (
               <>
                 <span className="hidden items-center gap-2 rounded-full border border-brand-gold/30 bg-white/10 px-3 py-2 font-body text-[10.5px] text-brand-gold-light sm:flex">
@@ -261,19 +334,20 @@ export default function MenuPage() {
                   )}
                   <span className="max-w-[120px] truncate">{auth.user.name || auth.user.email}</span>
                 </span>
-                <button onClick={() => void signOut()} aria-label="Sign out" className="btn btn-outline-light h-10 w-10 p-0">
+                <button onClick={() => void signOut()} aria-label="Sign out" className="btn btn-outline-light h-9 w-9 p-0 sm:h-10 sm:w-10">
                   <LogOut size={14} />
                 </button>
               </>
             ) : (
-              <button onClick={() => setSignInOpen(true)} className="btn btn-outline-light px-4 py-3 text-[10px] sm:px-5">
-                <LogIn size={14} /> Sign in
+              <button onClick={() => setSignInOpen(true)} aria-label="Sign in" className="btn btn-outline-light h-9 w-9 justify-center p-0 sm:h-10 sm:w-auto sm:px-5 sm:py-3 sm:text-[10px]">
+                <LogIn size={14} />
+                <span className="hidden sm:inline">Sign in</span>
               </button>
             )}
-            <button onClick={() => setIsCartOpen(true)} aria-label="Your order" className="btn btn-gold relative h-10 w-10 p-0 transition-transform hover:scale-105 active:scale-95">
-              <ShoppingBag size={16} strokeWidth={1.8} />
+            <button onClick={() => setIsCartOpen(true)} aria-label="Your order" className="btn btn-gold relative h-9 w-9 p-0 transition-transform hover:scale-105 active:scale-95 sm:h-10 sm:w-10">
+              <ShoppingBag size={15} strokeWidth={1.8} />
               {cartItemCount > 0 && (
-                <span key={cartItemCount} className="qty-pop absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#4f070c] bg-brand-red font-body text-[10px] font-semibold tracking-normal text-white">
+                <span key={cartItemCount} className="qty-pop absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[#4f070c] bg-brand-red font-body text-[9px] font-semibold tracking-normal text-white sm:h-5 sm:w-5 sm:text-[10px]">
                   {cartItemCount}
                 </span>
               )}
@@ -296,34 +370,86 @@ export default function MenuPage() {
           </span>
         ))}
 
-        <div className="h-24 sm:h-28" aria-hidden />
+        <div className="h-20 sm:h-24" aria-hidden />
 
-        <div className="relative z-30 mx-auto flex max-w-6xl select-none flex-col items-center px-4 pb-24 sm:pb-28 md:pb-32">
-          <div className="anim-fade-down flex items-center gap-3 sm:gap-5">
-            <span className="h-px w-8 bg-gradient-to-r from-transparent to-brand-gold/70 sm:w-16" />
-            <span className="whitespace-nowrap font-body text-[9px] font-medium uppercase tracking-[0.34em] text-brand-gold-light/90 sm:text-[10px] sm:tracking-[0.42em]">
-              Our menu · Freshly made, every day
-            </span>
-            <span className="h-px w-8 bg-gradient-to-l from-transparent to-brand-gold/70 sm:w-16" />
-          </div>
+        <div className="relative z-30 mx-auto grid max-w-6xl select-none grid-cols-1 items-center gap-6 px-5 pb-24 sm:px-8 sm:pb-28 md:grid-cols-[1.05fr_1fr] md:gap-10 md:pb-32">
 
-          <div className="relative mt-4 flex w-full flex-col items-center md:mt-2 md:flex-row md:justify-center">
-            <div className="flex items-end gap-3 md:contents">
-              <span
-                className="anim-slide-left block bg-clip-text font-wordmark text-[clamp(84px,25vw,150px)] leading-[0.9] tracking-[-0.022em] text-transparent md:order-1 md:text-[clamp(110px,16vw,220px)]"
-                style={{ backgroundImage: 'linear-gradient(180deg, #ffa8a6 0%, #ff7078 34%, #fb4d5b 70%, #ee3242 100%)', filter: 'drop-shadow(0 2px 1px rgba(90,3,12,0.45)) drop-shadow(0 20px 44px rgba(28,0,4,0.55))' }}
-              >RED</span>
-              <span
-                className="anim-slide-right block bg-clip-text font-wordmark text-[clamp(84px,25vw,150px)] leading-[0.9] tracking-[-0.022em] text-transparent md:order-3 md:text-[clamp(110px,16vw,220px)]"
-                style={{ backgroundImage: 'linear-gradient(100deg, #fdeed6 0%, #f2d3a4 30%, #ffffff 45%, #fffdf8 51%, #f2d3a4 68%, #fdeed6 100%)', filter: 'drop-shadow(0 2px 1px rgba(90,3,12,0.35)) drop-shadow(0 20px 44px rgba(28,0,4,0.55))' }}
-              >ROSE</span>
+          {/* ---- Left: eyebrow + title + subtitle ---- */}
+          <div className="order-2 flex flex-col items-start md:order-1">
+            <div className="anim-fade-down flex items-center gap-3 sm:gap-5">
+              <span className="h-px w-10 bg-gradient-to-r from-transparent to-brand-gold/70 sm:w-16" />
+              <span className="whitespace-nowrap font-body text-[9px] font-medium uppercase tracking-[0.34em] text-brand-gold-light/90 sm:text-[10px] sm:tracking-[0.42em]">
+                Our menu · Baked fresh daily
+              </span>
             </div>
 
-            <div className="anim-cake-drop relative z-10 -mt-3 w-[64vw] max-w-[320px] md:order-2 md:mt-0 md:-mx-[5vw] md:w-[30vw] md:max-w-[420px]">
-              <div aria-hidden className="anim-glow absolute inset-[-12%] -z-10" style={{ background: 'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)' }} />
+            <h1
+              className="anim-slide-left mt-5 font-wordmark text-[clamp(60px,11vw,120px)] uppercase leading-[0.92] tracking-[-0.008em] text-white"
+              style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', filter: 'drop-shadow(0 2px 1px rgba(90,3,12,0.45)) drop-shadow(0 20px 44px rgba(28,0,4,0.55))' }}
+            >
+              <span
+                className="block bg-clip-text text-transparent"
+                style={{ backgroundImage: 'linear-gradient(180deg, #ffbdb6 0%, #ff7f87 50%, #ee3242 100%)' }}
+              >The sweet</span>
+              <span
+                className="block bg-clip-text text-transparent"
+                style={{ backgroundImage: 'linear-gradient(100deg, #fdeed6 0%, #f2d3a4 32%, #ffffff 48%, #fffdf8 54%, #f2d3a4 70%, #fdeed6 100%)' }}
+              >side of Kuwait</span>
+            </h1>
+
+            <p className="anim-fade-up mt-6 max-w-md font-body text-[14px] font-light leading-relaxed text-white/80 sm:text-[15px]">
+              Baklava, cakes and pastries from our Salmiya kitchen — browse, build your order, and we&apos;ll have it to your table, counter or door.
+            </p>
+
+            <div className="anim-fade-up mt-7 flex flex-wrap items-center gap-4 font-body text-[10px] font-medium uppercase tracking-[0.26em] text-brand-gold-light/85">
+              <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> 12 items</span>
+              <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> Dine-in</span>
+              <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> Takeaway</span>
+              <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> Delivery</span>
+            </div>
+          </div>
+
+          {/* ---- Right: cake with floating cutouts ---- */}
+          <div className="order-1 flex items-center justify-center md:order-2 md:justify-end">
+            <div className="anim-cake-drop relative aspect-square w-[72vw] max-w-[380px] md:w-[36vw] md:max-w-[460px]">
+              <div
+                aria-hidden
+                className="anim-glow absolute inset-[-14%] -z-10"
+                style={{ background: 'radial-gradient(closest-side, rgba(255,196,186,0.55), rgba(255,120,120,0.18) 55%, transparent 78%)' }}
+              />
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/cake-hd-720.webp" alt="A Red Rose cake" width={720} height={682}
-                className="cake-sway block h-auto w-full drop-shadow-[0_26px_30px_rgba(45,0,8,0.45)]" />
+              <img
+                src="/cake-hd-720.webp"
+                srcSet="/cake-hd-720.webp 720w, /cake-hd.webp 1100w"
+                sizes="(min-width: 768px) 36vw, 72vw"
+                alt="A Red Rose signature cake"
+                width={720}
+                height={682}
+                fetchPriority="high"
+                className="cake-sway relative z-10 block h-full w-full object-contain drop-shadow-[0_30px_40px_rgba(45,0,8,0.55)]"
+              />
+
+              {/* Floating cutouts around the cake */}
+              <span aria-hidden className="float absolute -left-[6%] top-[18%] z-20 w-[22%] max-w-[100px]" style={{ ['--f' as string]: '7s', ['--fd' as string]: '0.4s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cutouts/strawberries.webp" alt="" className="block h-auto w-full drop-shadow-[0_14px_14px_rgba(45,0,8,0.42)]" />
+              </span>
+              <span aria-hidden className="float absolute -right-[4%] top-[6%] z-20 w-[20%] max-w-[94px]" style={{ ['--f' as string]: '6.2s', ['--fd' as string]: '0s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cutouts/rose.webp" alt="" className="block h-auto w-full drop-shadow-[0_14px_14px_rgba(45,0,8,0.42)]" />
+              </span>
+              <span aria-hidden className="float absolute -right-[10%] bottom-[22%] z-20 w-[26%] max-w-[120px]" style={{ ['--f' as string]: '8s', ['--fd' as string]: '0.8s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cutouts/croissant.webp" alt="" className="block h-auto w-full drop-shadow-[0_14px_14px_rgba(45,0,8,0.42)]" />
+              </span>
+              <span aria-hidden className="float absolute -left-[2%] bottom-[8%] z-20 w-[16%] max-w-[76px]" style={{ ['--f' as string]: '5.5s', ['--fd' as string]: '1.2s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cutouts/cherries.webp" alt="" className="block h-auto w-full drop-shadow-[0_14px_14px_rgba(45,0,8,0.42)]" />
+              </span>
+              <span aria-hidden className="float absolute right-[-2%] bottom-[-4%] z-20 w-[14%] max-w-[70px] rotate-[12deg]" style={{ ['--f' as string]: '6.8s', ['--fd' as string]: '0.5s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cutouts/petal-c.webp" alt="" className="block h-auto w-full drop-shadow-[0_10px_10px_rgba(45,0,8,0.35)]" />
+              </span>
             </div>
           </div>
         </div>
@@ -375,66 +501,66 @@ export default function MenuPage() {
             No items in this category yet.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:gap-8 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 lg:grid-cols-3">
             {filteredMenu.map(item => (
-              <div key={item.id} className="group relative flex flex-col overflow-hidden rounded-[1.75rem] border border-brand-gold/25 bg-white shadow-[0_24px_50px_-32px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)]">
+              <div key={item.id} className="group relative flex flex-col overflow-hidden rounded-2xl border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
                 <div className="relative aspect-[4/3] w-full flex-shrink-0 overflow-hidden bg-brand-sand">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.07]" />
                   <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a0a0a]/55 via-[#2a0a0a]/0 to-transparent" />
-                  <span aria-hidden className="pointer-events-none absolute inset-[10px] rounded-[1.25rem] border border-white/35" />
+                  <span aria-hidden className="pointer-events-none absolute inset-[6px] rounded-xl border border-white/35 sm:inset-[10px] sm:rounded-[1.25rem]" />
 
-                  <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-2">
+                  <div className="absolute left-2 right-2 top-2 flex items-start justify-between gap-1.5 sm:left-4 sm:right-4 sm:top-4 sm:gap-2">
                     {item.isPopular ? (
-                      <span className="rounded-full bg-brand-red px-3 py-1.5 font-body text-[9px] font-semibold uppercase tracking-[0.26em] text-white shadow-[0_8px_18px_-8px_rgba(176,30,40,0.75)]">
+                      <span className="rounded-full bg-brand-red px-2 py-1 font-body text-[7.5px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_8px_18px_-8px_rgba(176,30,40,0.75)] sm:px-3 sm:py-1.5 sm:text-[9px] sm:tracking-[0.26em]">
                         Popular
                       </span>
                     ) : <span />}
                     {item.isChefSpecial && (
-                      <span className="rounded-full bg-brand-gold px-3 py-1.5 font-body text-[9px] font-semibold uppercase tracking-[0.26em] text-brand-wine shadow-[0_8px_18px_-8px_rgba(30,0,4,0.55)]">
+                      <span className="rounded-full bg-brand-gold px-2 py-1 font-body text-[7.5px] font-semibold uppercase tracking-[0.2em] text-brand-wine shadow-[0_8px_18px_-8px_rgba(30,0,4,0.55)] sm:px-3 sm:py-1.5 sm:text-[9px] sm:tracking-[0.26em]">
                         Chef&apos;s pick
                       </span>
                     )}
                   </div>
 
-                  <span className="absolute bottom-4 left-4 rounded-full bg-brand-cream/95 px-3 py-1 font-body text-[9px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark shadow-sm backdrop-blur-sm">
+                  <span className="absolute bottom-2 left-2 rounded-full bg-brand-cream/95 px-2 py-0.5 font-body text-[7.5px] font-medium uppercase tracking-[0.22em] text-brand-gold-dark shadow-sm backdrop-blur-sm sm:bottom-4 sm:left-4 sm:px-3 sm:py-1 sm:text-[9px] sm:tracking-[0.3em]">
                     {item.category}
                   </span>
                 </div>
 
-                <div className="flex flex-1 flex-col p-5 md:p-6">
+                <div className="flex flex-1 flex-col p-3 sm:p-5 md:p-6">
                   <h4
-                    className="font-wordmark text-[26px] uppercase leading-[1.02] tracking-[0.012em] text-brand-wine md:text-[28px]"
+                    className="font-wordmark text-[16px] uppercase leading-[1.02] tracking-[0.012em] text-brand-wine sm:text-[26px] md:text-[28px]"
                     style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                   >
                     {item.name}
                   </h4>
-                  <p className="mt-4 mb-5 line-clamp-2 flex-1 font-body text-[13px] font-light leading-relaxed text-brand-ink/60">
+                  <p className="mt-2 mb-3 hidden line-clamp-2 font-body text-[13px] font-light leading-relaxed text-brand-ink/60 sm:mt-4 sm:mb-5 sm:block">
                     {item.description}
                   </p>
-                  <div className="flex items-center justify-between gap-3 border-t border-brand-gold/25 pt-4">
-                    <div className="shrink-0">
+                  <div className="mt-auto flex flex-col items-stretch gap-2 border-t border-brand-gold/25 pt-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pt-4">
+                    <div className="min-w-0 shrink-0">
                       <span
-                        className="lining-nums font-wordmark text-[26px] leading-none text-brand-red md:text-[28px]"
+                        className="lining-nums font-wordmark text-[18px] leading-none text-brand-red sm:text-[26px] md:text-[28px]"
                         style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
                       >
                         {formatKWD(item.price)}
                       </span>
                       {cart[item.id] > 0 && (
-                        <p className="mt-1.5 font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-ink/45">
+                        <p className="mt-1 hidden font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-ink/45 sm:mt-1.5 sm:block">
                           {formatKWD(item.price * cart[item.id])} total
                         </p>
                       )}
                     </div>
                     {cart[item.id] ? (
-                      <div className="qty-pop flex shrink-0 items-center gap-2 rounded-full border border-brand-gold/50 bg-brand-cream p-1">
-                        <button onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-all hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={15} /></button>
-                        <span key={cart[item.id]} className="qty-bump w-5 text-center font-wordmark text-xl text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{cart[item.id]}</span>
-                        <button onClick={() => addToCart(item.id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-9 w-9 shrink-0 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={15} /></button>
+                      <div className="qty-pop flex w-full items-center justify-between gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5 sm:w-auto sm:shrink-0 sm:justify-start sm:gap-2 sm:p-1">
+                        <button onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-all hover:scale-105 hover:text-brand-red active:scale-95 sm:h-9 sm:w-9"><Minus size={13} /></button>
+                        <span key={cart[item.id]} className="qty-bump w-5 text-center font-wordmark text-base text-brand-wine sm:text-xl" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{cart[item.id]}</span>
+                        <button onClick={() => addToCart(item.id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-8 w-8 shrink-0 p-0 transition-transform hover:scale-105 active:scale-95 sm:h-9 sm:w-9"><Plus size={13} /></button>
                       </div>
                     ) : (
-                      <button onClick={() => addToCart(item.id)} className="btn btn-wine shrink-0 px-6 py-3.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95">
-                        <Plus size={14} /> Add
+                      <button onClick={() => addToCart(item.id)} className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5">
+                        <Plus size={13} /> Add
                       </button>
                     )}
                   </div>
@@ -520,7 +646,7 @@ export default function MenuPage() {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-4 border-b border-brand-gold/25 p-6 md:p-8">
+                <div className="flex items-center gap-3 border-b border-brand-gold/25 p-4 md:p-5">
                   <button
                     onClick={() => {
                       if (step === 'details') setStep('mode');
@@ -528,16 +654,16 @@ export default function MenuPage() {
                       else setIsCartOpen(false);
                     }}
                     aria-label="Back"
-                    className="flex h-11 w-11 items-center justify-center rounded-full border border-brand-gold/40 bg-white text-brand-wine hover:border-brand-red hover:text-brand-red"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-brand-gold/40 bg-white text-brand-wine transition-colors hover:border-brand-red hover:text-brand-red"
                   >
-                    <ChevronLeft size={20} />
+                    <ChevronLeft size={18} />
                   </button>
                   <div className="flex-1">
-                    <span className="font-body text-[10px] font-medium uppercase tracking-[0.34em] text-brand-gold-dark">
+                    <span className="font-body text-[9.5px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark">
                       {step === 'mode' ? 'Where should it go?' : step === 'details' ? 'Almost there' : 'Your selection'}
                     </span>
                     <h2
-                      className="font-wordmark text-[30px] uppercase leading-none tracking-[0.012em] text-brand-wine md:text-[36px]"
+                      className="font-wordmark text-[24px] uppercase leading-none tracking-[0.012em] text-brand-wine md:text-[28px]"
                       style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                     >
                       {step === 'mode' ? 'Choose a mode' : step === 'details' ? 'Last details' : 'Your Order'}
@@ -547,7 +673,7 @@ export default function MenuPage() {
 
                 {(step === 'browse') && (
                   <>
-                    <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 md:p-8">
+                    <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-4 md:p-5">
                       {cartItemCount === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center gap-4 text-brand-wine/35">
                           <ShoppingBag size={56} strokeWidth={1.2} />
@@ -563,25 +689,25 @@ export default function MenuPage() {
                           return (
                             <div
                               key={id}
-                              className="anim-cart-item-in flex items-center gap-4 rounded-[1.5rem] border border-brand-gold/25 bg-white p-3 shadow-[0_12px_30px_-20px_rgba(74,21,21,0.4)] transition-shadow hover:shadow-[0_18px_36px_-20px_rgba(74,21,21,0.55)]"
+                              className="anim-cart-item-in flex items-center gap-3 rounded-[1.25rem] border border-brand-gold/25 bg-white p-2.5 shadow-[0_10px_24px_-18px_rgba(74,21,21,0.4)] transition-shadow hover:shadow-[0_14px_28px_-18px_rgba(74,21,21,0.55)]"
                               style={{ '--i': idx } as React.CSSProperties}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={item.image} alt={item.name} className="h-20 w-20 rounded-[1.1rem] bg-brand-sand object-cover md:h-24 md:w-24" />
+                              <img src={item.image} alt={item.name} className="h-14 w-14 rounded-xl bg-brand-sand object-cover" />
                               <div className="min-w-0 flex-1">
                                 <h4
-                                  className="mb-1.5 font-wordmark text-[20px] uppercase leading-tight tracking-[0.012em] text-brand-wine"
-                                  style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
+                                  className="mb-1 block line-clamp-1 font-wordmark text-[15px] uppercase leading-tight tracking-[0.012em] text-brand-wine"
+                                  style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                                 >{item.name}</h4>
                                 <p
-                                  className="font-wordmark text-[20px] text-brand-red"
-                                  style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
+                                  className="block font-wordmark text-[15px] leading-none text-brand-red"
+                                  style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                                 >{formatKWD(item.price * qty)}</p>
                               </div>
-                              <div className="flex items-center gap-1.5 rounded-full border border-brand-gold/50 bg-brand-cream p-1">
-                                <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={13} /></button>
-                                <span key={qty} className="qty-bump w-5 text-center font-wordmark text-lg text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
-                                <button onClick={() => addToCart(id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-8 w-8 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={13} /></button>
+                              <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
+                                <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${item.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={12} /></button>
+                                <span key={qty} className="qty-bump w-5 text-center font-wordmark text-[15px] text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
+                                <button onClick={() => addToCart(id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={12} /></button>
                               </div>
                             </div>
                           );
@@ -590,40 +716,42 @@ export default function MenuPage() {
                     </div>
 
                     {cartItemCount > 0 && (
-                      <div className="rounded-b-[2rem] border-t border-brand-gold/25 bg-brand-sand/60 p-6 pb-8 md:rounded-bl-[2rem] md:rounded-br-none md:p-8">
-                        <div className="mb-5">
+                      <div className="rounded-b-[2rem] border-t border-brand-gold/25 bg-brand-sand/60 p-4 pb-6 md:rounded-bl-[2rem] md:rounded-br-none md:p-5">
+                        <div className="mb-3">
                           {appliedCoupon ? (
-                            <div className="flex items-center justify-between gap-2 rounded-2xl border border-brand-green/30 bg-brand-green/10 px-4 py-3">
-                              <span className="flex items-center gap-2 font-body text-sm font-medium text-brand-green">
-                                <Tag size={15} /> {appliedCoupon.code} · {appliedCoupon.discountPercent}% off
+                            <div
+                              key={appliedCoupon.code}
+                              className="anim-coupon-applied flex items-center justify-between gap-2 overflow-hidden rounded-full border border-brand-green/40 bg-brand-green/10 px-3 py-1.5"
+                            >
+                              <span className="flex items-center gap-1.5 font-body text-[11px] font-medium uppercase tracking-[0.14em] text-brand-green">
+                                <CheckCircle2 size={13} /> {appliedCoupon.code} · {appliedCoupon.discountPercent}% off
                               </span>
-                              <button onClick={removeCoupon} aria-label="Remove coupon" className="text-brand-ink/40 hover:text-brand-red"><X size={16} /></button>
+                              <button onClick={removeCoupon} aria-label="Remove coupon" className="text-brand-ink/40 transition-colors hover:text-brand-red"><X size={14} /></button>
                             </div>
                           ) : (
-                            <div className="flex gap-2">
+                            <div className="flex gap-1.5">
                               <div className="relative flex-1">
-                                <Tag size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-                                <input value={couponInput} onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(null); }} placeholder="Coupon code"
-                                  className="w-full rounded-full border border-brand-gold/40 bg-white py-3 pl-10 pr-4 font-body text-xs font-medium uppercase tracking-[0.18em] placeholder:text-brand-ink/35 focus:border-brand-red focus:outline-none" />
+                                <Tag size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
+                                <input value={couponInput} onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(null); }} placeholder="Coupon"
+                                  className="w-full rounded-full border border-brand-gold/40 bg-white py-2 pl-8 pr-3 font-body text-[11px] font-medium uppercase tracking-[0.14em] placeholder:text-brand-ink/35 focus:border-brand-red focus:outline-none" />
                               </div>
-                              <button onClick={applyCoupon} disabled={!couponInput.trim()} className="btn btn-outline px-6 py-3 text-[10px] disabled:opacity-40">Apply</button>
+                              <button onClick={applyCoupon} disabled={!couponInput.trim()} className="btn btn-outline px-4 py-2 text-[9px] disabled:opacity-40">Apply</button>
                             </div>
                           )}
-                          {couponError && <p className="mt-2 pl-4 font-body text-xs font-medium text-brand-red">{couponError}</p>}
+                          {couponError && <p className="mt-1.5 pl-3 font-body text-[11px] font-medium text-brand-red">{couponError}</p>}
                         </div>
 
-                        <div className="mb-2.5 flex justify-between font-body text-sm font-light text-brand-ink/65"><span>Subtotal</span><span className="font-medium text-brand-ink">{formatKWD(cartTotal)}</span></div>
-                        {discount > 0 && <div className="mb-2.5 flex justify-between font-body text-sm text-brand-green"><span>Discount</span><span className="font-medium">− {formatKWD(discount)}</span></div>}
-                        <div className="mb-5 flex justify-between font-body text-sm font-light text-brand-ink/65"><span>Tax (10%)</span><span className="font-medium text-brand-ink">{formatKWD(taxAmt)}</span></div>
-                        <div className="mb-6 flex items-end justify-between border-t border-brand-gold/30 pt-5">
-                          <span className="font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Total</span>
+                        <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65"><span>Subtotal</span><span className="font-medium text-brand-ink">{formatKWD(cartTotal)}</span></div>
+                        {discount > 0 && <div className="mb-2 flex justify-between font-body text-[13px] text-brand-green"><span>Discount</span><span className="font-medium">− {formatKWD(discount)}</span></div>}
+                        <div className="mb-4 flex items-end justify-between border-t border-brand-gold/30 pt-3">
+                          <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine">Total</span>
                           <span
-                            className="font-wordmark text-[40px] leading-none text-brand-red"
+                            className="font-wordmark text-[32px] leading-none text-brand-red"
                             style={{ display: 'inline-block', transform: 'scaleY(1.08)', transformOrigin: 'bottom right' }}
                           >{formatKWD(grandTotal)}</span>
                         </div>
-                        <button onClick={openCheckout} className="btn btn-wine w-full py-5">
-                          {auth.user ? 'Checkout' : (<><LogIn size={18} /> Sign in to checkout</>)}
+                        <button onClick={openCheckout} className="btn btn-wine w-full py-4">
+                          {auth.user ? 'Checkout' : (<><LogIn size={16} /> Sign in to checkout</>)}
                         </button>
                       </div>
                     )}
@@ -745,7 +873,7 @@ export default function MenuPage() {
       <SignInGate
         open={signInOpen}
         onClose={() => setSignInOpen(false)}
-        message="Sign in with Google to place your order. We only use this to tie orders to your account."
+        message="Enter your name to continue — we use it to tie this order to you. Google sign-in is optional."
       />
     </div>
   );

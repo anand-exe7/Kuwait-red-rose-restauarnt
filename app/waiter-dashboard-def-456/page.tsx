@@ -6,7 +6,6 @@ import {
   Minus,
   Send,
   Clock,
-  User,
   Hash,
   Coffee,
   Utensils,
@@ -37,6 +36,7 @@ import { formatKWD, round3 } from '../lib/currency';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
+import { Pagination, usePagination } from '../components/Pagination';
 
 type TableSel = number | 'standing';
 
@@ -285,7 +285,7 @@ export default function WaiterDashboard() {
   const cardBase = 'bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)]';
 
   return (
-    <div className={`landing ${landingFonts} h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-body pb-[70px] lg:pb-24 selection:bg-brand-red selection:text-white`}>
+    <div className={`landing ${landingFonts} h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-body pb-[66px] lg:pb-0 selection:bg-brand-red selection:text-white`}>
       {/* Toast */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-wine text-white px-6 py-3 rounded-full font-body font-medium text-[11px] uppercase tracking-[0.18em] border border-brand-gold/40 shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
@@ -297,31 +297,31 @@ export default function WaiterDashboard() {
       <div className="flex-1 min-h-0 w-full max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
 
         {/* ============ TOP BAR ============ */}
-        <header className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-[2rem] md:rounded-full border border-brand-gold/25 bg-[#4f070c] p-3 md:py-2.5 md:pl-4 md:pr-3 shadow-[0_18px_44px_-14px_rgba(35,0,4,0.55)]">
-          <div className="flex items-center justify-between w-full md:w-auto gap-3">
-            <div className="flex items-center gap-4 min-w-0">
-              <BrandMark sub="Waiter Station" />
-              <p className="hidden sm:block text-[10px] font-medium uppercase tracking-[0.24em] text-brand-gold-light/80 truncate">Floor service · Station 2</p>
+        <header className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-3 rounded-2xl md:rounded-full border border-brand-gold/25 bg-[#4f070c] p-2 md:py-2 md:pl-3 md:pr-2.5 shadow-[0_18px_44px_-14px_rgba(35,0,4,0.55)]">
+          <div className="flex items-center justify-between w-full md:w-auto gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <BrandMark sub="Waiter" compact />
+              <p className="hidden sm:block text-[9px] font-medium uppercase tracking-[0.22em] text-brand-gold-light/80 truncate">Station 2</p>
             </div>
-            <div className="md:hidden flex items-center gap-2 rounded-full border border-brand-gold/30 px-3.5 py-2 shrink-0 text-brand-gold-light">
-              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[10px] font-medium uppercase tracking-[0.2em]">{activeLabel}</span>
+            <div className="md:hidden flex items-center gap-1.5 rounded-full border border-brand-gold/30 px-2.5 py-1.5 shrink-0 text-brand-gold-light">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-[9px] font-medium uppercase tracking-[0.18em]">{activeLabel}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="relative flex-1 md:w-72">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-brand-gold-light/70" size={16} />
+            <div className="relative flex-1 md:w-64">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-light/70" size={14} />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search dishes, drinks…"
-                className="w-full rounded-full border border-white/20 bg-white/[0.07] py-3 pl-11 pr-10 text-sm font-light text-white placeholder-white/45 transition-all focus:border-brand-gold-light/70 focus:outline-none"
+                placeholder="Search dishes…"
+                className="w-full rounded-full border border-white/20 bg-white/[0.07] py-2 pl-10 pr-9 text-xs font-light text-white placeholder-white/45 transition-all focus:border-brand-gold-light/70 focus:outline-none"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/60 hover:text-white">
-                  <X size={16} />
+                <button onClick={() => setSearchQuery('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/60 hover:text-white">
+                  <X size={14} />
                 </button>
               )}
             </div>
@@ -329,33 +329,29 @@ export default function WaiterDashboard() {
             <button
               onClick={() => setMuted(m => !m)}
               title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
-              className={`btn shrink-0 relative h-11 w-11 p-0 ${muted ? 'text-white/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] hover:text-white' : 'btn-outline-light'}`}
+              className={`btn shrink-0 relative h-9 w-9 p-0 ${muted ? 'text-white/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] hover:text-white' : 'btn-outline-light'}`}
             >
-              {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+              {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
               {!muted && readyOrders.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-brand-gold animate-ping" />
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-brand-gold animate-ping" />
               )}
             </button>
 
-            <div className="hidden lg:flex items-center gap-3 rounded-full border border-brand-gold/30 py-1.5 pl-4 pr-4 shrink-0 text-brand-gold-light">
-              <span className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.2em]">
-                <User size={14} /> Alex W.
-              </span>
-              <span className="h-4 w-px bg-brand-gold/30" />
-              <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.2em] text-green-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" /> Live
-              </span>
+            <div className="hidden lg:flex items-center gap-1.5 rounded-full border border-brand-gold/30 py-1 px-3 shrink-0 text-brand-gold-light">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
+              <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-green-300">Live</span>
             </div>
           </div>
         </header>
 
         {/* ============ ALERTS PAGE (ready pickups + waiter calls) ============ */}
         {activeTab === 'alerts' ? (
-          <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto custom-scrollbar">
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 content-start gap-4 min-h-0 overflow-y-auto custom-scrollbar pb-20 lg:pb-20">
             <AlertsSection
               title="Ready to serve — pick up now"
               icon={BellRing}
               emptyText="No tickets waiting for pickup."
+              pageLabel="pickups"
               items={readyOrders.map(o => ({
                 id: o.id,
                 title: orderLabel(o),
@@ -369,6 +365,7 @@ export default function WaiterDashboard() {
               title="Tables calling a waiter"
               icon={Bell}
               emptyText="No active waiter calls."
+              pageLabel="calls"
               items={activeWaiterCalls.map(call => ({
                 id: call.id,
                 title: `Table ${call.table}`,
@@ -384,7 +381,7 @@ export default function WaiterDashboard() {
         <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'menu' ? 'lg:flex-row' : ''} gap-4`}>
 
           {/* LEFT: tables + kitchen feed */}
-          <aside className={`w-full gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-4 lg:pb-0 lg:overflow-hidden ${activeTab !== 'tables' ? 'hidden' : 'flex flex-col lg:grid lg:grid-cols-2'}`}>
+          <aside className={`w-full gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-20 lg:pb-20 ${activeTab !== 'tables' ? 'hidden' : 'flex flex-col lg:grid lg:grid-cols-2'}`}>
             {/* Tables */}
             <div className={`${cardBase} p-4`}>
               <div className="flex items-center justify-between mb-3">
@@ -430,7 +427,7 @@ export default function WaiterDashboard() {
                         }`}
                       >
                         <span className={`text-[9px] font-bold ${isSelected ? 'text-brand-gold-light/80' : 'text-brand-ink/40'}`}>TBL</span>
-                        <span className="font-display text-2xl font-semibold leading-none">{t}</span>
+                        <span className="font-wordmark text-2xl leading-none">{t}</span>
                         {isCalling && (
                           <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand-red text-white flex items-center justify-center border-2 border-white">
                             <Bell size={10} />
@@ -475,7 +472,7 @@ export default function WaiterDashboard() {
                   <div className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/[0.03] p-3.5 flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Table {activeTable}</h4>
+                        <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Table {activeTable}</h4>
                         <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{activeOrdersForActiveTable.length} order{activeOrdersForActiveTable.length !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}</span></p>
                       </div>
                     </div>
@@ -505,7 +502,7 @@ export default function WaiterDashboard() {
                       <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">{s.label}</h4>
+                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">{s.label}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
@@ -537,7 +534,7 @@ export default function WaiterDashboard() {
                       <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Table {s.table}</h4>
+                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Table {s.table}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
@@ -569,7 +566,7 @@ export default function WaiterDashboard() {
                       <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">Takeaway #{s.id}</h4>
+                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Takeaway #{s.id}</h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
                           </div>
                         </div>
@@ -599,7 +596,7 @@ export default function WaiterDashboard() {
                       <div key={o.id} className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/5 p-3.5 flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-display text-xl font-semibold leading-none text-brand-wine truncate">
+                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">
                               Delivery · {o.customer?.name || `#${o.id.split('-')[1]}`}
                             </h4>
                             <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">
@@ -633,90 +630,18 @@ export default function WaiterDashboard() {
             </div>
 
             {/* Kitchen live feed */}
-            <div className={`${cardBase} p-4 flex-1 flex flex-col overflow-hidden min-h-[240px]`}>
-              <div className="flex items-center justify-between mb-3 pb-2 border-b border-brand-gold/20">
-                <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
-                  <Coffee size={14} className="text-brand-red" /> Kitchen Feed
-                </h3>
-                <span className="px-3 py-1 rounded-full bg-brand-red/10 text-brand-red text-[10px] font-medium uppercase tracking-[0.16em]">
-                  {placedOrders.filter(o => o.status !== 'served').length} active
-                </span>
-              </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
-                {placedOrders.filter(o => o.status !== 'served').length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/30 p-6 text-center">
-                    <Coffee size={36} className="mb-2 opacity-40" />
-                    <p className="text-xs font-bold">No active tickets</p>
-                  </div>
-                ) : (
-                  placedOrders.filter(o => o.status !== 'served').map(ticket => (
-                    <div
-                      key={ticket.id}
-                      className={`p-3.5 rounded-2xl border transition-all ${
-                        ticket.priority === 'high'
-                          ? 'border-brand-red/40 bg-brand-red/5'
-                          : ticket.status === 'ready'
-                          ? 'border-emerald-300 bg-emerald-50'
-                          : 'border-brand-gold/20 bg-brand-cream/40'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-display text-xl font-semibold text-brand-wine">{orderLabel(ticket)}</span>
-                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
-                            {ticket.source === 'customer' && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
-                            )}
-                          </div>
-                          <span className="text-xs text-brand-ink/45 flex items-center gap-1 mt-0.5">
-                            <Clock size={12} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        {ticket.priority === 'high' && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red text-white shrink-0">
-                            <Flame size={11} /> Rush
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-brand-ink/70 space-y-1 mb-2.5">
-                        {ticket.items.map((item, idx) => (
-                          <div key={idx} className="flex justify-between gap-2">
-                            <span className="truncate">{item.name}{item.notes ? ` · ${item.notes}` : ''}</span>
-                            <span className="font-bold text-brand-red">×{item.qty}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
-                          ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
-                          : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
-                          : 'bg-brand-ink/5 text-brand-ink/50'
-                        }`}>
-                          {ticket.status === 'ready' ? <PackageCheck size={12} /> : <Coffee size={12} />}
-                          {ticket.status === 'pending' ? 'waiting' : ticket.status}
-                        </span>
-                        {ticket.status === 'ready' && (
-                          <button
-                            onClick={() => serveOrder(ticket.id)}
-                            className="btn bg-brand-green text-white px-4 py-2.5 text-[10px] hover:brightness-110"
-                          >
-                            <Check size={13} /> Serve
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <KitchenFeedCard
+              cardClass={cardBase}
+              tickets={placedOrders.filter(o => o.status !== 'served')}
+              onServe={serveOrder}
+            />
           </aside>
 
           {/* CENTER: menu */}
           <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab !== 'menu' ? 'hidden' : 'flex'}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-brand-gold/20 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-display text-3xl font-medium leading-none text-brand-wine">Menu</h2>
+                <h2 className="font-wordmark text-3xl uppercase tracking-[0.012em] leading-none text-brand-wine">Menu</h2>
                 <span className="text-[10px] px-3 py-1.5 rounded-full bg-brand-sand text-brand-wine font-medium uppercase tracking-[0.16em] flex items-center gap-1">
                   {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
                 </span>
@@ -748,59 +673,77 @@ export default function WaiterDashboard() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-20 lg:pb-20">
               {filteredMenu.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-brand-ink/30 py-12">
                   <Search size={44} className="mb-3 opacity-40" />
                   <p className="font-bold text-sm">No items found</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                   {filteredMenu.map(item => {
                     const currentQty = order[item.id] || 0;
                     return (
                       <div
                         key={item.id}
-                        className={`rounded-[1.5rem] p-3 border flex flex-col justify-between transition-all ${
-                          currentQty > 0 ? 'border-brand-red/50 bg-brand-red/[0.03]' : 'border-brand-gold/20 bg-white hover:border-brand-red/30'
+                        className={`flex items-stretch gap-2.5 rounded-xl border p-2 transition-all ${
+                          currentQty > 0 ? 'border-brand-red/50 bg-brand-red/[0.04] shadow-[0_14px_30px_-22px_rgba(176,30,40,0.55)]' : 'border-brand-gold/25 bg-white hover:border-brand-red/40 hover:shadow-[0_14px_30px_-24px_rgba(74,21,21,0.45)]'
                         }`}
                       >
-                        <div>
-                          <div className="w-full aspect-[4/3] rounded-xl overflow-hidden relative mb-2.5 bg-brand-sand">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={item.image}
-                              alt={item.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                            />
-                            <div className="absolute top-2 left-2 px-3 py-1 rounded-full bg-white/90 backdrop-blur font-display font-semibold text-base leading-none text-brand-red shadow-sm">
-                              {formatKWD(item.price)}
+                        {/* Thumbnail — small square so the text can breathe. */}
+                        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-brand-sand sm:h-[72px] sm:w-[72px]">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                          />
+                        </div>
+
+                        {/* Main: name + price + a tiny meta row + add button. */}
+                        <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
+                          <div className="min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <h4
+                                className="min-w-0 flex-1 truncate font-wordmark text-[14px] uppercase leading-tight tracking-[0.012em] text-brand-wine sm:text-[15px]"
+                                style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
+                              >{item.name}</h4>
+                              <span
+                                className="shrink-0 font-wordmark text-[14px] leading-none text-brand-red sm:text-[16px]"
+                                style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom right', display: 'inline-block' }}
+                              >{formatKWD(item.price)}</span>
                             </div>
-                            <div className="absolute top-2 right-2 flex gap-1">
-                              {item.isChefSpecial && <span className="px-1.5 py-0.5 rounded bg-brand-gold text-brand-ink text-[9px] font-semibold uppercase">Chef</span>}
-                              {item.isSpicy && <span className="px-1.5 py-0.5 rounded bg-brand-red text-white text-[9px] font-semibold uppercase">Spicy</span>}
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                              {item.isChefSpecial && (
+                                <span className="rounded-full bg-brand-gold px-1.5 py-[1px] font-body text-[8px] font-semibold uppercase tracking-[0.12em] text-brand-ink">Chef</span>
+                              )}
+                              {item.isSpicy && (
+                                <span className="rounded-full bg-brand-red px-1.5 py-[1px] font-body text-[8px] font-semibold uppercase tracking-[0.12em] text-white">Spicy</span>
+                              )}
+                              <span className="font-body text-[8.5px] font-medium uppercase tracking-[0.16em] text-brand-ink/45">{item.prepTime}</span>
                             </div>
                           </div>
-                          <h4 className="font-display text-xl font-medium leading-tight text-brand-wine">{item.name}</h4>
-                          <p className="text-xs font-light text-brand-ink/60 line-clamp-2 mt-1 leading-relaxed">{item.description}</p>
-                        </div>
-                        <div className="pt-2.5 mt-2.5 border-t border-brand-gold/15 flex items-center justify-between">
-                          <span className="text-xs font-bold text-brand-ink/45">{currentQty > 0 ? `${currentQty} in ticket` : `${item.prepTime}`}</span>
-                          {currentQty > 0 ? (
-                            <div className="flex items-center gap-1.5 bg-brand-cream p-1 rounded-full border border-brand-gold/50">
-                              <button onClick={() => removeFromOrder(item.id)} className="w-8 h-8 rounded-full bg-white text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={15} /></button>
-                              <span className="font-display text-lg font-semibold w-5 text-center text-brand-wine">{currentQty}</span>
-                              <button onClick={() => addToOrder(item.id)} className="btn btn-wine h-8 w-8 p-0"><Plus size={15} /></button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => addToOrder(item.id)}
-                              className="btn btn-wine px-5 py-3 text-[10px]"
-                            >
-                              <Plus size={15} /> Add
-                            </button>
-                          )}
+
+                          <div className="flex items-center justify-end">
+                            {currentQty > 0 ? (
+                              <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
+                                <button onClick={() => removeFromOrder(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-red shadow-sm transition-transform hover:scale-105 active:scale-95"><Minus size={13} /></button>
+                                <span
+                                  className="w-5 text-center font-wordmark text-base text-brand-wine"
+                                  style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}
+                                >{currentQty}</span>
+                                <button onClick={() => addToOrder(item.id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={13} /></button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => addToOrder(item.id)}
+                                className="btn btn-wine h-8 min-w-[64px] gap-1 px-3 text-[10px] transition-transform hover:scale-[1.03] active:scale-95"
+                              >
+                                <Plus size={13} strokeWidth={2.2} /> Add
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -818,7 +761,7 @@ export default function WaiterDashboard() {
                   <Receipt size={20} />
                 </div>
                 <div>
-                  <h2 className="font-display text-2xl font-medium leading-none text-brand-wine">Current Ticket</h2>
+                  <h2 className="font-wordmark text-2xl uppercase tracking-[0.012em] leading-none text-brand-wine">Current Ticket</h2>
                   <p className="text-xs text-brand-ink/50 flex items-center gap-1">
                     {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
                   </p>
@@ -844,7 +787,7 @@ export default function WaiterDashboard() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5 min-h-[180px]">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5 min-h-[180px] pb-4">
               {Object.keys(order).length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/35 p-8 text-center border-2 border-dashed border-brand-gold/30 rounded-2xl">
                   <Utensils size={40} className="mb-3 opacity-40" />
@@ -862,8 +805,8 @@ export default function WaiterDashboard() {
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={item.image} alt={item.name} className="w-11 h-11 rounded-lg object-cover shrink-0 bg-brand-sand" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
                         <div className="flex-1 min-w-0">
-                          <h5 className="font-display text-lg font-medium leading-tight text-brand-wine truncate">{item.name}</h5>
-                          <p className="font-display text-base font-semibold text-brand-red">{formatKWD(item.price * qty)}</p>
+                          <h5 className="font-wordmark text-lg uppercase tracking-[0.012em] leading-tight text-brand-wine truncate">{item.name}</h5>
+                          <p className="font-wordmark text-base text-brand-red">{formatKWD(item.price * qty)}</p>
                         </div>
                         <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-brand-gold/25 shrink-0">
                           <button onClick={() => removeFromOrder(id)} className="w-7 h-7 rounded-md bg-brand-cream text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={13} /></button>
@@ -900,26 +843,12 @@ export default function WaiterDashboard() {
             </div>
 
             <div className="mt-3 pt-3 border-t border-brand-gold/20 shrink-0">
-              {orderItemCount > 0 && (
-                <div className="mb-3 flex items-center justify-between bg-brand-cream/60 p-2.5 rounded-xl border border-brand-gold/20">
-                  <div className="flex items-center gap-2">
-                    <Flame size={16} className={isPriorityRush ? 'text-brand-red' : 'text-brand-ink/40'} />
-                    <span className="text-xs font-bold">Rush priority</span>
-                  </div>
-                  <button
-                    onClick={() => setIsPriorityRush(!isPriorityRush)}
-                    className={`w-11 h-6 rounded-full transition-colors relative p-1 ${isPriorityRush ? 'bg-brand-wine' : 'bg-brand-ink/20'}`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-white transition-transform ${isPriorityRush ? 'translate-x-5' : ''}`} />
-                  </button>
-                </div>
-              )}
               <div className="space-y-1.5 mb-3 text-xs font-medium text-brand-ink/60">
                 <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
                 <div className="flex justify-between"><span>Tax (10%)</span><span className="text-brand-ink font-bold">{formatKWD(tax)}</span></div>
                 <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
                   <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Total</span>
-                  <span className="font-display text-3xl font-semibold leading-none text-brand-red">{formatKWD(orderTotal)}</span>
+                  <span className="font-wordmark text-3xl text-brand-red">{formatKWD(orderTotal)}</span>
                 </div>
               </div>
               <button
@@ -946,12 +875,12 @@ export default function WaiterDashboard() {
 
       {/* Mobile quick bar (menu tab, items selected) */}
       {orderItemCount > 0 && activeTab === 'menu' && (
-        <div className="lg:hidden fixed bottom-20 left-3 right-3 bg-brand-wine text-white rounded-full border border-brand-gold/40 p-2.5 pl-3 shadow-xl shadow-black/30 flex items-center justify-between z-40">
+        <div className="lg:hidden fixed bottom-[70px] left-3 right-3 bg-brand-wine text-white rounded-full border border-brand-gold/40 p-2 pl-3 shadow-xl shadow-black/30 flex items-center justify-between z-40">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-brand-gold-light/25 flex items-center justify-center font-display text-lg font-semibold">{orderItemCount}</div>
+            <div className="w-9 h-9 rounded-full bg-brand-gold-light/25 flex items-center justify-center font-wordmark text-lg">{orderItemCount}</div>
             <div>
               <p className="text-xs font-bold opacity-90">{activeLabel}</p>
-              <p className="font-display text-xl font-semibold text-brand-gold-light leading-none">{formatKWD(orderTotal)}</p>
+              <p className="font-wordmark text-xl text-brand-gold-light leading-none">{formatKWD(orderTotal)}</p>
             </div>
           </div>
           <button onClick={() => setActiveTab('ticket')} className="btn btn-gold px-5 py-3 text-[10px]">
@@ -975,8 +904,9 @@ export default function WaiterDashboard() {
         />
       )}
 
-      {/* Section nav — floating on desktop, fixed bottom on mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:bottom-4 lg:rounded-full lg:shadow-xl lg:border lg:px-3 bg-[#4f070c]/95 backdrop-blur-md border-t border-brand-gold/30 lg:border-brand-gold/30 flex items-center justify-around lg:justify-center lg:gap-1 p-2.5 z-50 shadow-[0_-6px_24px_rgba(35,0,4,0.3)]">
+      {/* Section nav — floating pill, centered at the bottom on every size.
+          Compact on mobile so the menu and ticket get the room. */}
+      <nav className="fixed left-1/2 -translate-x-1/2 bottom-3 lg:bottom-4 rounded-full border border-brand-gold/35 bg-[#4f070c]/95 backdrop-blur-md flex items-center gap-0.5 lg:gap-1 px-1.5 lg:px-3 py-1.5 z-50 shadow-[0_14px_36px_-10px_rgba(35,0,4,0.55)]">
         {([
           { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
           { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
@@ -986,16 +916,16 @@ export default function WaiterDashboard() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`relative flex flex-col items-center gap-0.5 px-5 py-1.5 rounded-full transition-all ${
+            className={`relative flex flex-col items-center gap-0.5 px-3 lg:px-5 py-1 lg:py-1.5 rounded-full transition-all ${
               tab.key === 'ticket' ? 'lg:hidden ' : ''
             }${
               activeTab === tab.key ? 'text-brand-gold-light bg-white/10' : 'text-white/55 hover:text-white'
             }`}
           >
-            <tab.icon size={20} />
-            <span className="text-[9px] uppercase tracking-[0.2em] font-medium">{tab.label}</span>
+            <tab.icon size={16} className="lg:[&]:w-5 lg:[&]:h-5" />
+            <span className="text-[8px] lg:text-[9px] uppercase tracking-[0.18em] font-medium">{tab.label}</span>
             {tab.badge > 0 && (
-              <span className="absolute -top-0.5 right-3 w-4 h-4 bg-brand-gold text-brand-wine text-[10px] font-semibold rounded-full flex items-center justify-center animate-pulse">
+              <span className="absolute -top-0.5 right-1.5 lg:right-3 w-3.5 h-3.5 lg:w-4 lg:h-4 bg-brand-gold text-brand-wine text-[9px] lg:text-[10px] font-semibold rounded-full flex items-center justify-center animate-pulse">
                 {tab.badge}
               </span>
             )}
@@ -1006,43 +936,149 @@ export default function WaiterDashboard() {
   );
 }
 
+function KitchenFeedCard({
+  cardClass,
+  tickets,
+  onServe,
+}: {
+  cardClass: string;
+  tickets: Order[];
+  onServe: (id: string) => void;
+}) {
+  // 6 tickets per page keeps the card at a predictable height on desktop and
+  // gives the pagination a reason to appear once the kitchen gets busy.
+  const pager = usePagination(tickets, 6, `kitchen|${tickets.length}`);
+  return (
+    <div className={`${cardClass} p-4 flex-1 flex flex-col overflow-hidden min-h-[240px]`}>
+      <div className="flex items-center justify-between mb-3 pb-2 border-b border-brand-gold/20">
+        <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
+          <Coffee size={14} className="text-brand-red" /> Kitchen Feed
+        </h3>
+        <span className="px-3 py-1 rounded-full bg-brand-red/10 text-brand-red text-[10px] font-medium uppercase tracking-[0.16em]">
+          {tickets.length} active
+        </span>
+      </div>
+      {tickets.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/30 p-6 text-center">
+          <Coffee size={36} className="mb-2 opacity-40" />
+          <p className="text-xs font-bold">No active tickets</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
+            {pager.items.map(ticket => (
+              <div
+                key={ticket.id}
+                className={`p-3.5 rounded-2xl border transition-all ${
+                  ticket.priority === 'high'
+                    ? 'border-brand-red/40 bg-brand-red/5'
+                    : ticket.status === 'ready'
+                    ? 'border-emerald-300 bg-emerald-50'
+                    : 'border-brand-gold/20 bg-brand-cream/40'
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-wordmark text-xl uppercase tracking-[0.012em] text-brand-wine">{orderLabel(ticket)}</span>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
+                      {ticket.source === 'customer' && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-brand-ink/45 flex items-center gap-1 mt-0.5">
+                      <Clock size={12} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  {ticket.priority === 'high' && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red text-white shrink-0">
+                      <Flame size={11} /> Rush
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-brand-ink/70 space-y-1 mb-2.5">
+                  {ticket.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between gap-2">
+                      <span className="truncate">{item.name}{item.notes ? ` · ${item.notes}` : ''}</span>
+                      <span className="font-bold text-brand-red">×{item.qty}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
+                    ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
+                    : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
+                    : 'bg-brand-ink/5 text-brand-ink/50'
+                  }`}>
+                    {ticket.status === 'ready' ? <PackageCheck size={12} /> : <Coffee size={12} />}
+                    {ticket.status === 'pending' ? 'waiting' : ticket.status}
+                  </span>
+                  {ticket.status === 'ready' && (
+                    <button
+                      onClick={() => onServe(ticket.id)}
+                      className="btn bg-brand-green text-white px-4 py-2.5 text-[10px] hover:brightness-110"
+                    >
+                      <Check size={13} /> Serve
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <Pagination p={pager} label="tickets" />
+        </>
+      )}
+    </div>
+  );
+}
+
 function AlertsSection({
   title,
   icon: Icon,
   items,
   emptyText,
+  pageSize = 9,
+  pageLabel = 'alerts',
 }: {
   title: string;
   icon: typeof Bell;
   emptyText: string;
   items: { id: string; title: string; subtitle: string; actionLabel: string; actionIcon?: typeof Check; onAction: () => void }[];
+  pageSize?: number;
+  pageLabel?: string;
 }) {
+  // Reset to page 1 when the list length changes (ticket served / call
+  // resolved) so stale deep pages don't look empty.
+  const pager = usePagination(items, pageSize, `${title}|${items.length}`);
   return (
     <div className="bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)] p-4 sm:p-5">
       <div className="flex items-center gap-2 mb-4">
         <Icon size={20} className="text-brand-red" />
-        <h3 className="font-display text-2xl font-medium leading-none text-brand-wine">{title}</h3>
+        <h3 className="font-wordmark text-2xl uppercase tracking-[0.012em] leading-none text-brand-wine">{title}</h3>
         <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red/10 text-brand-red rounded-full px-3 py-1.5">{items.length}</span>
       </div>
       {items.length === 0 ? (
         <p className="text-sm text-brand-ink/40 font-medium py-6 text-center">{emptyText}</p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {items.map(item => (
-            <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-cream border border-brand-gold/40 rounded-2xl px-4 py-3.5">
-              <div className="min-w-0">
-                <p className="font-display text-xl font-semibold leading-tight text-brand-wine truncate">{item.title}</p>
-                <p className="text-xs text-brand-ink/50 mt-0.5">{item.subtitle}</p>
+        <>
+          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3">
+            {pager.items.map(item => (
+              <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-cream border border-brand-gold/40 rounded-2xl px-4 py-3.5">
+                <div className="min-w-0">
+                  <p className="font-wordmark text-xl uppercase tracking-[0.012em] leading-tight text-brand-wine truncate">{item.title}</p>
+                  <p className="text-xs text-brand-ink/50 mt-0.5">{item.subtitle}</p>
+                </div>
+                <button
+                  onClick={item.onAction}
+                  className="btn shrink-0 bg-brand-green text-white px-5 py-3 text-[10px] hover:brightness-110"
+                >
+                  {item.actionIcon ? <item.actionIcon size={15} /> : null} {item.actionLabel}
+                </button>
               </div>
-              <button
-                onClick={item.onAction}
-                className="btn shrink-0 bg-brand-green text-white px-5 py-3 text-[10px] hover:brightness-110"
-              >
-                {item.actionIcon ? <item.actionIcon size={15} /> : null} {item.actionLabel}
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <Pagination p={pager} label={pageLabel} />
+        </>
       )}
     </div>
   );
@@ -1072,7 +1108,7 @@ function BillingModal({
           <div className="flex items-center gap-2.5">
             <div className="w-10 h-10 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center"><Banknote size={20} /></div>
             <div>
-              <h2 className="font-display text-3xl font-medium leading-none text-brand-wine">Close Bill</h2>
+              <h2 className="font-wordmark text-3xl uppercase tracking-[0.012em] leading-none text-brand-wine">Close Bill</h2>
               <p className="text-xs text-brand-ink/50">{label} · {sessionOrders.length} ticket{sessionOrders.length > 1 ? 's' : ''}</p>
             </div>
           </div>
@@ -1108,7 +1144,7 @@ function BillingModal({
           )}
           <div className="flex justify-between items-center pt-2 mt-1 border-t-2 border-black/10">
             <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Grand Total</span>
-            <span className="font-display text-4xl font-semibold leading-none text-brand-red">{formatKWD(grandTotal)}</span>
+            <span className="font-wordmark text-4xl text-brand-red">{formatKWD(grandTotal)}</span>
           </div>
         </div>
 

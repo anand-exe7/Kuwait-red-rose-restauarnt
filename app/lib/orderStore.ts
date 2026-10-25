@@ -321,7 +321,8 @@ export function addOrder(input: {
       // Session was de-duplicated against an already-open one for this table.
       store.patchLocal((cur) => cur.map((o) => (o.id === newOrder.id ? { ...o, sessionId: finalId } : o)));
     }
-    return write({ table: 'orders', op: 'insert', values: toRow({ ...newOrder, sessionId: finalId }) }).then(({ error }) => {
+    const row = toRow({ ...newOrder, sessionId: finalId });
+    return insertOrderRow(row).then(({ error }) => {
       if (error) {
         console.error('[orders] add failed', error.message);
         // The server refused it (or it never arrived): drop the optimistic copy.
@@ -333,6 +334,34 @@ export function addOrder(input: {
     });
   });
   return newOrder;
+}
+
+// Columns the new customer-ordering flow added. If the live DB hasn't had the
+// migration applied yet, Supabase rejects the whole insert with "Unknown
+// column field ...". When we hit that, we retry once with those keys stripped
+// so the order still lands (minus the customer identity it couldn't persist).
+const OPTIONAL_ORDER_COLUMNS = ['user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'] as const;
+let orderSchemaIsLegacy = false;
+
+async function insertOrderRow(row: Record<string, unknown>) {
+  const payload = orderSchemaIsLegacy ? stripLegacyColumns(row) : row;
+  const result = await write({ table: 'orders', op: 'insert', values: payload });
+  if (result.error && /unknown column|column .*? does not exist/i.test(result.error.message || '')) {
+    orderSchemaIsLegacy = true;
+    console.warn(
+      '[orders] your Supabase orders table is missing the newer customer columns. ' +
+      'Apply supabase/add_customer_columns.sql in the Supabase SQL editor to keep ' +
+      'customer identity and delivery addresses with each order.'
+    );
+    return write({ table: 'orders', op: 'insert', values: stripLegacyColumns(row) });
+  }
+  return result;
+}
+
+function stripLegacyColumns(row: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = { ...row };
+  for (const k of OPTIONAL_ORDER_COLUMNS) delete clean[k];
+  return clean;
 }
 
 export function updateOrderStatus(id: string, status: OrderStatus) {

@@ -3,11 +3,11 @@
 // assets and fall back to cache when the network is unavailable. Order data is
 // intentionally NOT cached here (it is live state); this only caches the shell.
 
-const CACHE = 'red-rose-shell-v1';
+const CACHE = 'red-rose-shell-v2';
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',
-  '/logo.jpeg',
+  '/finallogo.jpeg',
   '/icon-192.png',
   '/icon-512.png',
 ];

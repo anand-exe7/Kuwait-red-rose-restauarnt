@@ -28,12 +28,12 @@ export default function IncomingOrdersSection({ orders }: Props) {
 
   if (pending.length === 0) {
     return (
-      <div className="rounded-3xl border border-black/5 bg-white p-16 text-center">
+      <div className="rounded-3xl border border-brand-gold/30 bg-brand-cream p-16 text-center">
         <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
           <Check size={28} />
         </div>
         <h3 className="font-display text-2xl text-brand-wine">All caught up</h3>
-        <p className="mt-2 font-body text-sm text-black/50">
+        <p className="mt-2 font-body text-sm text-brand-wine/70">
           No orders waiting on approval. New customer orders will appear here instantly.
         </p>
       </div>
@@ -45,7 +45,7 @@ export default function IncomingOrdersSection({ orders }: Props) {
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-2xl font-black">Incoming orders</h2>
-          <p className="text-sm text-black/55">
+          <p className="text-sm text-brand-wine/70">
             {pending.length} {pending.length === 1 ? 'order' : 'orders'} waiting on your approval.
             Approve to send to the kitchen.
           </p>
@@ -57,15 +57,15 @@ export default function IncomingOrdersSection({ orders }: Props) {
           const meta = MODE_META[o.mode ?? 'table'];
           const minsAgo = Math.max(0, Math.floor((Date.now() - o.createdAt) / 60000));
           return (
-            <div key={o.id} className="rounded-3xl border border-black/5 bg-white p-5 shadow-sm">
+            <div key={o.id} className="rounded-3xl border border-brand-gold/30 bg-brand-cream p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-body text-[10px] font-semibold uppercase tracking-[0.18em] ${meta.tone}`}>
                     <meta.Icon size={12} /> {meta.label}
                   </span>
-                  <span className="font-mono text-xs text-black/50">#{o.id}</span>
+                  <span className="font-mono text-xs text-brand-wine/70">#{o.id}</span>
                 </div>
-                <span className="inline-flex items-center gap-1 font-body text-xs text-black/50">
+                <span className="inline-flex items-center gap-1 font-body text-xs text-brand-wine/70">
                   <Clock size={12} /> {minsAgo < 1 ? 'just now' : `${minsAgo} min ago`}
                 </span>
               </div>
@@ -76,7 +76,7 @@ export default function IncomingOrdersSection({ orders }: Props) {
                     {o.customer.name || 'Customer'}
                   </p>
                   {o.customer.phone && (
-                    <p className="mt-0.5 flex items-center gap-1 font-mono text-xs text-black/60">
+                    <p className="mt-0.5 flex items-center gap-1 font-mono text-xs text-brand-wine/75">
                       <Phone size={11} /> {o.customer.phone}
                     </p>
                   )}
@@ -104,28 +104,28 @@ export default function IncomingOrdersSection({ orders }: Props) {
                     ].filter(Boolean).join(' · ')}
                   </p>
                   {o.deliveryAddress.landmark && (
-                    <p className="mt-1 italic text-black/60">— {o.deliveryAddress.landmark}</p>
+                    <p className="mt-1 italic text-brand-wine/75">— {o.deliveryAddress.landmark}</p>
                   )}
                 </div>
               )}
 
-              <ul className="mt-3 divide-y divide-black/5 rounded-2xl bg-white">
+              <ul className="mt-3 divide-y divide-brand-gold/25 rounded-2xl bg-white">
                 {o.items.map(i => (
                   <li key={i.id} className="flex items-center justify-between py-2 text-sm">
                     <span>
                       <span className="font-semibold text-brand-wine">{i.qty}×</span> {i.name}
                     </span>
-                    <span className="font-mono text-black/60">{formatKWD(i.price * i.qty)}</span>
+                    <span className="font-mono text-brand-wine/75">{formatKWD(i.price * i.qty)}</span>
                   </li>
                 ))}
               </ul>
 
-              <div className="mt-3 flex items-end justify-between border-t border-black/10 pt-3">
-                <div className="text-xs text-black/55">
+              <div className="mt-3 flex items-end justify-between border-t border-brand-gold/40 pt-3">
+                <div className="text-xs text-brand-wine/70">
                   Subtotal {formatKWD(o.subtotal)} · Tax {formatKWD(o.tax)}
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-black/50">Total</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-wine/70">Total</div>
                   <div className="font-display text-2xl font-bold text-brand-red">{formatKWD(o.total)}</div>
                 </div>
               </div>
@@ -133,7 +133,7 @@ export default function IncomingOrdersSection({ orders }: Props) {
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => rejectOrder(o.id)}
-                  className="flex items-center justify-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-black/70 transition-colors hover:border-brand-red hover:text-brand-red"
+                  className="flex items-center justify-center gap-2 rounded-2xl border border-brand-gold/40 bg-white px-4 py-3 text-sm font-semibold text-brand-wine/80 transition-colors hover:border-brand-red hover:text-brand-red"
                 >
                   <X size={16} /> Reject
                 </button>
