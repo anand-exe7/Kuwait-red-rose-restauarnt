@@ -6,7 +6,7 @@ export const BRAND = {
   fullName: 'Red Rose Sweets',
   tagline: 'Kuwait’s finest sweets — order from your table, right from your phone.',
   shortTagline: 'Order from your table, right from your phone.',
-  logo: '/logo.jpeg',
+  logo: '/finallogo.jpeg',
   city: 'Kuwait',
 } as const;
 

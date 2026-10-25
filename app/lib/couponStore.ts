@@ -121,8 +121,17 @@ export interface CouponResult {
 
 /** Validate a code against a product subtotal (KD). Discount = subtotal × %. */
 export function validateCoupon(code: string, subtotal: number): CouponResult {
+  // Make sure the coupons table is being fetched. Pages that don't display the
+  // coupon list (e.g. the public customer menu) never subscribe to this store,
+  // which left the cache empty and made every code look invalid.
+  store.ensureHydrated();
   const c = store.get().find((x) => x.code === code.trim().toUpperCase());
-  if (!c) return { ok: false, reason: 'Invalid coupon code' };
+  if (!c) {
+    if (store.get().length === 0) {
+      return { ok: false, reason: 'Still loading coupons — try again in a second.' };
+    }
+    return { ok: false, reason: 'Invalid coupon code' };
+  }
   if (!c.active) return { ok: false, reason: 'This coupon is no longer active' };
   if (isExpired(c)) return { ok: false, reason: 'This coupon has expired' };
   const remaining = remainingUses(c);

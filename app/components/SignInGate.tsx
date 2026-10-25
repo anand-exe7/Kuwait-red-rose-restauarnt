@@ -1,14 +1,15 @@
 "use client";
 
-// Modal that appears when an action requires sign-in. Shows a Google button;
-// clicking it starts the Supabase OAuth round-trip. The caller controls
-// `open` and `onClose` so this component owns no visual state beyond focus.
-//
-// `message` lets each caller explain WHY sign-in is being requested
-// (e.g. "to place a delivery order").
+// Modal that appears when an action requires sign-in. Offers two paths:
+//  1. "Continue with your name" — a quick local sign-in that works everywhere
+//     and never leaves the page, so the user never gets stuck on an OAuth
+//     redirect that failed to come back.
+//  2. Google — optional, shown only when Supabase is configured. It is a
+//     collapsed secondary option so the primary quick-sign-in is what the
+//     user acts on first.
 
 import { useEffect, useState } from 'react';
-import { X, Sparkles } from 'lucide-react';
+import { X, ArrowRight } from 'lucide-react';
 import { signInWithGoogle, signInAsDemo, customerAuthAvailable } from '../lib/customerAuthStore';
 
 interface SignInGateProps {
@@ -22,9 +23,9 @@ export default function SignInGate({
   open,
   onClose,
   title = 'Sign in to continue',
-  message = 'Sign in with Google to place your order. We only use this to tie orders to your account.',
+  message = 'Enter your name to place your order. We only use this to tie the order to you.',
 }: SignInGateProps) {
-  const [demoName, setDemoName] = useState('');
+  const [name, setName] = useState('');
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -36,8 +37,10 @@ export default function SignInGate({
 
   const configured = customerAuthAvailable();
 
-  const continueDemo = () => {
-    signInAsDemo(demoName || 'Demo Customer');
+  const continueWithName = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    signInAsDemo(trimmed);
     onClose();
   };
 
@@ -63,43 +66,39 @@ export default function SignInGate({
         <h2 className="font-wordmark text-2xl text-brand-wine">{title}</h2>
         <p className="mt-3 font-body text-sm leading-relaxed text-brand-wine/75">{message}</p>
 
-        {configured ? (
-          <button
-            onClick={() => void signInWithGoogle()}
-            className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream"
-          >
-            <GoogleG />
-            Continue with Google
-          </button>
-        ) : (
+        <label className="mt-6 block">
+          <span className="mb-1.5 block font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-wine/70">Your name</span>
+          <input
+            autoFocus
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') continueWithName(); }}
+            placeholder="e.g. Anand"
+            className="w-full rounded-2xl border border-brand-gold/40 bg-white px-4 py-3 font-body text-sm text-brand-ink focus:border-brand-red focus:outline-none"
+          />
+        </label>
+
+        <button
+          onClick={continueWithName}
+          disabled={!name.trim()}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-red px-5 py-3.5 font-body text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-red-dark disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Continue <ArrowRight size={16} />
+        </button>
+
+        {configured && (
           <>
-            <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-              <span className="font-semibold">Demo mode.</span> Google sign-in needs
-              Supabase credentials (see <code className="rounded bg-amber-100 px-1">SUPABASE_SETUP.md</code>).
-              For testing, continue with any name below — your orders stay on this device.
+            <div className="my-5 flex items-center gap-3">
+              <span className="h-px flex-1 bg-brand-wine/10" />
+              <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine/40">or</span>
+              <span className="h-px flex-1 bg-brand-wine/10" />
             </div>
-            <label className="mt-5 block">
-              <span className="mb-1.5 block font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-wine/70">Your name</span>
-              <input
-                autoFocus
-                value={demoName}
-                onChange={e => setDemoName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') continueDemo(); }}
-                placeholder="e.g. Anand"
-                className="w-full rounded-2xl border border-brand-gold/40 bg-white px-4 py-3 font-body text-sm text-brand-ink focus:border-brand-red focus:outline-none"
-              />
-            </label>
-            <button
-              onClick={continueDemo}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-red px-5 py-3.5 font-body text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-red-dark"
-            >
-              <Sparkles size={16} /> Continue as demo customer
-            </button>
             <button
               onClick={() => void signInWithGoogle()}
-              className="mt-3 w-full font-body text-[11px] uppercase tracking-[0.2em] text-brand-wine/40"
+              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream"
             >
-              or try Google (will fail without setup)
+              <GoogleG />
+              Continue with Google
             </button>
           </>
         )}

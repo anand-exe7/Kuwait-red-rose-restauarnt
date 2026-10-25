@@ -48,29 +48,57 @@ function toUser(u: {
   return { id: u.id, email: u.email ?? null, name, avatarUrl };
 }
 
+function readDemoUser(): CustomerUser | null {
+  try {
+    const raw = localStorage.getItem(DEMO_USER_KEY);
+    if (raw) return JSON.parse(raw) as CustomerUser;
+  } catch { /* corrupt JSON — ignore */ }
+  return null;
+}
+
 function ensureInit() {
   if (initialized) return;
   initialized = true;
   if (typeof window === 'undefined') return;
+
+  // A stored demo user ALWAYS wins over Supabase — if the shopper used the
+  // in-page name sign-in, we don't want a Supabase background check (which
+  // may return null if OAuth never completed) to overwrite that session.
+  const demo = readDemoUser();
+
   const sb = getSupabase();
   if (!sb) {
-    // No Supabase configured — fall back to the demo user cached in
-    // localStorage (if signInAsDemo was ever called on this device).
-    let demo: CustomerUser | null = null;
-    try {
-      const raw = localStorage.getItem(DEMO_USER_KEY);
-      if (raw) demo = JSON.parse(raw) as CustomerUser;
-    } catch { /* corrupt JSON — ignore */ }
     state = { loading: false, user: demo };
     emit();
     return;
   }
-  void sb.auth.getSession().then(({ data }) => {
-    state = { loading: false, user: toUser(data.session?.user ?? null) };
+  // Prefer the demo user immediately — real Supabase sign-ins take priority
+  // only after they land (handled below).
+  if (demo) {
+    state = { loading: false, user: demo };
     emit();
-  });
+  } else {
+    void sb.auth.getSession().then(({ data }) => {
+      // Only update if the demo user wasn't set during the await.
+      if (!readDemoUser()) {
+        state = { loading: false, user: toUser(data.session?.user ?? null) };
+        emit();
+      }
+    });
+  }
   const { data } = sb.auth.onAuthStateChange((_evt, session) => {
-    state = { loading: false, user: toUser(session?.user ?? null) };
+    const supabaseUser = toUser(session?.user ?? null);
+    // A real Supabase sign-in overrides any demo user (and clears it).
+    if (supabaseUser) {
+      try { localStorage.removeItem(DEMO_USER_KEY); } catch { /* ignore */ }
+      state = { loading: false, user: supabaseUser };
+      emit();
+      return;
+    }
+    // No Supabase user — fall back to the demo user if one exists, so a
+    // "SIGNED_OUT" event with a leftover demo session doesn't wipe it out.
+    const demoNow = readDemoUser();
+    state = { loading: false, user: demoNow };
     emit();
   });
   authSub = data.subscription;
@@ -127,13 +155,13 @@ export async function signInWithGoogle(redirectTo?: string): Promise<boolean> {
 }
 
 export async function signOut(): Promise<void> {
+  // Clear any demo session first so the Supabase listener (if present)
+  // doesn't fall back to it after sign-out.
+  try { localStorage.removeItem(DEMO_USER_KEY); } catch { /* ignore */ }
   const sb = getSupabase();
   if (sb) {
     await sb.auth.signOut();
-    return;
   }
-  // Demo mode: clear the local demo user and notify.
-  try { localStorage.removeItem(DEMO_USER_KEY); } catch { /* ignore */ }
   state = { loading: false, user: null };
   emit();
 }
@@ -143,9 +171,9 @@ export function customerAuthAvailable(): boolean {
   return isSupabaseConfigured();
 }
 
-/** Demo sign-in — only when real auth isn't configured. Creates a local user
- *  record keyed by name so the whole order flow (admin approve → chef → waiter
- *  → bill paid) can be tested without a Supabase project. */
+/** Quick in-page sign-in — creates a local user record keyed by name and
+ *  takes precedence over any Supabase session for the rest of this device.
+ *  Lets a shopper check out without going through Google OAuth. */
 export function signInAsDemo(name: string): CustomerUser {
   const trimmed = name.trim() || 'Guest';
   const user: CustomerUser = {

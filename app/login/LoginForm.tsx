@@ -46,7 +46,7 @@ export default function LoginForm({ role, next }: { role: Role; next: string }) 
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.jpeg" alt="Red Rose Sweets" className="w-40 h-auto rounded-2xl shadow-lg mb-5" />
+          <img src="/finallogo.jpeg" alt="Red Rose Sweets" className="w-40 h-auto rounded-2xl shadow-lg mb-5" />
           <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-brand-gold-dark">
             <ShieldCheck size={14} /> Staff Access
           </div>

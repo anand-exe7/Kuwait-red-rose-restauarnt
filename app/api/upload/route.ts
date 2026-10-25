@@ -9,7 +9,11 @@ import { HttpError, bad, clientIp, deny, respond, throttle, unauthorized } from 
 // bucket and returns its link. The public key cannot write to the bucket at all.
 
 const BUCKET = 'menu-images';
-const MAX_BYTES = 400 * 1024; // a compressed menu photo is normally 30-120 KB
+// Per-image cap after client-side compression. The browser (compressImage.ts)
+// shrinks to a WebP of ~900px on the long side, which almost always fits well
+// under this ceiling. The ceiling itself is the "3 MB per image" limit the
+// shop asked for.
+const MAX_BYTES = 3 * 1024 * 1024;
 
 /** WebP files start with "RIFF", a 4-byte size, then "WEBP". */
 function looksLikeWebp(b: Uint8Array): boolean {
@@ -33,7 +37,7 @@ export async function POST(request: NextRequest) {
     const file = form.get('file');
     if (!(file instanceof File)) throw bad('No photo received');
     if (file.size === 0) throw bad('The photo is empty');
-    if (file.size > MAX_BYTES) throw bad(`Photo is too large (${Math.round(file.size / 1024)} KB). The limit is ${MAX_BYTES / 1024} KB after compression.`);
+    if (file.size > MAX_BYTES) throw bad(`Photo is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). The limit is ${(MAX_BYTES / 1024 / 1024).toFixed(0)} MB per image.`);
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (!looksLikeWebp(bytes)) throw bad('Only WebP photos are accepted');
