@@ -24,8 +24,10 @@ interface Body { table?: string; op?: Op; values?: Values; match?: Match }
 
 const COLUMNS: Record<string, string[]> = {
   menu_items: ['id', 'name', 'category', 'price', 'description', 'image', 'prep_time', 'status', 'is_popular',
-    'is_chef_special', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'created_at'],
-  coupons: ['id', 'code', 'discount_percent', 'min_order', 'expiry', 'usage_limit', 'used_count', 'active', 'created_at'],
+    'is_chef_special', 'is_best_seller', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'created_at'],
+  coupons: ['id', 'code', 'discount_percent', 'min_order', 'expiry', 'usage_limit', 'used_count', 'active', 'created_at',
+    'targeted_only', 'sent_phones'],
+  app_settings: ['id', 'value'],
   tables: ['id', 'number', 'label', 'seats', 'zone', 'active', 'session_id', 'created_at'],
   sessions: ['id', 'table_number', 'mode', 'status', 'standing_label', 'customer_name', 'customer_phone', 'guests',
     'opened_at', 'closed_at', 'bill_requested_at', 'bill_id', 'created_at'],
@@ -156,7 +158,7 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
 
   // ---- items, prices and coupon: checked against the database, not the client ----
   const { items, subtotal } = await priceItems(sb, v.items, { admin: role === 'admin' });
-  const coupon = await checkCoupon(sb, v.coupon_code, subtotal);
+  const coupon = await checkCoupon(sb, v.coupon_code, subtotal, v.customer_phone);
   let discount = coupon?.discount ?? 0;
 
   let tax: number;
@@ -273,6 +275,7 @@ export async function POST(request: NextRequest) {
       case 'menu_items':
       case 'coupons':
       case 'tables':
+      case 'app_settings':
         result = await adminOnlyWrite(ctx, table, op, values, match);
         break;
       case 'sessions': result = await sessionsWrite(ctx, op, values, match); break;

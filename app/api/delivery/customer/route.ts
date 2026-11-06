@@ -39,7 +39,8 @@ async function checkout(sb: NonNullable<ReturnType<typeof getServerSupabase>>, c
 
   // Items and coupon are priced from the database, never from the browser.
   const { items, subtotal } = await priceItems(sb, body.items, { admin: false });
-  const coupon = await checkCoupon(sb, body.couponCode, subtotal);
+  const addrPhone = isObj(body.address) ? (body.address as Record<string, unknown>).phone : undefined;
+  const coupon = await checkCoupon(sb, body.couponCode, subtotal, addrPhone);
   const discount = coupon?.discount ?? 0;
 
   // Area / distance, fee, hours, busy switch, minimum order: all decided here.

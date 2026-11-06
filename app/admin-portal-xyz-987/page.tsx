@@ -1,32 +1,13 @@
 "use client";
+import './admin.css';
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
-import Link from 'next/link';
 import { Pagination, usePagination } from '../components/Pagination';
-import {
-  LayoutDashboard,
-  ClipboardList,
-  Package,
-  ArrowLeft,
-  Download,
-  Search,
-  Plus,
-  X,
-  Trash2,
-  Pencil,
-  CheckCircle2,
-  AlertCircle,
-  ChevronDown,
-  ChevronUp,
-  LayoutGrid,
-  LogOut,
-  Ticket,
-  Receipt,
-  Bell,
-  Users,
-  Truck,
-} from 'lucide-react';
-import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel } from '../lib/orderStore';
+import { Eye, Printer, ExternalLink } from 'lucide-react';
+import { Order, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders } from '../lib/orderStore';
+import { getBillsSnapshot, getBillsServerSnapshot, subscribeToBills } from '../lib/billStore';
 import { formatKWD } from '../lib/currency';
+import { invoiceNumber } from '../lib/invoice';
+import { adminFonts } from '../fonts';
 import { BRAND } from '../lib/brand';
 import TablesSection from './TablesSection';
 import CouponsSection from './CouponsSection';
@@ -35,8 +16,14 @@ import AnalyticsSection from './AnalyticsSection';
 import IncomingOrdersSection from './IncomingOrdersSection';
 import OpenTabsSection from './OpenTabsSection';
 import DeliveriesSection from './DeliveriesSection';
+import AreasPanel from './AreasPanel';
 import PhotoField from './PhotoField';
-import { Period, isInPeriod } from './analyticsHelpers';
+import {
+  subscribeToHomeMedia, getHomeMediaSnapshot, getHomeMediaServerSnapshot, homeMediaFrom, saveHomeMedia,
+  HOME_MEDIA_LIMITS, type HomeMedia,
+} from '../lib/homeMediaStore';
+import { compressToWebp } from '../lib/compressImage';
+import { Period, isInPeriod, groupOrdersIntoInvoices } from './analyticsHelpers';
 import {
   MenuItem,
   MenuCategory,
@@ -48,6 +35,27 @@ import {
   updateMenuItem,
   deleteMenuItem,
 } from '../lib/menuStore';
+import {
+  Page,
+  PageHead,
+  Card,
+  Kpi,
+  Btn,
+  Badge,
+  SearchBox,
+  Pills,
+  Modal,
+  Field,
+  Empty,
+  Icon,
+  Toaster,
+  toast,
+  printReceipt,
+  inputCls,
+  cx,
+  type IconName,
+  type BadgeTone,
+} from './_ui/kit';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,14 +89,6 @@ function exportOrdersToCSV(orders: Order[]) {
   URL.revokeObjectURL(url);
 }
 
-const STATUS_STYLES: Record<Order['status'], string> = {
-  awaiting_admin: 'bg-brand-gold/15 text-brand-gold-dark border-brand-gold/40',
-  pending: 'bg-brand-sand/80 text-brand-wine/70 border-brand-gold/25',
-  cooking: 'bg-brand-red/10 text-brand-red-dark border-brand-red/25',
-  ready: 'bg-brand-plum/10 text-brand-plum border-brand-plum/25',
-  served: 'bg-brand-green/10 text-brand-green border-brand-green/25',
-};
-
 const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&q=80&w=400';
 
 // ---------------------------------------------------------------------------
@@ -104,117 +104,201 @@ type Section =
   | 'tables'
   | 'coupons'
   | 'billing'
-  | 'deliveries';
+  | 'deliveries'
+  | 'delivery-zones'
+  | 'homepage';
+
+type NavItem = { key: Section; icon: IconName; label: string; badge?: number };
 
 export default function AdminDashboard() {
-  const [section, setSection] = useState<Section>('incoming');
+  const [section, setSection] = useState<Section>('billing');
   const rawOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
   // Billed-only history for the Orders / Analytics sections.
   const orders = useMemo(() => rawOrders.filter(o => o.billed), [rawOrders]);
   const incomingCount = useMemo(() => rawOrders.filter(o => o.status === 'awaiting_admin').length, [rawOrders]);
+  // Delivery orders still in the pipeline (placed → cooking → ready) so the
+  // admin sees at a glance that a delivery is waiting to be arranged.
+  const deliveryCount = useMemo(
+    () => rawOrders.filter(o => o.mode === 'delivery' && o.status !== 'served').length,
+    [rawOrders]
+  );
   const menu = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
 
-  const navItems: { key: Section; icon: typeof LayoutDashboard; label: string; badge?: number }[] = [
-    { key: 'incoming', icon: Bell, label: 'Incoming', badge: incomingCount },
-    { key: 'opentabs', icon: Users, label: 'Open Tabs' },
-    { key: 'billing', icon: Receipt, label: 'Billing' },
-    { key: 'analytics', icon: LayoutDashboard, label: 'Analytics' },
-    { key: 'orders', icon: ClipboardList, label: 'Orders' },
-    { key: 'inventory', icon: Package, label: 'Inventory' },
-    { key: 'tables', icon: LayoutGrid, label: 'Tables' },
-    { key: 'coupons', icon: Ticket, label: 'Coupons' },
-    { key: 'deliveries', icon: Truck, label: 'Deliveries' },
+  const nav: NavItem[] = [
+    { key: 'billing', icon: 'billing', label: 'Billing' },
+    { key: 'incoming', icon: 'bell', label: 'Incoming', badge: incomingCount },
+    { key: 'opentabs', icon: 'users', label: 'Open Tabs' },
+    { key: 'analytics', icon: 'chart', label: 'Analytics' },
+    { key: 'orders', icon: 'orders', label: 'Orders' },
+    { key: 'inventory', icon: 'box', label: 'Inventory' },
+    { key: 'tables', icon: 'tables', label: 'Tables' },
+    { key: 'coupons', icon: 'coupon', label: 'Coupons' },
+    { key: 'deliveries', icon: 'cart', label: 'Deliveries', badge: deliveryCount },
+    { key: 'delivery-zones', icon: 'pin', label: 'Delivery Zones' },
+    { key: 'homepage', icon: 'image', label: 'Homepage' },
   ];
 
   return (
-    <div className="staff-themed min-h-screen bg-brand-cream text-brand-ink font-sans">
-      {/* Sidebar Navigation */}
-      <div
-        className="fixed left-0 top-0 h-full w-16 sm:w-20 md:w-64 border-r border-brand-gold/20 flex flex-col p-3 sm:p-4 z-50 transition-all shadow-[0_0_60px_rgba(30,0,4,0.35)]"
-        style={{ backgroundImage: 'linear-gradient(172deg, #4a1515 0%, #3a0f0f 55%, #2a0a0a 100%)' }}
+    <div className={`adm ${adminFonts}`}>
+      <AdminShell nav={nav} section={section} onSelect={setSection}>
+        {section === 'incoming' && <IncomingOrdersSection orders={rawOrders} />}
+        {section === 'opentabs' && <OpenTabsSection />}
+        {section === 'analytics' && <AnalyticsSection orders={orders} />}
+        {section === 'orders' && <OrdersSection orders={orders} onOpenPOS={() => setSection('billing')} />}
+        {section === 'inventory' && <InventorySection menu={menu} />}
+        {section === 'tables' && <TablesSection />}
+        {section === 'billing' && <BillingSection />}
+        {section === 'coupons' && <CouponsSection />}
+        {section === 'deliveries' && <DeliveriesSection />}
+        {section === 'delivery-zones' && <DeliveryZonesSection />}
+        {section === 'homepage' && <HomepageSection />}
+      </AdminShell>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shell — cocoa/wine sidebar, warm-paper canvas, collapsible rail, mobile drawer
+// ---------------------------------------------------------------------------
+
+function AdminShell({
+  nav,
+  section,
+  onSelect,
+  children,
+}: {
+  nav: NavItem[];
+  section: Section;
+  onSelect: (s: Section) => void;
+  children: React.ReactNode;
+}) {
+  const [menu, setMenu] = useState(false);
+  const [rail, setRail] = useState(false);
+  const active = nav.find(n => n.key === section);
+
+  const toggleRail = () => setRail(c => !c);
+
+  const signOut = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.assign('/login?role=admin');
+  };
+
+  const select = (s: Section) => {
+    onSelect(s);
+    setMenu(false);
+  };
+
+  const renderSide = (mini: boolean) => (
+    <div className="flex h-full flex-col">
+      <button
+        type="button"
+        onClick={() => select('billing')}
+        className={cx('adm-side__brand flex items-center gap-3 pb-6 pt-6 text-left', mini ? 'justify-center px-0' : 'px-5')}
       >
-        <div className="flex items-center gap-3 mb-6 sm:mb-10 pl-1 sm:pl-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={BRAND.logo} alt={BRAND.fullName} className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl object-cover shrink-0 shadow-lg ring-1 ring-brand-gold/40" />
-          <span className="font-bold text-xl hidden md:block text-brand-gold-light">{BRAND.name} <span className="text-brand-gold/70 font-medium">Admin</span></span>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={BRAND.logo} alt={BRAND.fullName} className="h-9 w-9 shrink-0 rounded-xl object-cover shadow-lg ring-1 ring-white/20" />
+        {!mini && (
+          <span className="leading-tight">
+            <b className="block text-[19px]" style={{ fontFamily: 'var(--display)', fontWeight: 700 }}>
+              {BRAND.name}
+            </b>
+            <small className="text-[10px] font-bold uppercase tracking-[0.18em]">Admin console</small>
+          </span>
+        )}
+      </button>
 
-        <nav className="flex flex-col gap-1.5 flex-1">
-          {navItems.map(item => (
+      <nav className="adm-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-3" aria-label="Admin">
+        {nav.map(n => {
+          const on = n.key === section;
+          return (
             <button
-              key={item.key}
-              onClick={() => setSection(item.key)}
-              className={`relative flex items-center justify-center md:justify-start gap-4 p-3 rounded-xl transition-all ${
-                section === item.key
-                  ? 'bg-brand-red text-white shadow-[0_10px_24px_-10px_rgba(176,30,40,0.6)] ring-1 ring-brand-gold/40'
-                  : 'text-brand-gold-light/70 hover:bg-white/5 hover:text-brand-gold-light'
-              }`}
+              key={n.key}
+              type="button"
+              onClick={() => select(n.key)}
+              title={mini ? n.label : undefined}
+              className={cx('adm-link relative flex h-11 w-full items-center rounded-xl text-[14px] font-semibold', on && 'is-on', mini ? 'justify-center px-0' : 'gap-3 px-3')}
             >
-              <item.icon size={20} />
-              <span className="font-medium hidden md:block">{item.label}</span>
-              {item.badge && item.badge > 0 && (
-                <span className="absolute right-2 top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-gold px-1.5 text-[10px] font-bold text-brand-wine md:static md:ml-auto shadow-sm">
-                  {item.badge}
-                </span>
+              <Icon name={n.icon} size={19} />
+              {!mini && <span className="flex-1 text-left">{n.label}</span>}
+              {!mini && !!n.badge && (
+                <span className="adm-pulse grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{n.badge}</span>
               )}
+              {mini && !!n.badge && <span className="adm-pulse absolute right-2 top-2 h-2 w-2 rounded-full bg-red-600 text-red-600" />}
             </button>
-          ))}
-        </nav>
+          );
+        })}
+      </nav>
 
-        <div className="mt-auto p-2 sm:p-4 flex items-center justify-center md:justify-start gap-3 border-t border-brand-gold/15">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-brand-red/30 border border-brand-gold/40 text-brand-gold-light font-black flex items-center justify-center shrink-0">A</div>
-          <div className="hidden md:block">
-            <p className="text-sm font-bold text-brand-gold-light">Admin</p>
-            <p className="text-xs text-brand-gold-light/50">Manager</p>
-          </div>
+      <div className="space-y-1 px-3 py-4" style={{ borderTop: '1px solid var(--line-dark)' }}>
+        <a
+          href="/"
+          target="_blank"
+          rel="noopener noreferrer"
+          title={mini ? 'Guest website' : undefined}
+          className={cx('adm-link flex h-10 items-center rounded-xl text-[13px] font-semibold', mini ? 'justify-center px-0' : 'gap-3 px-3')}
+        >
+          <Icon name="globe" size={17} />
+          {!mini && 'Guest website'}
+        </a>
+        <button
+          type="button"
+          onClick={signOut}
+          title={mini ? 'Sign out' : undefined}
+          className={cx('adm-link flex h-10 w-full items-center rounded-xl text-[13px] font-semibold', mini ? 'justify-center px-0' : 'gap-3 px-3')}
+        >
+          <Icon name="logout" size={17} />
+          {!mini && 'Sign out'}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="adm-app">
+      {/* sidebar — desktop */}
+      <aside className={cx('adm-side fixed inset-y-0 left-0 z-40 hidden transition-[width] duration-200 lg:block', rail ? 'w-[76px]' : 'w-[248px]')}>
+        {renderSide(rail)}
+        <button
+          type="button"
+          onClick={toggleRail}
+          aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={rail ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="absolute -right-3 top-[72px] z-50 hidden h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-md transition hover:text-slate-900 lg:grid"
+        >
+          <Icon name="chevron" size={15} className={cx('transition-transform', rail ? '' : 'rotate-180')} />
+        </button>
+      </aside>
+
+      {/* top bar — mobile */}
+      <header className="adm-side sticky top-0 z-40 flex h-14 items-center gap-3 px-4 lg:hidden">
+        <button type="button" onClick={() => setMenu(true)} className="adm-link grid h-10 w-10 place-items-center rounded-xl" aria-label="Open menu">
+          <Icon name="menu" size={20} />
+        </button>
+        <b className="min-w-0 flex-1 truncate text-[16px]" style={{ fontFamily: 'var(--display)', fontWeight: 700 }}>
+          {BRAND.name} · {active?.label ?? 'Admin'}
+        </b>
+      </header>
+      {menu && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button type="button" className="adm-scrim absolute inset-0 bg-slate-900/40" onClick={() => setMenu(false)} aria-label="Close menu" />
+          <aside className="adm-side adm-in absolute inset-y-0 left-0 w-[270px] shadow-2xl">{renderSide(false)}</aside>
         </div>
+      )}
+
+      {/* main */}
+      <div className={cx('flex flex-1 flex-col min-w-0 transition-[padding] duration-200', rail ? 'lg:pl-[76px]' : 'lg:pl-[248px]')}>
+        <main className="mx-auto w-full min-w-0 max-w-[1480px] flex-1 p-3 sm:p-6">{children}</main>
+        <footer className="mx-auto grid w-full max-w-[1480px] grid-cols-1 items-center gap-2 border-t border-slate-200 px-4 py-7 text-center text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:grid-cols-3 sm:px-6">
+          <span className="sm:text-left">© {new Date().getFullYear()} All rights reserved. {BRAND.fullName}.</span>
+          <a href="https://www.cenexasystems.com" target="_blank" rel="noopener noreferrer" className="justify-self-center transition-colors hover:text-red-600">
+            Powered by <span className="text-red-600">Cenexa Systems</span> ©{new Date().getFullYear()}
+          </a>
+          <span className="italic text-red-600 sm:text-right">{BRAND.shortTagline}</span>
+        </footer>
       </div>
 
-      {/* Main Content */}
-      <div className="ml-16 sm:ml-20 md:ml-64">
-        <header className="bg-gradient-to-r from-[#f6e3d4] via-[#f2d1c0] to-[#eec1b2] text-brand-wine border-b border-brand-gold/30 px-4 sm:px-6 md:px-8 h-16 flex items-center justify-between sticky top-0 z-40 backdrop-blur-md shadow-[inset_0_-1px_0_rgba(201,169,97,0.2)]">
-          <h1 className="text-lg font-black capitalize text-brand-wine">{section}</h1>
-          <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-bold text-brand-wine/70 hover:text-brand-wine flex items-center gap-1.5 transition-colors">
-              <ArrowLeft size={16} /> View Store
-            </Link>
-            <button
-              onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' });
-                window.location.assign('/login?role=admin');
-              }}
-              className="text-sm font-bold text-brand-red hover:text-brand-red-dark flex items-center gap-1.5 transition-colors"
-            >
-              <LogOut size={16} /> Logout
-            </button>
-          </div>
-        </header>
-
-        <main className="min-h-[calc(100vh-4rem)] text-brand-ink p-4 sm:p-6 md:p-8 flex flex-col relative" style={{ backgroundImage: 'linear-gradient(135deg, #f6e3d4 0%, #efc9b3 45%, #e2a89a 100%)' }}>
-          <div className="flex-1">
-            {section === 'incoming' && <IncomingOrdersSection orders={rawOrders} />}
-            {section === 'opentabs' && <OpenTabsSection />}
-            {section === 'analytics' && <AnalyticsSection orders={orders} />}
-            {section === 'orders' && <OrdersSection orders={orders} />}
-            {section === 'inventory' && <InventorySection menu={menu} />}
-            {section === 'tables' && <TablesSection />}
-            {section === 'billing' && <BillingSection />}
-            {section === 'coupons' && <CouponsSection />}
-            {section === 'deliveries' && <DeliveriesSection />}
-          </div>
-          <footer className="mt-8 pt-6 border-t border-brand-gold/25 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-brand-wine/50">
-            <span>© {new Date().getFullYear()} All rights reserved. {BRAND.fullName}.</span>
-            <a
-              href="https://www.cenexasystems.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold text-brand-wine/60 hover:text-brand-red transition-colors"
-            >
-              POWERED BY <span className="text-brand-red">CENEXA SYSTEMS</span> © {new Date().getFullYear()}
-            </a>
-          </footer>
-        </main>
-      </div>
+      <div id="adm-layer" />
+      <Toaster />
     </div>
   );
 }
@@ -223,224 +307,143 @@ export default function AdminDashboard() {
 // Orders
 // ---------------------------------------------------------------------------
 
-function OrdersSection({ orders }: { orders: Order[] }) {
-  const [typeFilter, setTypeFilter] = useState<'all' | 'waiter' | 'customer'>('all');
+function OrdersSection({ orders, onOpenPOS }: { orders: Order[]; onOpenPOS: () => void }) {
+  const bills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
+  const [typeFilter, setTypeFilter] = useState<'all' | 'tab' | 'counter'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [search, setSearch] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [printing, setPrinting] = useState<{ sessionId: string; invNo: string } | null>(null);
 
-  const filtered = useMemo(() => {
-    return orders
-      .filter(o => {
-        if (typeFilter !== 'all' && o.source !== typeFilter) return false;
-        if (dateFilter !== 'all' && !isInPeriod(o.createdAt, dateFilter as Period, customFrom, customTo)) return false;
-        if (search.trim()) {
-          const q = search.trim().toLowerCase();
-          const hay = `${o.id} table ${o.table}`.toLowerCase();
+  // One row per bill (a dine-in tab's many orders are a single invoice).
+  const invoices = useMemo(() => {
+    const payOf = (sid?: string) => (sid ? bills.find(b => b.sessionId === sid)?.paidMethod ?? null : null);
+    const q = search.trim().toLowerCase();
+    return groupOrdersIntoInvoices(orders)
+      .map(inv => {
+        const o0 = inv.orders.find(o => o.customer) ?? inv.orders[0];
+        return {
+          ...inv,
+          invNo: invoiceNumber(inv.sessionId ?? inv.key, inv.createdAt),
+          customerName: o0.customer?.name ?? '',
+          mobile: o0.customer?.phone ?? '',
+          isTab: (inv.mode ?? 'table') === 'table',
+          payment: payOf(inv.sessionId),
+        };
+      })
+      .filter(inv => {
+        if (typeFilter === 'tab' && !inv.isTab) return false;
+        if (typeFilter === 'counter' && inv.isTab) return false;
+        if (dateFilter !== 'all' && !isInPeriod(inv.createdAt, dateFilter as Period, customFrom, customTo)) return false;
+        if (q) {
+          const hay = `${inv.invNo} ${inv.customerName} ${inv.mobile} ${inv.orders.map(o => o.id).join(' ')} ${inv.items.map(i => i.name).join(' ')}`.toLowerCase();
           if (!hay.includes(q)) return false;
         }
         return true;
-      })
-      .sort((a, b) => b.createdAt - a.createdAt);
-  }, [orders, typeFilter, dateFilter, customFrom, customTo, search]);
+      });
+  }, [orders, bills, typeFilter, dateFilter, customFrom, customTo, search]);
 
-  const pager = usePagination(filtered, 15, `${typeFilter}|${dateFilter}|${customFrom}|${customTo}|${search}`);
-
-  const clearDates = () => {
-    setDateFilter('all');
-    setCustomFrom('');
-    setCustomTo('');
-  };
+  const pager = usePagination(invoices, 15, `${typeFilter}|${dateFilter}|${customFrom}|${customTo}|${search}`);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="rounded-2xl p-4 border border-brand-red/30 shadow-[0_12px_30px_-20px_rgba(176,30,40,0.45)]" style={{ backgroundImage: 'linear-gradient(140deg, #fce1e3 0%, #fff6f6 70%)' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">Total Revenue</p>
-          <p className="text-xl font-black text-brand-red mt-1">{fmt(filtered.reduce((s, o) => s + o.total, 0))}</p>
-        </div>
-        <div className="rounded-2xl p-4 border border-brand-gold/40 shadow-[0_12px_30px_-20px_rgba(165,132,63,0.4)]" style={{ backgroundImage: 'linear-gradient(140deg, #f3e2b1 0%, #fdf6df 70%)' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">Total Orders</p>
-          <p className="text-xl font-black mt-1 text-brand-gold-dark">{filtered.length}</p>
-        </div>
-        <div className="rounded-2xl p-4 border border-brand-plum/30 shadow-[0_12px_30px_-20px_rgba(142,37,112,0.4)]" style={{ backgroundImage: 'linear-gradient(140deg, #f0d9e8 0%, #fff6fb 70%)' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">Avg Order Value</p>
-          <p className="text-xl font-black mt-1 text-brand-plum">{filtered.length ? fmt(filtered.reduce((s, o) => s + o.total, 0) / filtered.length) : fmt(0)}</p>
-        </div>
-        <div className="rounded-2xl p-4 border border-brand-green/30 shadow-[0_12px_30px_-20px_rgba(63,143,58,0.4)]" style={{ backgroundImage: 'linear-gradient(140deg, #e6f1dd 0%, #ffffff 70%)' }}>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">Items Sold</p>
-          <p className="text-xl font-black mt-1 text-brand-green">{filtered.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0)}</p>
-        </div>
+    <Page>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <PageHead title="Order Management" sub="Every bill, one invoice per tab." />
+        <Btn kind="red" icon="cart" onClick={onOpenPOS}>Open POS</Btn>
       </div>
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
-          <h2 className="text-2xl font-black text-brand-wine">Order Management</h2>
-          <div className="relative w-full md:w-80">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search ticket ID or table..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
-            />
-          </div>
-        </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-2">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/50 w-14">Type</span>
-          <div className="flex gap-2">
-            {[
-              { key: 'all', label: 'All Bills' },
-              { key: 'waiter', label: 'Staff-Taken' },
-              { key: 'customer', label: 'Self-Ordered' },
-            ].map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTypeFilter(t.key as typeof typeFilter)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${typeFilter === t.key ? 'bg-brand-red text-white shadow-sm' : 'bg-brand-sand/60 text-brand-wine/70 hover:bg-brand-sand'}`}
-              >
-                {t.label}
-              </button>
-            ))}
+      <Card className="mb-5">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <Pills label="Type" value={typeFilter} onChange={setTypeFilter} options={[
+              { v: 'all', t: 'All bills' },
+              { v: 'tab', t: 'Customer tab' },
+              { v: 'counter', t: 'Counter' },
+            ]} />
+            <SearchBox value={search} onChange={setSearch} placeholder="Search invoice, name, mobile, item…" className="w-full sm:w-72" />
           </div>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/50 w-14">Date</span>
-          <div className="flex flex-wrap gap-2 items-center">
-            {[
-              { key: 'today', label: 'Today' },
-              { key: 'week', label: 'This Week' },
-              { key: 'month', label: 'This Month' },
-              { key: 'custom', label: 'Custom Range' },
-            ].map(t => (
-              <button
-                key={t.key}
-                onClick={() => setDateFilter(t.key as typeof dateFilter)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${dateFilter === t.key ? 'bg-brand-red text-white shadow-sm' : 'bg-brand-sand/60 text-brand-wine/70 hover:bg-brand-sand'}`}
-              >
-                {t.label}
-              </button>
-            ))}
-            {dateFilter !== 'all' && (
-              <button onClick={clearDates} className="text-xs font-bold text-brand-red hover:underline">
-                Clear Dates
-              </button>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Pills label="Date" value={dateFilter} onChange={setDateFilter} options={[
+              { v: 'all', t: 'All' },
+              { v: 'today', t: 'Today' },
+              { v: 'week', t: 'This Week' },
+              { v: 'month', t: 'This Month' },
+              { v: 'custom', t: 'Custom Range' },
+            ]} />
             {dateFilter === 'custom' && (
               <div className="flex items-center gap-2">
-                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="px-2.5 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-xs text-brand-ink" />
-                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="px-2.5 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-xs text-brand-ink" />
+                <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className={cx(inputCls, 'h-9 w-auto')} />
+                <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className={cx(inputCls, 'h-9 w-auto')} />
               </div>
             )}
           </div>
         </div>
+      </Card>
 
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-bold text-brand-wine/60">{filtered.length} result(s)</p>
-          <button
-            onClick={() => exportOrdersToCSV(filtered)}
-            disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 text-sm font-bold text-brand-red hover:text-brand-red-dark disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Download size={14} /> Export CSV
-          </button>
+      <Card className="overflow-hidden !p-0">
+        <div className="flex items-center justify-between px-5 pt-4">
+          <p className="text-[13px] font-semibold text-slate-500">{invoices.length} result(s)</p>
+          <Btn kind="plain" size="sm" icon="download" onClick={() => exportOrdersToCSV(invoices.flatMap(i => i.orders))} disabled={invoices.length === 0}>Export CSV</Btn>
         </div>
-      </div>
-
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[800px]">
+        <div className="adm-scroll mt-2 overflow-x-auto">
+          <table className="w-full min-w-[860px] text-left">
             <thead>
-              <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25 bg-brand-sand/40">
-                <th className="px-5 py-4 font-bold">Ticket</th>
-                <th className="px-5 py-4 font-bold">Table / Mode</th>
-                <th className="px-5 py-4 font-bold">Source</th>
-                <th className="px-5 py-4 font-bold">Items</th>
-                <th className="px-5 py-4 font-bold">Coupon</th>
-                <th className="px-5 py-4 font-bold">Total</th>
-                <th className="px-5 py-4 font-bold">Date</th>
-                <th className="px-5 py-4 font-bold">Status</th>
-                <th className="px-5 py-4 font-bold">Billed</th>
-                <th className="px-5 py-4 font-bold" />
+              <tr className="border-y border-slate-100 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-3 font-bold">Invoice No</th>
+                <th className="px-5 py-3 font-bold">Customer</th>
+                <th className="px-5 py-3 font-bold">Mobile</th>
+                <th className="px-5 py-3 font-bold">Bill Type</th>
+                <th className="px-5 py-3 font-bold">Total</th>
+                <th className="px-5 py-3 font-bold">Payment</th>
+                <th className="px-5 py-3 font-bold">Date</th>
+                <th className="px-5 py-3 font-bold">Status</th>
+                <th className="px-5 py-3 text-right font-bold">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {pager.items.map(o => (
-                <React.Fragment key={o.id}>
-                  <tr className="border-b border-brand-gold/15 last:border-0 hover:bg-brand-sand/30 transition-colors cursor-pointer" onClick={() => setExpandedId(expandedId === o.id ? null : o.id)}>
-                    <td className="px-5 py-4 font-bold text-brand-red">{o.id}</td>
-                    <td className="px-5 py-4 font-medium text-brand-wine">{orderLabel(o)}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-block whitespace-nowrap px-2.5 py-1 rounded-full text-[11px] font-bold ${o.source === 'customer' ? 'bg-brand-plum/10 text-brand-plum border border-brand-plum/25' : 'bg-brand-red/10 text-brand-red-dark border border-brand-red/25'}`}>
-                        {o.source === 'customer' ? 'Self-Order' : 'Staff-Taken'}
-                      </span>
+              {pager.items.map(inv => (
+                <React.Fragment key={inv.key}>
+                  <tr className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/60">
+                    <td className="px-5 py-3.5">
+                      <a href={inv.sessionId ? `/receipt/${inv.sessionId}` : undefined} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-[13px] font-bold text-red-600 hover:underline">
+                        {inv.invNo} <ExternalLink size={12} />
+                      </a>
                     </td>
-                    <td className="px-5 py-4 text-brand-wine/70">{o.items.reduce((s, i) => s + i.qty, 0)} items</td>
-                    <td className="px-5 py-4">
-                      {o.couponCode ? (
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-brand-gold/15 text-brand-gold-dark border border-brand-gold/40">{o.couponCode}</span>
-                      ) : (
-                        <span className="text-brand-wine/30">—</span>
-                      )}
+                    <td className="px-5 py-3.5 font-semibold text-slate-800">{inv.customerName || '—'}</td>
+                    <td className="px-5 py-3.5 text-slate-500">{inv.mobile || '—'}</td>
+                    <td className="px-5 py-3.5"><Badge tone={inv.isTab ? 'violet' : 'sky'}>{inv.isTab ? 'Customer tab' : 'Counter'}</Badge></td>
+                    <td className="adm-num px-5 py-3.5 font-extrabold text-slate-800">{fmt(inv.total)}</td>
+                    <td className="px-5 py-3.5 text-slate-600">{inv.payment ? <span className="uppercase">{inv.payment}</span> : '—'}</td>
+                    <td className="px-5 py-3.5 text-[13px] text-slate-500">{new Date(inv.createdAt).toLocaleDateString()}</td>
+                    <td className="px-5 py-3.5"><Badge tone="green">Completed</Badge></td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button type="button" title="View items" onClick={() => setExpanded(expanded === inv.key ? null : inv.key)}
+                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800"><Eye size={15} /></button>
+                        <button type="button" title="Print invoice" disabled={!inv.sessionId} onClick={() => inv.sessionId && setPrinting({ sessionId: inv.sessionId, invNo: inv.invNo })}
+                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 disabled:opacity-40"><Printer size={15} /></button>
+                      </div>
                     </td>
-                    <td className="px-5 py-4 font-black text-brand-red text-base">{fmt(o.total)}</td>
-                    <td className="px-5 py-4 text-brand-wine/60 text-sm">{new Date(o.createdAt).toLocaleDateString()}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border capitalize ${STATUS_STYLES[o.status]}`}>
-                        {o.status === 'served' ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />}
-                        {o.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      {o.billed ? (
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-brand-green/10 text-brand-green border border-brand-green/25">Billed</span>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-brand-gold/15 text-brand-gold-dark border border-brand-gold/40">Active</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-brand-wine/40">{expandedId === o.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</td>
                   </tr>
-                  {expandedId === o.id && (
-                    <tr className="bg-brand-sand/40">
-                      <td colSpan={10} className="px-5 py-4">
-                        <div className="flex flex-col lg:flex-row gap-6">
-                          <div className="flex-1 flex flex-col gap-1">
-                            {o.items.map((item, i) => (
-                              <div key={i} className="flex justify-between items-center text-sm py-2 border-b border-brand-gold/20 last:border-0">
-                                <div className="flex items-center gap-3">
-                                  <span className="w-8 h-8 rounded-lg bg-brand-red/10 text-brand-red-dark font-black text-xs flex items-center justify-center shrink-0 border border-brand-red/20">{item.qty}x</span>
-                                  <div>
-                                    <span className="font-bold text-brand-ink">{item.name}</span>
-                                    {item.notes && <p className="text-xs text-brand-wine/50 mt-0.5">{item.notes}</p>}
-                                  </div>
-                                </div>
-                                <span className="font-bold text-brand-wine shrink-0">{fmt(item.price * item.qty)}</span>
+                  {expanded === inv.key && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={9} className="px-5 py-4">
+                        <div className="flex flex-col gap-1">
+                          {inv.items.map((item, i) => (
+                            <div key={i} className="flex items-center justify-between border-b border-slate-100 py-2 text-sm last:border-0">
+                              <div className="flex items-center gap-3">
+                                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-red-100 bg-red-50 text-xs font-black text-red-600">{item.qty}x</span>
+                                <span className="font-bold text-slate-800">{item.name}</span>
                               </div>
-                            ))}
-                          </div>
-                          <div className="w-full lg:w-72 bg-brand-cream rounded-2xl p-5 space-y-3 shrink-0 border border-brand-gold/25">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-brand-wine/60">Subtotal</span>
-                              <span className="font-bold text-brand-wine">{fmt(o.subtotal)}</span>
+                              <span className="adm-num shrink-0 font-bold text-slate-700">{fmt(item.price * item.qty)}</span>
                             </div>
-                            {o.discount ? (
-                              <div className="flex justify-between text-sm items-center">
-                                <span className="text-brand-red font-bold flex items-center gap-1.5">
-                                  Discount
-                                  <span className="px-2 py-0.5 bg-brand-gold/15 text-brand-gold-dark rounded-full text-[10px] font-bold border border-brand-gold/40">{o.couponCode}</span>
-                                </span>
-                                <span className="text-brand-red font-black">−{fmt(o.discount)}</span>
-                              </div>
-                            ) : null}
-                            <div className="flex justify-between items-center pt-3 mt-1 border-t-2 border-brand-gold/30">
-                              <span className="font-black text-base text-brand-wine">Grand Total</span>
-                              <span className="font-black text-xl text-brand-red">{fmt(o.total)}</span>
-                            </div>
-                            <p className="text-xs text-brand-wine/50 pt-1">
-                              {new Date(o.createdAt).toLocaleString([], { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </p>
+                          ))}
+                          <div className="mt-1 flex items-center justify-between pt-2">
+                            <span className="text-sm text-slate-500">{new Date(inv.createdAt).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="adm-num text-lg font-black text-red-600">{fmt(inv.total)}</span>
                           </div>
                         </div>
                       </td>
@@ -448,21 +451,193 @@ function OrdersSection({ orders }: { orders: Order[] }) {
                   )}
                 </React.Fragment>
               ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="px-5 py-16 text-center text-brand-wine/40 font-bold">
-                    No orders match these filters.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
+          {invoices.length === 0 && <Empty icon="orders" title="No bills match these filters." />}
         </div>
-        <Pagination p={pager} label="orders" />
+        <Pagination p={pager} label="bills" />
+      </Card>
+
+      {printing && <PrintModal sessionId={printing.sessionId} invNo={printing.invNo} onClose={() => setPrinting(null)} />}
+    </Page>
+  );
+}
+
+const PRINT_ROLL_SIZES = [{ size: '2inch', label: '2 inch roll' }, { size: '3inch', label: '3 inch roll' }];
+const PRINT_SHEET_SIZES = [{ size: 'a3', label: 'A3' }, { size: 'a4', label: 'A4' }, { size: 'a5', label: 'A5' }];
+const printOptCls = 'rounded-2xl border border-slate-200 px-5 py-4 text-center text-sm font-bold text-slate-800 transition-colors hover:border-red-300 hover:bg-red-50';
+
+function PrintModal({ sessionId, invNo, onClose }: { sessionId: string; invNo: string; onClose: () => void }) {
+  const pick = (size: string, label: string) => {
+    printReceipt(sessionId, size);
+    toast.info(`Preparing ${invNo} · ${label}`);
+    onClose();
+  };
+  return (
+    <Modal open onClose={onClose} title={`Print ${invNo}`}>
+      <p className="flex items-center gap-2 text-sm text-slate-500"><Printer size={15} /> Choose the printer and paper size — the invoice resizes to match.</p>
+
+      <p className="mt-5 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Thermal printer · roll</p>
+      <div className="mt-2 grid grid-cols-2 gap-3">
+        {PRINT_ROLL_SIZES.map(o => (
+          <button key={o.size} type="button" onClick={() => pick(o.size, o.label)} className={printOptCls}>{o.label}</button>
+        ))}
       </div>
+
+      <p className="mt-5 text-[11px] font-black uppercase tracking-[0.14em] text-slate-400">Sheet printer · paper</p>
+      <div className="mt-2 grid grid-cols-3 gap-3">
+        {PRINT_SHEET_SIZES.map(o => (
+          <button key={o.size} type="button" onClick={() => pick(o.size, o.label)} className={printOptCls}>{o.label}</button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delivery Zones — admin-managed governorates/areas + their delivery fee.
+// These drive the governorate picker and the delivery charge at checkout.
+// ---------------------------------------------------------------------------
+
+function DeliveryZonesSection() {
+  return (
+    <Page>
+      <PageHead
+        title="Delivery Zones"
+        sub="Add the governorates / areas you deliver to and set each one's delivery fee. Customers can only pick a zone listed here, and the fee shows on their bill."
+        bar
+      />
+      <Card>
+        <AreasPanel />
+      </Card>
+    </Page>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Homepage — admin-managed photos & videos for the public landing page.
+// ---------------------------------------------------------------------------
+
+async function uploadHomeFile(file: File, kind: 'image' | 'video'): Promise<string | null> {
+  try {
+    let blob: Blob = file;
+    let filename = 'video.mp4';
+    if (kind === 'image') {
+      if (file.size > 5 * 1024 * 1024) { toast.error('Photo is too large (max 5 MB).'); return null; }
+      blob = (await compressToWebp(file)).blob;
+      filename = 'photo.webp';
+    } else {
+      if (file.size > 10 * 1024 * 1024) { toast.error('Video is too large (max 10 MB).'); return null; }
+      if (!/mp4/i.test(file.type) && !/\.mp4$/i.test(file.name)) { toast.error('Please upload an MP4 video.'); return null; }
+    }
+    const form = new FormData();
+    form.append('file', blob, filename);
+    form.append('kind', kind);
+    const res = await fetch('/api/upload-media', { method: 'POST', body: form });
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.ok) throw new Error(json?.error?.message ?? 'Upload failed. Please try again.');
+    return json.url as string;
+  } catch (e) {
+    toast.error((e as Error).message);
+    return null;
+  }
+}
+
+function MediaAddButton({ kind, disabled, label, onUploaded }: { kind: 'image' | 'video'; disabled?: boolean; label: string; onUploaded: (url: string) => void }) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const pick = async (f?: File) => {
+    if (!f) return;
+    setBusy(true);
+    const url = await uploadHomeFile(f, kind);
+    setBusy(false);
+    if (ref.current) ref.current.value = '';
+    if (url) { onUploaded(url); toast.success(kind === 'video' ? 'Video added.' : 'Photo added.'); }
+  };
+  return (
+    <>
+      <input ref={ref} type="file" accept={kind === 'image' ? 'image/*' : 'video/mp4'} className="hidden" onChange={e => pick(e.target.files?.[0])} />
+      <button type="button" disabled={disabled || busy} onClick={() => ref.current?.click()}
+        className="flex aspect-[9/16] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 text-slate-400 transition-colors hover:border-red-300 hover:text-red-500 disabled:opacity-40">
+        <Icon name={busy ? 'clock' : 'plus'} size={22} />
+        <span className="text-[11px] font-bold">{busy ? 'Uploading…' : label}</span>
+      </button>
+    </>
+  );
+}
+
+function MediaTile({ url, isVideo, onDelete }: { url: string; isVideo?: boolean; onDelete: () => void }) {
+  return (
+    <div className="group relative aspect-[9/16] overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+      {isVideo
+        ? <video src={url} className="h-full w-full object-cover" muted playsInline />
+        // eslint-disable-next-line @next/next/no-img-element
+        : <img src={url} alt="" className="h-full w-full object-cover" />}
+      <button type="button" onClick={onDelete} aria-label="Remove"
+        className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100">
+        <Icon name="trash" size={14} />
+      </button>
     </div>
   );
 }
+
+function HomepageSection() {
+  const rows = useSyncExternalStore(subscribeToHomeMedia, getHomeMediaSnapshot, getHomeMediaServerSnapshot);
+  const media = homeMediaFrom(rows);
+  const update = (patch: Partial<HomeMedia>) => saveHomeMedia({ ...media, ...patch });
+
+  return (
+    <Page>
+      <PageHead
+        title="Homepage"
+        sub="Photos and videos shown on your public homepage. Upload portrait (mobile) media — photos up to 5 MB, videos up to 10 MB. Empty slots keep the built-in images."
+        bar
+      />
+
+      <Card title={`Photo gallery (${media.gallery.length}/${HOME_MEDIA_LIMITS.gallery})`}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: HOME_MEDIA_LIMITS.gallery }).map((_, i) => {
+            const url = media.gallery[i];
+            return url
+              ? <MediaTile key={url} url={url} onDelete={() => update({ gallery: media.gallery.filter((_, j) => j !== i) })} />
+              : <MediaAddButton key={`g-add-${i}`} kind="image" label="Add photo" onUploaded={u => update({ gallery: [...media.gallery, u] })} />;
+          })}
+        </div>
+      </Card>
+
+      <Card className="mt-5" title={`Videos (${media.videos.length}/${HOME_MEDIA_LIMITS.videos})`}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: HOME_MEDIA_LIMITS.videos }).map((_, i) => {
+            const url = media.videos[i];
+            return url
+              ? <MediaTile key={url} url={url} isVideo onDelete={() => update({ videos: media.videos.filter((_, j) => j !== i) })} />
+              : <MediaAddButton key={`v-add-${i}`} kind="video" label="Add video" onUploaded={u => update({ videos: [...media.videos, u] })} />;
+          })}
+        </div>
+      </Card>
+
+      <Card className="mt-5" title={`Kuwait's Finest Flavours (${media.finest.length}/${HOME_MEDIA_LIMITS.finest} photos)`}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: HOME_MEDIA_LIMITS.finest }).map((_, i) => {
+            const url = media.finest[i];
+            return url
+              ? <MediaTile key={url} url={url} onDelete={() => update({ finest: media.finest.filter((_, j) => j !== i) })} />
+              : <MediaAddButton key={`f-add-${i}`} kind="image" label="Add photo" onUploaded={u => update({ finest: [...media.finest, u] })} />;
+          })}
+        </div>
+      </Card>
+
+      <Card className="mt-5" title="“Made for Celebrations” photo">
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+          {media.celebrations
+            ? <MediaTile url={media.celebrations} onDelete={() => update({ celebrations: '' })} />
+            : <MediaAddButton kind="image" label="Add photo" onUploaded={url => update({ celebrations: url })} />}
+        </div>
+      </Card>
+    </Page>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // Inventory
@@ -474,6 +649,13 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Built-in categories plus any custom ones already in use, so new categories
+  // an admin adds from the product form show up here as filters too.
+  const categories = useMemo(
+    () => Array.from(new Set([...MENU_CATEGORIES, ...menu.map(m => m.category)].filter(Boolean))),
+    [menu]
+  );
 
   const filtered = menu.filter(m => {
     const q = search.toLowerCase();
@@ -491,134 +673,112 @@ function InventorySection({ menu }: { menu: MenuItem[] }) {
   const openAdd = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (item: MenuItem) => { setEditing(item); setFormOpen(true); };
 
-  const summary: { label: string; value: string; cls: string; panel: string; border: string }[] = [
-    { label: 'Total Products', value: String(totalProducts), cls: 'text-brand-gold-dark', panel: 'linear-gradient(140deg, #f3e2b1 0%, #fdf6df 70%)', border: 'border-brand-gold/40' },
-    { label: 'Active',         value: String(activeCount),   cls: 'text-brand-green',     panel: 'linear-gradient(140deg, #e6f1dd 0%, #ffffff 70%)', border: 'border-brand-green/30' },
-    { label: 'Inactive',       value: String(inactiveCount), cls: 'text-brand-red',       panel: 'linear-gradient(140deg, #fce1e3 0%, #fff6f6 70%)', border: 'border-brand-red/30' },
-  ];
-
   return (
-    <div className="flex flex-col gap-6">
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-3">
-        {summary.map(s => (
-          <div key={s.label} className={`p-4 rounded-2xl border ${s.border} shadow-[0_12px_30px_-20px_rgba(74,21,21,0.35)]`} style={{ backgroundImage: s.panel }}>
-            <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">{s.label}</p>
-            <p className={`text-xl font-black mt-1 ${s.cls}`}>{s.value}</p>
-          </div>
-        ))}
+    <Page>
+      <PageHead
+        title="Inventory"
+        sub="Your product catalog — pricing, categories and availability."
+        bar
+        right={<Btn kind="red" icon="plus" onClick={openAdd}>Add product</Btn>}
+      />
+
+      <div className="mb-5 grid grid-cols-3 gap-3">
+        <Kpi label="Total Products" value={totalProducts} icon="box" tone="amber" small />
+        <Kpi label="Active" value={activeCount} icon="check" tone="emerald" small />
+        <Kpi label="Inactive" value={inactiveCount} icon="alert" tone="red" small />
       </div>
 
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-          <div>
-            <h2 className="text-2xl font-black text-brand-wine">Menu Inventory</h2>
-            <p className="text-sm text-brand-wine/60">Manage your product catalog — pricing, categories, and availability.</p>
-          </div>
-          <button
-            onClick={openAdd}
-            className="flex items-center justify-center gap-2 px-5 py-3 bg-brand-red hover:bg-brand-red-dark text-white rounded-xl font-bold text-sm transition-all shrink-0 shadow-[0_12px_24px_-10px_rgba(176,30,40,0.55)] ring-1 ring-brand-gold/30"
-          >
-            <Plus size={16} /> Add New Product
-          </button>
+      <Card className="mb-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <SearchBox value={search} onChange={setSearch} placeholder="Search by name, category or SKU…" className="sm:max-w-md sm:flex-1" />
+          <Pills
+            value={categoryFilter}
+            onChange={setCategoryFilter}
+            options={['All', ...categories].map(c => ({ v: c as 'All' | MenuCategory, t: c }))}
+          />
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1 max-w-md">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, category or SKU..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red" />
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-            {(['All', ...MENU_CATEGORIES] as const).map(c => (
-              <button key={c} onClick={() => setCategoryFilter(c as 'All' | MenuCategory)} className={`px-3 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${categoryFilter === c ? 'bg-brand-red text-white shadow-sm' : 'bg-brand-sand/60 text-brand-wine/70 hover:bg-brand-sand'}`}>{c}</button>
-            ))}
-          </div>
-        </div>
-      </div>
+      </Card>
 
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[600px]">
+      <Card className="overflow-hidden !p-0">
+        <div className="adm-scroll overflow-x-auto">
+          <table className="w-full min-w-[600px] text-left">
             <thead>
-              <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25 bg-brand-sand/40">
-                <th className="px-5 py-4 font-bold">Product</th>
-                <th className="px-5 py-4 font-bold">Category</th>
-                <th className="px-5 py-4 font-bold">Price</th>
-                <th className="px-5 py-4 font-bold">Status</th>
-                <th className="px-5 py-4 font-bold">Actions</th>
+              <tr className="border-b border-slate-100 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-3.5 font-bold">Product</th>
+                <th className="px-5 py-3.5 font-bold">Category</th>
+                <th className="px-5 py-3.5 font-bold">Price</th>
+                <th className="px-5 py-3.5 font-bold">Status</th>
+                <th className="px-5 py-3.5 font-bold">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {pager.items.map(item => {
-                return (
-                  <tr key={item.id} className="border-b border-brand-gold/15 last:border-0 hover:bg-brand-sand/30 transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        {item.image ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="w-11 h-11 rounded-lg object-cover shrink-0 border border-brand-gold/30 bg-brand-sand"
-                          />
-                        ) : (
-                          <div className="w-11 h-11 rounded-lg bg-brand-red/10 text-brand-red-dark font-black flex items-center justify-center shrink-0 border border-brand-red/20">
-                            {item.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-bold truncate text-brand-wine">{item.name}</p>
-                          <p className="text-xs text-brand-wine/50">{item.sku || '—'}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="px-2.5 py-1 rounded-full bg-brand-sand/70 text-xs font-bold text-brand-wine/70 border border-brand-gold/30">{item.category}</span>
-                    </td>
-                    <td className="px-5 py-4 font-bold text-brand-wine">{fmt(item.price)}</td>
-                    <td className="px-5 py-4">
-                      <button
-                        onClick={() => updateMenuItem(item.id, { status: item.status === 'active' ? 'inactive' : 'active' })}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${item.status === 'active' ? 'bg-brand-green/10 text-brand-green border-brand-green/30 hover:bg-brand-green/20' : 'bg-brand-sand/60 text-brand-wine/50 border-brand-gold/30 hover:bg-brand-sand'}`}
-                      >
-                        {item.status === 'active' ? 'Active' : 'Inactive'}
-                      </button>
-                    </td>
-                    <td className="px-5 py-4">
-                      {confirmDeleteId === item.id ? (
-                        <div className="flex items-center gap-2 text-xs font-bold">
-                          <span className="text-brand-wine/60">Delete?</span>
-                          <button onClick={() => { deleteMenuItem(item.id); setConfirmDeleteId(null); }} className="text-brand-red hover:underline">Yes</button>
-                          <button onClick={() => setConfirmDeleteId(null)} className="text-brand-wine/50 hover:underline">No</button>
-                        </div>
+              {pager.items.map(item => (
+                <tr key={item.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-3">
+                      {item.image ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={item.image} alt={item.name} className="h-11 w-11 shrink-0 rounded-lg border border-slate-100 object-cover" />
                       ) : (
-                        <div className="flex items-center gap-4 text-sm font-bold">
-                          <button onClick={() => openEdit(item)} className="text-brand-wine hover:text-brand-red hover:underline flex items-center gap-1 transition-colors"><Pencil size={13} /> Edit</button>
-                          <button onClick={() => setConfirmDeleteId(item.id)} className="text-brand-red hover:underline flex items-center gap-1"><Trash2 size={13} /> Delete</button>
-                        </div>
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-red-100 bg-red-50 font-black text-red-600">{item.name.charAt(0).toUpperCase()}</div>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-16 text-center text-brand-wine/40 font-bold">No products found.</td>
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-800">{item.name}</p>
+                        <p className="text-xs text-slate-400">{item.sku || '—'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge tone="slate">{item.category}</Badge>
+                  </td>
+                  <td className="adm-num px-5 py-3.5 font-bold text-slate-800">{fmt(item.price)}</td>
+                  <td className="px-5 py-3.5">
+                    <button
+                      type="button"
+                      onClick={() => updateMenuItem(item.id, { status: item.status === 'active' ? 'inactive' : 'active' })}
+                      className="cursor-pointer"
+                    >
+                      <Badge tone={item.status === 'active' ? 'green' : 'slate'}>{item.status === 'active' ? 'Active' : 'Inactive'}</Badge>
+                    </button>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    {confirmDeleteId === item.id ? (
+                      <div className="flex items-center gap-2 text-xs font-bold">
+                        <span className="text-slate-500">Delete?</span>
+                        <button type="button" onClick={() => { deleteMenuItem(item.id); setConfirmDeleteId(null); }} className="text-red-600 hover:underline">Yes</button>
+                        <button type="button" onClick={() => setConfirmDeleteId(null)} className="text-slate-400 hover:underline">No</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <Btn kind="plain" size="sm" icon="edit" onClick={() => openEdit(item)}>Edit</Btn>
+                        <Btn kind="plain" size="sm" icon="trash" className="text-red-600" onClick={() => setConfirmDeleteId(item.id)}>Delete</Btn>
+                      </div>
+                    )}
+                  </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
+          {filtered.length === 0 && <Empty icon="box" title="No products found." />}
         </div>
         <Pagination p={pager} label="products" />
-      </div>
+      </Card>
 
-      {formOpen && <ProductFormModal item={editing} onClose={() => setFormOpen(false)} />}
-    </div>
+      {formOpen && <ProductFormModal item={editing} categories={categories} onClose={() => setFormOpen(false)} />}
+    </Page>
   );
 }
 
-function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: () => void }) {
+const NEW_CATEGORY = '__new__';
+
+function ProductFormModal({ item, categories, onClose }: { item: MenuItem | null; categories: string[]; onClose: () => void }) {
   const [name, setName] = useState(item?.name || '');
-  const [category, setCategory] = useState<MenuCategory>(item?.category || MENU_CATEGORIES[0]);
+  const knownCategories = categories.length ? categories : MENU_CATEGORIES;
+  const [category, setCategory] = useState<string>(item?.category || knownCategories[0]);
+  // When the admin picks "Add new category…", the <select> switches to this
+  // sentinel and a text input appears; its value becomes the real category.
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
   const [price, setPrice] = useState(item ? String(item.price) : '');
   const [description, setDescription] = useState(item?.description || '');
   const [image, setImage] = useState(item?.image || '');
@@ -626,19 +786,21 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
   const [status, setStatus] = useState<'active' | 'inactive'>(item?.status || 'active');
   const [isPopular, setIsPopular] = useState(!!item?.isPopular);
   const [isChefSpecial, setIsChefSpecial] = useState(!!item?.isChefSpecial);
+  const [isBestSeller, setIsBestSeller] = useState(!!item?.isBestSeller);
   const [isSpicy, setIsSpicy] = useState(!!item?.isSpicy);
   const [sku, setSku] = useState(item?.sku || '');
   const [stock, setStock] = useState(item?.stock != null ? String(item.stock) : '');
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (saving) return; // Guard against double-click save.
+    if (saving) return;
     setError(null);
     const priceNum = Number(price);
+    const finalCategory = (addingCategory ? newCategory : category).trim();
     if (!name.trim()) { setError('Please enter a product name.'); return; }
+    if (!finalCategory) { setError('Please choose or enter a category.'); return; }
     if (!Number.isFinite(priceNum) || priceNum <= 0) { setError('Please enter a valid price.'); return; }
 
     const stockNum = stock.trim() === '' ? undefined : Number(stock);
@@ -649,7 +811,7 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
 
     const payload = {
       name: name.trim(),
-      category,
+      category: finalCategory,
       price: priceNum,
       description: description.trim(),
       image: image.trim() || FALLBACK_IMAGE,
@@ -657,6 +819,7 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
       status,
       isPopular,
       isChefSpecial,
+      isBestSeller,
       isSpicy,
       sku: sku.trim() || undefined,
       stock: stockNum,
@@ -666,8 +829,7 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
     try {
       if (item) updateMenuItem(item.id, payload);
       else addMenuItem(payload);
-      setToast(item ? 'Product updated' : 'Product added');
-      setTimeout(() => { onClose(); }, 650);
+      setTimeout(() => { onClose(); }, 400);
     } catch {
       setSaving(false);
       setError('Could not save. Please try again.');
@@ -675,96 +837,96 @@ function ProductFormModal({ item, onClose }: { item: MenuItem | null; onClose: (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2a0a0a]/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-brand-cream rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8 border border-brand-gold/30 shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-black text-brand-wine">{item ? 'Edit Product' : 'Add New Product'}</h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-brand-sand text-brand-wine transition-colors">
-            <X size={20} />
-          </button>
+    <Modal
+      open
+      onClose={onClose}
+      title={item ? 'Edit product' : 'Add new product'}
+      wide
+      footer={
+        <>
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn kind="red" disabled={saving} onClick={() => { const f = document.getElementById('product-form') as HTMLFormElement | null; f?.requestSubmit(); }}>
+            {saving ? 'Saving…' : item ? 'Save changes' : 'Add product'}
+          </Btn>
+        </>
+      }
+    >
+      <form id="product-form" onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Field label="Product name">
+          <input value={name} onChange={e => setName(e.target.value)} required className={inputCls} placeholder="e.g. Pistachio Baklava" />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Category">
+            {addingCategory ? (
+              <div className="flex gap-2">
+                <input
+                  value={newCategory}
+                  onChange={e => setNewCategory(e.target.value)}
+                  autoFocus
+                  className={inputCls}
+                  placeholder="New category name"
+                />
+                <button type="button" onClick={() => { setAddingCategory(false); setNewCategory(''); }}
+                  className="shrink-0 rounded-xl border border-slate-200 px-3 text-sm font-bold text-slate-500 hover:bg-slate-50">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <select
+                value={category}
+                onChange={e => { if (e.target.value === NEW_CATEGORY) { setAddingCategory(true); } else { setCategory(e.target.value); } }}
+                className={inputCls}
+              >
+                {knownCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value={NEW_CATEGORY}>➕ Add new category…</option>
+              </select>
+            )}
+          </Field>
+          <Field label="Price (KD)">
+            <input value={price} onChange={e => setPrice(e.target.value)} required type="number" min="0" step="0.01" className={inputCls} placeholder="0.00" />
+          </Field>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Product Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} required className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. Truffle Pasta" />
-          </div>
+        <Field label="Description">
+          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className={cx(inputCls, 'h-auto resize-none py-2.5')} placeholder="Short menu description" />
+        </Field>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Category</label>
-              <select value={category} onChange={e => setCategory(e.target.value as MenuCategory)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red">
-                {MENU_CATEGORIES.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Price (KD)</label>
-              <input value={price} onChange={e => setPrice(e.target.value)} required type="number" min="0" step="0.01" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="0.00" />
-            </div>
-          </div>
+        <PhotoField value={image} onChange={setImage} />
 
-          <div>
-            <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Description</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red resize-none" placeholder="Short menu description" />
-          </div>
+        <Field label="Prep time">
+          <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className={inputCls} placeholder="e.g. 5 min" />
+        </Field>
 
-          <PhotoField value={image} onChange={setImage} />
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="SKU / Code">
+            <input value={sku} onChange={e => setSku(e.target.value)} className={inputCls} placeholder="e.g. AS-BKL" />
+          </Field>
+          <Field label="Stock quantity">
+            <input value={stock} onChange={e => setStock(e.target.value)} type="number" min="0" step="1" className={inputCls} placeholder="Optional" />
+          </Field>
+        </div>
 
-          <div>
-            <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Prep Time</label>
-            <input value={prepTime} onChange={e => setPrepTime(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. 5 min" />
-          </div>
+        <div className="flex flex-wrap gap-4 text-slate-700">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={isPopular} onChange={e => setIsPopular(e.target.checked)} className="accent-red-600" /> Popular
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={isChefSpecial} onChange={e => setIsChefSpecial(e.target.checked)} className="accent-red-600" /> Chef special
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={isBestSeller} onChange={e => setIsBestSeller(e.target.checked)} className="accent-red-600" /> Best seller
+          </label>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={isSpicy} onChange={e => setIsSpicy(e.target.checked)} className="accent-red-600" /> Spicy
+          </label>
+          <label className="ml-auto flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={status === 'active'} onChange={e => setStatus(e.target.checked ? 'active' : 'inactive')} className="accent-red-600" /> Active
+          </label>
+        </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">SKU / Code</label>
-              <input value={sku} onChange={e => setSku(e.target.value)} className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="e.g. AS-BKL" />
-            </div>
-            <div>
-              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase tracking-wide">Stock Quantity</label>
-              <input value={stock} onChange={e => setStock(e.target.value)} type="number" min="0" step="1" className="w-full px-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red" placeholder="Optional" />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-4 text-brand-wine">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isPopular} onChange={e => setIsPopular(e.target.checked)} className="accent-brand-red" /> Popular
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isChefSpecial} onChange={e => setIsChefSpecial(e.target.checked)} className="accent-brand-red" /> Chef Special
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={isSpicy} onChange={e => setIsSpicy(e.target.checked)} className="accent-brand-red" /> Spicy
-            </label>
-            <label className="flex items-center gap-2 text-sm font-medium ml-auto">
-              <input type="checkbox" checked={status === 'active'} onChange={e => setStatus(e.target.checked ? 'active' : 'inactive')} className="accent-brand-red" /> Active
-            </label>
-          </div>
-
-          {error && (
-            <p className="rounded-xl border border-brand-red/30 bg-brand-red/5 px-4 py-3 font-body text-xs font-bold text-brand-red">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="relative w-full py-3.5 text-white rounded-xl font-black text-sm uppercase tracking-wide transition-all mt-2 shadow-[0_14px_28px_-10px_rgba(74,21,21,0.65)] hover:shadow-[0_18px_32px_-10px_rgba(74,21,21,0.8)] disabled:opacity-70 disabled:cursor-not-allowed"
-            style={{ backgroundImage: 'linear-gradient(135deg, #b01e28 0%, #8f1720 50%, #4a1515 100%)' }}
-          >
-            {saving
-              ? 'Saving…'
-              : item ? 'Save Changes' : 'Add Product'}
-          </button>
-        </form>
-
-        {toast && (
-          <div className="pointer-events-none fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-brand-green text-white text-xs font-bold px-5 py-2.5 shadow-xl z-[60] flex items-center gap-2">
-            <CheckCircle2 size={14} /> {toast}
-          </div>
-        )}
-      </div>
-    </div>
+        {error && <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-bold text-red-600">{error}</p>}
+      </form>
+    </Modal>
   );
 }
