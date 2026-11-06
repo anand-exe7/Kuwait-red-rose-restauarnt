@@ -15,7 +15,15 @@ export interface Coupon {
   usageLimit: number;      // 0 = unlimited
   usedCount: number;
   active: boolean;
+  targetedOnly: boolean;   // only works for the phones it was sent to
+  sentPhones: string[];    // normalised (last-8) numbers it was shared with
   createdAt: number;
+}
+
+/** Last-8-digit form so +965 / spaces / country codes all compare equal. */
+export function normalizePhone(p: string): string {
+  const d = (p || '').replace(/\D/g, '');
+  return d.length > 8 ? d.slice(-8) : d;
 }
 
 function fromRow(r: Record<string, unknown>): Coupon {
@@ -28,6 +36,8 @@ function fromRow(r: Record<string, unknown>): Coupon {
     usageLimit: Number(r.usage_limit ?? 0),
     usedCount: Number(r.used_count ?? 0),
     active: (r.active as boolean) ?? true,
+    targetedOnly: (r.targeted_only as boolean) ?? false,
+    sentPhones: Array.isArray(r.sent_phones) ? (r.sent_phones as string[]) : [],
     createdAt: Number(r.created_at),
   };
 }
@@ -42,8 +52,40 @@ function toRow(c: Partial<Coupon>): Record<string, unknown> {
   if (c.usageLimit !== undefined) row.usage_limit = c.usageLimit;
   if (c.usedCount !== undefined) row.used_count = c.usedCount;
   if (c.active !== undefined) row.active = c.active;
+  if (c.targetedOnly !== undefined) row.targeted_only = c.targetedOnly;
+  if (c.sentPhones !== undefined) row.sent_phones = c.sentPhones;
   if (c.createdAt !== undefined) row.created_at = c.createdAt;
   return row;
+}
+
+// If the live DB hasn't had supabase/coupon_targeting.sql applied yet, writes
+// that include the new columns are rejected. We retry once without them so the
+// coupon still saves (minus the targeting it couldn't persist).
+const OPTIONAL_COUPON_COLUMNS = ['targeted_only', 'sent_phones'] as const;
+let couponSchemaIsLegacy = false;
+
+function stripLegacy(row: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...row };
+  for (const k of OPTIONAL_COUPON_COLUMNS) delete clean[k];
+  return clean;
+}
+
+/** True for every "that column doesn't exist yet" shape Supabase/PostgREST can
+ *  return — including "Could not find the 'sent_phones' column ... in the schema
+ *  cache" and "Unknown column field ...". */
+function isMissingColumnError(msg: string): boolean {
+  return /unknown .*field|could not find the .* column|column .* does not exist|schema cache|sent_phones|targeted_only/i.test(msg);
+}
+
+async function writeCoupon(op: 'insert' | 'update' | 'delete', values: Record<string, unknown>, match?: Record<string, string>) {
+  const payload = couponSchemaIsLegacy ? stripLegacy(values) : values;
+  const res = await write({ table: 'coupons', op, values: payload, match });
+  if (res.error && isMissingColumnError(res.error.message || '')) {
+    couponSchemaIsLegacy = true;
+    console.warn('[coupons] targeting columns missing — apply supabase/coupon_targeting.sql to enable "only for customers it is sent to". Saving without targeting for now.');
+    return write({ table: 'coupons', op, values: stripLegacy(values), match });
+  }
+  return res;
 }
 
 const store = createRealtimeStore<Coupon>({ table: 'coupons', fromRow });
@@ -69,16 +111,21 @@ export function remainingUses(c: Coupon): number | null {
   return Math.max(0, c.usageLimit - c.usedCount);
 }
 
-export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> & { usedCount?: number }): Coupon {
+export function addCoupon(
+  input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount' | 'targetedOnly' | 'sentPhones'>
+    & { usedCount?: number; targetedOnly?: boolean; sentPhones?: string[] }
+): Coupon {
   const coupon: Coupon = {
     ...input,
     code: input.code.trim().toUpperCase(),
     usedCount: input.usedCount ?? 0,
+    targetedOnly: input.targetedOnly ?? false,
+    sentPhones: input.sentPhones ?? [],
     id: `c${Date.now().toString(36)}`,
     createdAt: Date.now(),
   };
   store.patchLocal((cur) => [coupon, ...cur]);
-  void write({ table: 'coupons', op: 'insert', values: toRow(coupon) }).then(({ error }) => {
+  void writeCoupon('insert', toRow(coupon)).then(({ error }) => {
     if (error) console.error('[coupons] add failed', error.message);
   });
   return coupon;
@@ -87,16 +134,28 @@ export function addCoupon(input: Omit<Coupon, 'id' | 'createdAt' | 'usedCount'> 
 export function updateCoupon(id: string, patch: Partial<Omit<Coupon, 'id' | 'createdAt'>>) {
   const norm = patch.code !== undefined ? { ...patch, code: patch.code.trim().toUpperCase() } : patch;
   store.patchLocal((cur) => cur.map((c) => (c.id === id ? { ...c, ...norm } : c)));
-  void write({ table: 'coupons', op: 'update', values: toRow(norm), match: { id: id } }).then(({ error }) => {
+  void writeCoupon('update', toRow(norm), { id }).then(({ error }) => {
     if (error) console.error('[coupons] update failed', error.message);
   });
 }
 
 export function deleteCoupon(id: string) {
   store.patchLocal((cur) => cur.filter((c) => c.id !== id));
-  void write({ table: 'coupons', op: 'delete', match: { id: id } }).then(({ error }) => {
+  void writeCoupon('delete', {}, { id }).then(({ error }) => {
     if (error) console.error('[coupons] delete failed', error.message);
   });
+}
+
+/** Record that this coupon was sent to a phone (dedup, normalised). Optionally
+ *  flips the coupon to "only for customers it's sent to". */
+export function recordCouponSent(id: string, phone: string, makeTargeted = false) {
+  const n = normalizePhone(phone);
+  const cur = store.get().find((c) => c.id === id);
+  if (!cur || !n) return;
+  const sentPhones = cur.sentPhones.includes(n) ? cur.sentPhones : [...cur.sentPhones, n];
+  const patch: Partial<Coupon> = { sentPhones };
+  if (makeTargeted && !cur.targetedOnly) patch.targetedOnly = true;
+  updateCoupon(id, patch);
 }
 
 /** Record one more redemption of this coupon. Called at checkout, after the
@@ -117,10 +176,15 @@ export interface CouponResult {
   coupon?: Coupon;
   discount?: number;
   reason?: string;
+  /** True when the code is a valid *targeted* coupon but no phone was supplied
+   *  yet — the caller should ask the customer for the number it was sent to and
+   *  re-validate, rather than show a hard "invalid" error. */
+  needsPhone?: boolean;
 }
 
-/** Validate a code against a product subtotal (KD). Discount = subtotal × %. */
-export function validateCoupon(code: string, subtotal: number): CouponResult {
+/** Validate a code against a product subtotal (KD). Discount = subtotal × %.
+ *  For targeted coupons, `phone` must be one the coupon was sent to. */
+export function validateCoupon(code: string, subtotal: number, phone?: string): CouponResult {
   // Make sure the coupons table is being fetched. Pages that don't display the
   // coupon list (e.g. the public customer menu) never subscribe to this store,
   // which left the cache empty and made every code look invalid.
@@ -137,6 +201,16 @@ export function validateCoupon(code: string, subtotal: number): CouponResult {
   const remaining = remainingUses(c);
   if (remaining !== null && remaining <= 0) return { ok: false, reason: 'This coupon has reached its usage limit' };
   if (subtotal < c.minOrder) return { ok: false, reason: `Minimum order of KD ${c.minOrder.toFixed(3)} required` };
+  if (c.targetedOnly) {
+    const n = phone ? normalizePhone(phone) : '';
+    if (!n) {
+      // Valid coupon, just no number yet — let the UI ask for it (claim flow).
+      return { ok: false, needsPhone: true, reason: 'This is a personal coupon — enter the mobile number it was sent to.' };
+    }
+    if (!c.sentPhones.map(normalizePhone).includes(n)) {
+      return { ok: false, reason: 'This coupon wasn’t sent to that number. Check the mobile number and try again.' };
+    }
+  }
   const discount = (subtotal * c.discountPercent) / 100;
   return { ok: true, coupon: c, discount };
 }

@@ -13,18 +13,26 @@ import Link from 'next/link';
 import {
   ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X,
   Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone, Hash,
-  ClipboardList, CalendarClock, Home,
+  ClipboardList, CalendarClock, Home, Receipt, Clock, PlusCircle,
 } from 'lucide-react';
 import {
   addOrder, type DeliveryAddress, type OrderMode,
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel,
+  getUserOpenDineInTab, type UserOpenTab,
 } from '../lib/orderStore';
+import {
+  subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot,
+  requestBill,
+} from '../lib/sessionStore';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
 import {
   validateCoupon, incrementCouponUsage,
   subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot,
 } from '../lib/couponStore';
+import {
+  subscribeToAreas, getAreasSnapshot, getAreasServerSnapshot, activeAreas,
+} from '../lib/deliveryAreaStore';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import SignInGate from '../components/SignInGate';
@@ -42,13 +50,16 @@ const PETALS = [
   { src: 'petal-a', left: '90%', w: '18px', dur: 23, delay: 9, sway: -44 },
 ];
 
-const KUWAIT_GOVERNORATES = [
-  'Al Asimah (Capital)',
-  'Hawalli',
-  'Farwaniya',
-  'Mubarak Al-Kabeer',
-  'Ahmadi',
-  'Jahra',
+// Fallback delivery zones + fee (KD) — used only until an admin adds zones in
+// Admin → Delivery Zones. Once zones exist in the database they take over here,
+// so delivery pricing is fully admin-editable but never empty.
+const FALLBACK_ZONES: { name: string; fee: number }[] = [
+  { name: 'Al Asimah (Capital)', fee: 1.0 },
+  { name: 'Hawalli', fee: 1.0 },
+  { name: 'Farwaniya', fee: 1.25 },
+  { name: 'Mubarak Al-Kabeer', fee: 1.5 },
+  { name: 'Ahmadi', fee: 1.75 },
+  { name: 'Jahra', fee: 2.0 },
 ];
 
 const EMPTY_ADDRESS: DeliveryAddress = {
@@ -76,6 +87,11 @@ export default function MenuPage() {
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // Targeted ("personal") coupons only work for the numbers they were sent to.
+  // When the code is one of those, we reveal a phone field so the customer can
+  // claim it with the number it was sent to, right at apply time.
+  const [couponPhone, setCouponPhone] = useState('');
+  const [couponNeedsPhone, setCouponNeedsPhone] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // True while we're waiting on sign-in to continue the user's checkout —
@@ -83,8 +99,12 @@ export default function MenuPage() {
   const [pendingCheckout, setPendingCheckout] = useState(false);
 
   const [selectedMode, setSelectedMode] = useState<CheckoutMode | null>(null);
+  // When true, a dine-in checkout appends to the customer's existing open tab
+  // instead of starting a new one (so no table re-pick, one running bill).
+  const [attachToTab, setAttachToTab] = useState(false);
   const [phone, setPhone] = useState('');
   const [tableInput, setTableInput] = useState('');
+  const [pickupTime, setPickupTime] = useState('');
   const [address, setAddress] = useState<DeliveryAddress>(EMPTY_ADDRESS);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -110,6 +130,21 @@ export default function MenuPage() {
 
   const auth = useSyncExternalStore(subscribeToCustomerAuth, getCustomerAuthSnapshot, getCustomerAuthServerSnapshot);
   const allOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  const sessions = useSyncExternalStore(subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot);
+  const openDineInSessions = React.useMemo(
+    () => sessions.filter(s => s.status === 'open' && s.mode === 'table'),
+    [sessions]
+  );
+  // The signed-in customer's live dine-in tab (one open bill until admin closes
+  // it). Powers the "add to current bill?" prompt and the open-tab banner.
+  const myOpenTab = React.useMemo(
+    () => getUserOpenDineInTab(
+      allOrders,
+      openDineInSessions,
+      auth.user ? { id: auth.user.id, email: auth.user.email } : null,
+    ),
+    [allOrders, openDineInSessions, auth.user]
+  );
   // Live list of tables the admin has created. We only let the customer pick
   // from active ones, so a deactivated table never shows up as a choice.
   const tables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
@@ -125,8 +160,14 @@ export default function MenuPage() {
 
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
-  const categories = ['All', ...MENU_CATEGORIES];
+  // Categories reflect what the admin actually created (built-ins + any custom
+  // ones in use), so a new category shows up here automatically.
+  const categories = React.useMemo(
+    () => ['All', ...Array.from(new Set([...MENU_CATEGORIES, ...menu.map(m => m.category)].filter(Boolean)))],
+    [menu]
+  );
   const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
+  const bestSellers = menu.filter(m => m.isBestSeller);
 
   const addToCart = (id: string) => setCart(p => ({ ...p, [id]: (p[id] || 0) + 1 }));
   const removeFromCart = (id: string) => setCart(p => {
@@ -144,10 +185,34 @@ export default function MenuPage() {
   const discount = appliedCoupon ? (cartTotal * appliedCoupon.discountPercent) / 100 : 0;
   // No tax: shop prefers all-inclusive pricing.
   const taxAmt = 0;
+  // Delivery zones come from the admin (Delivery Zones page). Until any exist we
+  // fall back to the default governorates so delivery always has options.
+  const areas = useSyncExternalStore(subscribeToAreas, getAreasSnapshot, getAreasServerSnapshot);
+  const deliveryZones = React.useMemo(() => {
+    const a = activeAreas(areas);
+    return a.length ? a.map(x => ({ name: x.name, fee: x.fee })) : FALLBACK_ZONES;
+  }, [areas]);
+  const feeForZone = (name: string) => deliveryZones.find(z => z.name === name)?.fee ?? 0;
+  // Goods total (what the order stores). Delivery is charged on top and shown
+  // separately at checkout + in the WhatsApp message, so the stored total stays
+  // consistent with the itemised receipt.
   const grandTotal = Math.max(0, cartTotal - discount);
+  const deliveryFee = selectedMode === 'delivery' ? feeForZone(address.governorate) : 0;
+  const payableTotal = grandTotal + deliveryFee;
 
   const applyCoupon = () => {
-    const res = validateCoupon(couponInput, cartTotal);
+    // Use the number the customer gave to claim the coupon, falling back to any
+    // contact number already entered for checkout.
+    const claimPhone = couponPhone.trim() || phone.trim();
+    const res = validateCoupon(couponInput, cartTotal, claimPhone || undefined);
+    if (res.needsPhone) {
+      // Personal coupon — reveal the phone field and prompt (no hard error until
+      // they actually try a number that wasn't sent to).
+      setCouponNeedsPhone(true);
+      setAppliedCoupon(null);
+      setCouponError(couponPhone.trim() ? (res.reason || null) : null);
+      return;
+    }
     if (!res.ok || !res.coupon) {
       setCouponError(res.reason || 'Invalid coupon');
       setAppliedCoupon(null);
@@ -155,8 +220,18 @@ export default function MenuPage() {
     }
     setAppliedCoupon({ code: res.coupon.code, discountPercent: res.coupon.discountPercent, id: res.coupon.id });
     setCouponError(null);
+    setCouponNeedsPhone(false);
+    // Carry the claimed number into checkout so the submit-time re-check (and the
+    // order's contact number) match the number the coupon was claimed with.
+    if (claimPhone && !phone.trim()) setPhone(claimPhone);
   };
-  const removeCoupon = () => { setAppliedCoupon(null); setCouponInput(''); setCouponError(null); };
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError(null);
+    setCouponPhone('');
+    setCouponNeedsPhone(false);
+  };
 
   // Advance checkout to the mode-picker step. Shared by the normal "Checkout"
   // button, the SignInGate's onSignedIn callback (so sign-in → mode happens in
@@ -227,6 +302,7 @@ export default function MenuPage() {
     if (step === 'mode' || step === 'details' || step === 'submitting') {
       setStep('browse');
       setSelectedMode(null);
+      setAttachToTab(false);
       setFormError(null);
       setPendingCheckout(false);
       setSignInOpen(false);
@@ -246,22 +322,62 @@ export default function MenuPage() {
 
   const chooseMode = (mode: CheckoutMode) => {
     setSelectedMode(mode);
+    setAttachToTab(false);
     setFormError(null);
     setStep('details');
+  };
+
+  // Dine-in, but the customer already has an open tab: append to it. No table
+  // re-pick — the items land on the same running bill until the admin closes it.
+  const chooseAddToTab = () => {
+    if (!myOpenTab) return;
+    setSelectedMode('table');
+    setAttachToTab(true);
+    setTableInput(String(myOpenTab.table));
+    setPhone(p => p || myOpenTab.orders[0]?.customer?.phone || '');
+    setFormError(null);
+    setStep('details');
+  };
+
+  // Jump from the profile / open-tab banner straight into adding to the tab.
+  // With items already in the cart, go right to the tab details; otherwise open
+  // the cart so they can pick items (they'll choose the tab at the mode step).
+  const startAddToTab = () => {
+    setProfileOpen(false);
+    setIsCartOpen(true);
+    if (cartItemCount > 0 && auth.user) chooseAddToTab();
+    else { setAttachToTab(false); setStep('browse'); }
+  };
+
+  const askBill = () => {
+    if (myOpenTab && !myOpenTab.billRequested) requestBill(myOpenTab.sessionId);
   };
 
   const submit = () => {
     if (!auth.user || !selectedMode) { setSignInOpen(true); return; }
     if (!phone.trim()) { setFormError('A phone number is required so we can reach you.'); return; }
-    if (selectedMode === 'table') {
+    if (selectedMode === 'table' && !attachToTab) {
       const n = Number(tableInput);
       if (!Number.isFinite(n) || n <= 0) { setFormError('Please choose your table from the list.'); return; }
+      // Table lock: a table with another open tab can't be taken.
+      const picked = activeTables.find(t => t.number === n);
+      if (picked?.sessionId) { setFormError(`Table ${n} is in use right now — please pick another table.`); return; }
+    }
+    if (selectedMode === 'takeaway' && !pickupTime) {
+      setFormError('Please choose a preferred pick-up time.');
+      return;
     }
     if (selectedMode === 'delivery') {
       if (!address.governorate || !address.area || !address.street || !address.building) {
         setFormError('Please complete at least Governorate, Area, Street, and Building.');
         return;
       }
+    }
+    // Targeted coupons only work for the phone they were sent to — re-check now
+    // that we have the customer's number, so the order can't fail server-side.
+    if (appliedCoupon) {
+      const recheck = validateCoupon(appliedCoupon.code, cartTotal, phone.trim());
+      if (!recheck.ok) { setFormError(recheck.reason || 'This coupon isn’t valid for this number.'); return; }
     }
     setFormError(null);
     setStep('submitting');
@@ -278,8 +394,11 @@ export default function MenuPage() {
         email: auth.user!.email ?? undefined,
         phone: phone.trim(),
       };
+      // Dine-in appending to an existing tab: reuse that session (and its table)
+      // so the new items land on the same running bill.
+      const attach = selectedMode === 'table' && attachToTab && myOpenTab;
       const order = addOrder({
-        table: selectedMode === 'table' ? Number(tableInput) : 0,
+        table: selectedMode === 'table' ? (attach ? myOpenTab!.table : Number(tableInput)) : 0,
         items,
         priority: 'normal',
         subtotal: cartTotal,
@@ -289,6 +408,7 @@ export default function MenuPage() {
         mode: selectedMode,
         discount: discount > 0 ? discount : undefined,
         couponCode: appliedCoupon?.code,
+        sessionId: attach ? myOpenTab!.sessionId : undefined,
         customer,
         deliveryAddress: selectedMode === 'delivery' ? address : undefined,
         // Explicit — all customer orders queue for admin, regardless of mode.
@@ -303,6 +423,8 @@ export default function MenuPage() {
           mode: selectedMode,
           customer,
           address: selectedMode === 'delivery' ? address : undefined,
+          deliveryFee: selectedMode === 'delivery' ? deliveryFee : 0,
+          pickupTime: selectedMode === 'takeaway' ? pickupTime : undefined,
         });
       }
       setCart({});
@@ -331,6 +453,8 @@ export default function MenuPage() {
         phone,
       },
       address: lastMode === 'delivery' ? address : undefined,
+      deliveryFee: lastMode === 'delivery' ? deliveryFee : 0,
+      pickupTime: lastMode === 'takeaway' ? pickupTime : undefined,
     });
   };
 
@@ -339,10 +463,12 @@ export default function MenuPage() {
     setLastOrderId(null);
     setLastMode(null);
     setSelectedMode(null);
+    setAttachToTab(false);
     setIsCartOpen(false);
     setAddress(EMPTY_ADDRESS);
     setPhone('');
     setTableInput('');
+    setPickupTime('');
   };
 
   const waConfigured = isWhatsAppConfigured();
@@ -513,6 +639,44 @@ export default function MenuPage() {
         </svg>
       </section>
 
+      {/* Live dine-in tab — one open bill the customer keeps adding to until the
+          admin closes it. */}
+      {myOpenTab && (
+        <div className="mx-auto -mt-2 max-w-6xl px-4 md:px-6">
+          <div className="anim-review-rise flex flex-col gap-3 rounded-[1.5rem] border border-brand-gold/40 bg-white p-4 shadow-[0_18px_44px_-24px_rgba(74,21,21,0.5)] sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl bg-brand-wine leading-none text-brand-gold-light">
+                <span className="text-[7.5px] font-medium uppercase tracking-[0.2em] opacity-75">Tbl</span>
+                <span className="font-wordmark text-xl" style={{ transform: 'scaleY(1.08)' }}>{myOpenTab.table}</span>
+              </span>
+              <div>
+                <p className="flex items-center gap-1.5 font-body text-[10px] font-black uppercase tracking-[0.22em] text-brand-gold-dark">
+                  <Clock size={12} /> {myOpenTab.billRequested ? 'Bill requested' : 'Open tab'}
+                </p>
+                <p className="font-body text-sm text-brand-wine/70">
+                  {myOpenTab.orders.reduce((a, o) => a + o.items.reduce((s, i) => s + i.qty, 0), 0)} items ·{' '}
+                  <span className="font-wordmark text-lg text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{formatKWD(myOpenTab.total)}</span> so far
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setProfileOpen(true)} className="btn btn-outline flex-1 justify-center px-4 py-3 text-[10px] sm:flex-none">
+                <Receipt size={14} /> View tab
+              </button>
+              {myOpenTab.billRequested ? (
+                <span className="flex-1 rounded-full border border-brand-green/40 bg-brand-green/10 px-4 py-3 text-center font-body text-[10px] font-black uppercase tracking-[0.18em] text-brand-green sm:flex-none">
+                  Waiting for staff
+                </span>
+              ) : (
+                <button onClick={askBill} className="btn btn-wine flex-1 justify-center px-4 py-3 text-[10px] sm:flex-none">
+                  Request bill
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto max-w-6xl px-4 pt-6 text-center md:px-6 md:pt-8">
         <span className="eyebrow eyebrow-center text-brand-red">Our menu</span>
         <h2
@@ -525,6 +689,33 @@ export default function MenuPage() {
           Browse freely — you&apos;ll choose dine-in, takeaway or delivery at checkout.
         </p>
       </div>
+
+      {bestSellers.length > 0 && (
+        <div className="mx-auto mt-10 max-w-6xl px-4 md:px-6">
+          <h3 className="mb-5 font-wordmark text-[26px] uppercase tracking-[0.02em] text-brand-wine md:text-[32px]" style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}>
+            Best <span className="text-brand-red">sellers</span>
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
+            {bestSellers.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => addToCart(item.id)}
+                className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60"
+                aria-label={`Add ${item.name} to cart`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.image} alt={item.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <span className="absolute left-2 top-2 rounded-full bg-brand-red px-2 py-0.5 font-body text-[8px] font-bold uppercase tracking-[0.14em] text-white">Best seller</span>
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-8">
+                  <span className="block truncate font-body text-[13px] font-bold text-white">{item.name}</span>
+                  <span className="font-body text-[12px] font-medium text-brand-gold-light">{formatKWD(item.price)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="sticky top-[68px] z-30 mt-8 border-b border-brand-gold/20 bg-brand-cream/85 py-3 backdrop-blur-md md:mb-2">
         <div className="no-scrollbar mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 md:justify-center md:gap-3 md:px-6">
@@ -771,39 +962,15 @@ export default function MenuPage() {
 
                     {cartItemCount > 0 && (
                       <div className="rounded-b-[2rem] border-t border-brand-gold/25 bg-brand-sand/60 p-4 pb-6 md:rounded-bl-[2rem] md:rounded-br-none md:p-5">
-                        <div className="mb-3">
-                          {appliedCoupon ? (
-                            <div
-                              key={appliedCoupon.code}
-                              className="anim-coupon-applied flex items-center justify-between gap-2 overflow-hidden rounded-full border border-brand-green/40 bg-brand-green/10 px-3 py-1.5"
-                            >
-                              <span className="flex items-center gap-1.5 font-body text-[11px] font-medium uppercase tracking-[0.14em] text-brand-green">
-                                <CheckCircle2 size={13} /> {appliedCoupon.code} · {appliedCoupon.discountPercent}% off
-                              </span>
-                              <button onClick={removeCoupon} aria-label="Remove coupon" className="text-brand-ink/40 transition-colors hover:text-brand-red"><X size={14} /></button>
-                            </div>
-                          ) : (
-                            <div className="flex gap-1.5">
-                              <div className="relative flex-1">
-                                <Tag size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-                                <input value={couponInput} onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(null); }} placeholder="Coupon"
-                                  className="w-full rounded-full border border-brand-gold/40 bg-white py-2 pl-8 pr-3 font-body text-[11px] font-medium uppercase tracking-[0.14em] placeholder:text-brand-ink/35 focus:border-brand-red focus:outline-none" />
-                              </div>
-                              <button onClick={applyCoupon} disabled={!couponInput.trim()} className="btn btn-outline px-4 py-2 text-[9px] disabled:opacity-40">Apply</button>
-                            </div>
-                          )}
-                          {couponError && <p className="mt-1.5 pl-3 font-body text-[11px] font-medium text-brand-red">{couponError}</p>}
-                        </div>
-
                         <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65"><span>Subtotal</span><span className="font-medium text-brand-ink">{formatKWD(cartTotal)}</span></div>
-                        {discount > 0 && <div className="mb-2 flex justify-between font-body text-[13px] text-brand-green"><span>Discount</span><span className="font-medium">− {formatKWD(discount)}</span></div>}
-                        <div className="mb-4 flex items-end justify-between border-t border-brand-gold/30 pt-3">
+                        <div className="mb-3 flex items-end justify-between border-t border-brand-gold/30 pt-3">
                           <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine">Total</span>
                           <span
                             className="font-wordmark text-[32px] leading-none text-brand-red"
                             style={{ display: 'inline-block', transform: 'scaleY(1.08)', transformOrigin: 'bottom right' }}
-                          >{formatKWD(grandTotal)}</span>
+                          >{formatKWD(cartTotal)}</span>
                         </div>
+                        <p className="mb-3 text-center font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-wine/45">Coupon &amp; delivery on the next step</p>
                         <button onClick={openCheckout} className="btn btn-wine w-full py-4">
                           {auth.user ? 'Checkout' : (<><LogIn size={16} /> Sign in to checkout</>)}
                         </button>
@@ -814,9 +981,30 @@ export default function MenuPage() {
 
                 {step === 'mode' && (
                   <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 md:p-8">
+                    {myOpenTab && (
+                      <button
+                        onClick={chooseAddToTab}
+                        className="group flex items-center gap-5 rounded-3xl border-2 border-brand-red/50 bg-brand-red/5 p-5 text-left transition-all hover:-translate-y-0.5 hover:border-brand-red hover:shadow-lg"
+                      >
+                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-red text-white">
+                          <PlusCircle size={22} />
+                        </span>
+                        <div className="flex-1">
+                          <h4 className="font-wordmark text-xl uppercase tracking-[0.014em] text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>
+                            Add to current bill
+                          </h4>
+                          <p className="mt-1 font-body text-sm text-brand-wine/65">
+                            You have an open tab at Table {myOpenTab.table} · {formatKWD(myOpenTab.total)} so far. Keep it on one bill.
+                          </p>
+                        </div>
+                        <ChevronLeft size={18} className="rotate-180 text-brand-red/60 transition-transform group-hover:translate-x-1 group-hover:text-brand-red" />
+                      </button>
+                    )}
                     <ModeTile
-                      icon={<MapPin size={22} />} title="Dine-in"
-                      body="You're seated at a table in the shop. We'll add this to your table's tab."
+                      icon={<MapPin size={22} />} title={myOpenTab ? 'Dine-in — new table' : 'Dine-in'}
+                      body={myOpenTab
+                        ? "Start a separate tab at another table instead."
+                        : "You're seated at a table in the shop. We'll add this to your table's tab."}
                       onClick={() => chooseMode('table')}
                     />
                     <ModeTile
@@ -848,7 +1036,9 @@ export default function MenuPage() {
                         <p className="font-body text-sm text-brand-wine/80">
                           {selectedMode === 'delivery' && 'Cash on delivery · we’ll open WhatsApp to confirm with the shop.'}
                           {selectedMode === 'takeaway' && 'Cash at pickup · we’ll open WhatsApp to confirm with the shop.'}
-                          {selectedMode === 'table' && 'Added to your table’s open tab · waiter brings it.'}
+                          {selectedMode === 'table' && (attachToTab
+                            ? `Added to your open tab at Table ${myOpenTab?.table ?? ''} · one running bill.`
+                            : 'Added to your table’s open tab · waiter brings it.')}
                         </p>
                       </div>
 
@@ -859,7 +1049,16 @@ export default function MenuPage() {
                         <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. 9XXXXXXX" inputMode="tel" className="input-plain" />
                       </Field>
 
-                      {selectedMode === 'table' && (
+                      {selectedMode === 'table' && attachToTab && (
+                        <div className="flex items-center gap-3 rounded-2xl border border-brand-red/25 bg-brand-red/5 px-4 py-3.5 text-brand-wine">
+                          <PlusCircle size={18} className="shrink-0 text-brand-red" />
+                          <p className="font-body text-sm">
+                            Adding to your <span className="font-bold">open tab · Table {myOpenTab?.table}</span>. No need to pick a table again.
+                          </p>
+                        </div>
+                      )}
+
+                      {selectedMode === 'table' && !attachToTab && (
                         <Field label="Table" required>
                           {activeTables.length === 0 ? (
                             <p className="rounded-xl border border-brand-gold/30 bg-brand-sand/40 px-4 py-3 font-body text-xs text-brand-wine/70">
@@ -872,22 +1071,36 @@ export default function MenuPage() {
                               className="input-plain"
                             >
                               <option value="">Choose your table…</option>
-                              {activeTables.map(t => (
-                                <option key={t.id} value={String(t.number)}>
-                                  Table {t.number}{t.label ? ` · ${t.label}` : ''}{t.zone ? ` — ${t.zone}` : ''}
-                                </option>
-                              ))}
+                              {activeTables.map(t => {
+                                const occupied = !!t.sessionId; // in use by another open tab
+                                return (
+                                  <option key={t.id} value={String(t.number)} disabled={occupied}>
+                                    Table {t.number}{t.label ? ` · ${t.label}` : ''}{t.zone ? ` — ${t.zone}` : ''}{occupied ? ' — in use' : ''}
+                                  </option>
+                                );
+                              })}
                             </select>
                           )}
                         </Field>
                       )}
 
+                      {selectedMode === 'takeaway' && (
+                        <Field label="Preferred pick-up time" required>
+                          <input
+                            type="time"
+                            value={pickupTime}
+                            onChange={e => setPickupTime(e.target.value)}
+                            className="input-plain"
+                          />
+                        </Field>
+                      )}
+
                       {selectedMode === 'delivery' && (
                         <>
-                          <Field label="Governorate" required>
+                          <Field label="Delivery area" required>
                             <select value={address.governorate} onChange={e => setAddress(a => ({ ...a, governorate: e.target.value }))} className="input-plain">
-                              <option value="">Select…</option>
-                              {KUWAIT_GOVERNORATES.map(g => <option key={g} value={g}>{g}</option>)}
+                              <option value="">Select your area…</option>
+                              {deliveryZones.map(z => <option key={z.name} value={z.name}>{z.name} · {z.fee > 0 ? formatKWD(z.fee) : 'Free'}</option>)}
                             </select>
                           </Field>
                           <div className="grid grid-cols-2 gap-4">
@@ -914,20 +1127,69 @@ export default function MenuPage() {
                     </div>
 
                     <div className="rounded-b-[2rem] border-t border-brand-gold/25 bg-brand-sand/60 p-6 pb-8 md:rounded-bl-[2rem] md:rounded-br-none md:p-8">
-                      <div className="mb-4 flex items-end justify-between">
+                      {/* Coupon — applied here, after the mode is chosen, so the
+                          contact number is already filled for personal coupons. */}
+                      <div className="mb-4">
+                        {appliedCoupon ? (
+                          <div
+                            key={appliedCoupon.code}
+                            className="anim-coupon-applied flex items-center justify-between gap-2 overflow-hidden rounded-full border border-brand-green/40 bg-brand-green/10 px-3 py-1.5"
+                          >
+                            <span className="flex items-center gap-1.5 font-body text-[11px] font-medium uppercase tracking-[0.14em] text-brand-green">
+                              <CheckCircle2 size={13} /> {appliedCoupon.code} · {appliedCoupon.discountPercent}% off
+                            </span>
+                            <button onClick={removeCoupon} aria-label="Remove coupon" className="text-brand-ink/40 transition-colors hover:text-brand-red"><X size={14} /></button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex gap-1.5">
+                              <div className="relative flex-1">
+                                <Tag size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
+                                <input value={couponInput} onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError(null); setCouponNeedsPhone(false); }} placeholder="Coupon code"
+                                  className="w-full rounded-full border border-brand-gold/40 bg-white py-2 pl-8 pr-3 font-body text-[11px] font-medium uppercase tracking-[0.14em] placeholder:text-brand-ink/35 focus:border-brand-red focus:outline-none" />
+                              </div>
+                              <button onClick={applyCoupon} disabled={!couponInput.trim() || (couponNeedsPhone && !couponPhone.trim())} className="btn btn-outline px-4 py-2 text-[9px] disabled:opacity-40">{couponNeedsPhone ? 'Claim' : 'Apply'}</button>
+                            </div>
+                            {couponNeedsPhone && (
+                              <div className="relative anim-coupon-applied">
+                                <Phone size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
+                                <input value={couponPhone} onChange={e => { setCouponPhone(e.target.value); setCouponError(null); }}
+                                  onKeyDown={e => { if (e.key === 'Enter' && couponPhone.trim()) applyCoupon(); }}
+                                  placeholder="Mobile number it was sent to" inputMode="tel" autoFocus
+                                  className="w-full rounded-full border border-brand-gold/40 bg-white py-2 pl-8 pr-3 font-body text-[11px] font-medium tracking-[0.08em] placeholder:text-brand-ink/35 focus:border-brand-red focus:outline-none" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {couponNeedsPhone && !couponError && (
+                          <p className="mt-1.5 pl-3 font-body text-[11px] font-medium text-brand-wine/60">This is a personal coupon — enter the mobile number it was sent to.</p>
+                        )}
+                        {couponError && <p className="mt-1.5 pl-3 font-body text-[11px] font-medium text-brand-red">{couponError}</p>}
+                      </div>
+
+                      {/* Price breakdown */}
+                      <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65"><span>Subtotal</span><span className="font-medium text-brand-ink">{formatKWD(cartTotal)}</span></div>
+                      {discount > 0 && <div className="mb-2 flex justify-between font-body text-[13px] text-brand-green"><span>Discount{appliedCoupon ? ` · ${appliedCoupon.code}` : ''}</span><span className="font-medium">− {formatKWD(discount)}</span></div>}
+                      {selectedMode === 'delivery' && (
+                        <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65">
+                          <span>Delivery{address.governorate ? ` · ${address.governorate}` : ''}</span>
+                          <span className="font-medium text-brand-ink">{address.governorate ? formatKWD(deliveryFee) : '—'}</span>
+                        </div>
+                      )}
+                      <div className="mb-4 flex items-end justify-between border-t border-brand-gold/30 pt-3">
                         <span className="font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">
-                          Total · {selectedMode === 'table' ? 'Settled on your tab' : `Cash on ${selectedMode === 'delivery' ? 'delivery' : 'pickup'}`}
+                          {selectedMode === 'table' ? 'Total · Settled on your tab' : `Grand total · Cash on ${selectedMode === 'delivery' ? 'delivery' : 'pickup'}`}
                         </span>
                         <span
                           className="font-wordmark text-[32px] text-brand-red"
                           style={{ display: 'inline-block', transform: 'scaleY(1.08)', transformOrigin: 'bottom right' }}
-                        >{formatKWD(grandTotal)}</span>
+                        >{formatKWD(payableTotal)}</span>
                       </div>
                       <button onClick={submit} disabled={step === 'submitting'} className="btn btn-wine w-full py-5 disabled:cursor-wait disabled:opacity-70">
                         {step === 'submitting' ? (
                           <><Loader2 size={18} className="animate-spin" /> Placing order…</>
                         ) : selectedMode === 'table' ? (
-                          <><Send size={18} /> Place order</>
+                          attachToTab ? <><PlusCircle size={18} /> Add to tab</> : <><Send size={18} /> Place order</>
                         ) : (
                           <><Send size={18} /> Place order & send on WhatsApp</>
                         )}
@@ -957,8 +1219,11 @@ export default function MenuPage() {
         <CustomerProfileModal
           user={auth.user}
           allOrders={allOrders}
+          openTab={myOpenTab}
           onClose={() => setProfileOpen(false)}
           onSignOut={() => { setProfileOpen(false); void signOut(); }}
+          onRequestBill={askBill}
+          onAddToTab={startAddToTab}
         />
       )}
     </div>
@@ -966,12 +1231,15 @@ export default function MenuPage() {
 }
 
 function CustomerProfileModal({
-  user, allOrders, onClose, onSignOut,
+  user, allOrders, openTab, onClose, onSignOut, onRequestBill, onAddToTab,
 }: {
   user: { id: string; email: string | null; name: string | null; avatarUrl: string | null };
   allOrders: ReturnType<typeof getOrdersSnapshot>;
+  openTab: UserOpenTab | null;
   onClose: () => void;
   onSignOut: () => void;
+  onRequestBill: () => void;
+  onAddToTab: () => void;
 }) {
   // Match my orders: userId wins when we have one, else fall back to email
   // (demo sign-ins get a synthesized @demo.local email).
@@ -985,8 +1253,19 @@ function CustomerProfileModal({
       .sort((a, b) => b.createdAt - a.createdAt);
   }, [allOrders, user.id, user.email]);
 
-  const lifetimeSpend = myOrders.reduce((s, o) => s + o.total, 0);
-  const itemsOrdered = myOrders.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0);
+  // The live tab's orders never count as "history" — they only land there once
+  // the admin closes the bill. Everything else is a completed/past order.
+  const openTabOrderIds = React.useMemo(
+    () => new Set(openTab?.orders.map(o => o.id) ?? []),
+    [openTab]
+  );
+  const historyOrders = React.useMemo(
+    () => myOrders.filter(o => !openTabOrderIds.has(o.id)),
+    [myOrders, openTabOrderIds]
+  );
+
+  const lifetimeSpend = historyOrders.reduce((s, o) => s + o.total, 0);
+  const itemsOrdered = historyOrders.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0);
   const latest = myOrders[0];
   const latestAddress = myOrders.find(o => o.deliveryAddress)?.deliveryAddress;
   const latestPhone = latest?.customer?.phone;
@@ -1035,11 +1314,61 @@ function CustomerProfileModal({
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {/* Live dine-in tab — the one open bill, editable until the admin closes it. */}
+          {openTab && (
+            <div className="border-b border-brand-gold/20 bg-brand-red/[0.04] p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="flex items-center gap-2 font-body text-[10px] font-black uppercase tracking-[0.24em] text-brand-red">
+                  <Clock size={14} /> Ongoing tab · Table {openTab.table}
+                </p>
+                <span className={`inline-flex rounded-full border px-2.5 py-0.5 font-body text-[9px] font-black uppercase tracking-wide ${openTab.billRequested ? 'border-brand-green/30 bg-brand-green/10 text-brand-green' : 'border-brand-gold/40 bg-brand-gold/15 text-brand-gold-dark'}`}>
+                  {openTab.billRequested ? 'Bill requested' : 'Open'}
+                </span>
+              </div>
+              <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+                <ul className="flex flex-col divide-y divide-brand-gold/15">
+                  {openTab.orders.flatMap(o => o.items.map(it => (
+                    <li key={`${o.id}-${it.id}`} className="flex items-center justify-between gap-3 py-2 font-body text-sm text-brand-wine/80">
+                      <span className="truncate">
+                        <span className="font-bold text-brand-wine">{it.qty}×</span> {it.name}
+                        {o.source === 'waiter' && (
+                          <span className="ml-1.5 align-middle rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Added by staff</span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-brand-wine/60">{formatKWD(it.price * it.qty)}</span>
+                    </li>
+                  )))}
+                </ul>
+                <div className="mt-2 flex items-end justify-between border-t border-brand-gold/25 pt-3">
+                  <span className="font-body text-[10px] font-black uppercase tracking-[0.2em] text-brand-wine/60">Running total</span>
+                  <span className="font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{formatKWD(openTab.total)}</span>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button onClick={onAddToTab} className="btn btn-outline justify-center py-3 text-[10px]">
+                  <PlusCircle size={14} /> Add items
+                </button>
+                {openTab.billRequested ? (
+                  <span className="flex items-center justify-center rounded-full border border-brand-green/40 bg-brand-green/10 px-4 py-3 text-center font-body text-[10px] font-black uppercase tracking-[0.16em] text-brand-green">
+                    Waiting for staff
+                  </span>
+                ) : (
+                  <button onClick={onRequestBill} className="btn btn-wine justify-center py-3 text-[10px]">
+                    <Receipt size={14} /> Request bill
+                  </button>
+                )}
+              </div>
+              <p className="mt-2.5 text-center font-body text-[11px] text-brand-wine/50">
+                Your tab stays open until a staff member closes the bill. Then it moves to your order history.
+              </p>
+            </div>
+          )}
+
           {/* Lifetime stats */}
           <div className="grid grid-cols-3 gap-3 border-b border-brand-gold/20 p-5">
             <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
               <p className="font-body text-[10px] font-black uppercase tracking-wide text-brand-wine/50">Orders</p>
-              <p className="mt-1 font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{myOrders.length}</p>
+              <p className="mt-1 font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{historyOrders.length}</p>
             </div>
             <div className="rounded-2xl border border-brand-gold/25 bg-white p-3">
               <p className="font-body text-[10px] font-black uppercase tracking-wide text-brand-wine/50">Spent</p>
@@ -1089,15 +1418,15 @@ function CustomerProfileModal({
           {/* Order history */}
           <div className="p-5">
             <p className="mb-3 flex items-center gap-2 font-body text-[10px] font-black uppercase tracking-[0.24em] text-brand-wine/60">
-              <ClipboardList size={14} /> Order history ({myOrders.length})
+              <ClipboardList size={14} /> Order history ({historyOrders.length})
             </p>
-            {myOrders.length === 0 ? (
+            {historyOrders.length === 0 ? (
               <p className="rounded-2xl border border-brand-gold/25 bg-white p-6 text-center font-body text-sm text-brand-wine/60">
-                No orders yet. Add something to your cart and your history will show up here.
+                No completed orders yet. Once a bill is closed it shows up here.
               </p>
             ) : (
               <div className="flex flex-col gap-2">
-                {myOrders.map(o => (
+                {historyOrders.map(o => (
                   <div key={o.id} className="rounded-2xl border border-brand-gold/25 bg-white p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1106,6 +1435,9 @@ function CustomerProfileModal({
                           <CalendarClock size={11} />
                           {new Date(o.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           <span className="opacity-50">·</span> {orderLabel(o)}
+                          {o.source === 'waiter' && (
+                            <span className="rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Staff</span>
+                          )}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
@@ -1122,6 +1454,16 @@ function CustomerProfileModal({
                         <li key={it.id}><span className="font-bold">{it.qty}×</span> {it.name}</li>
                       ))}
                     </ul>
+                    {o.billed && o.sessionId && (
+                      <div className="mt-2.5 border-t border-brand-gold/15 pt-2.5">
+                        <Link
+                          href={`/receipt/${o.sessionId}`}
+                          className="inline-flex items-center gap-1.5 font-body text-[11px] font-bold uppercase tracking-[0.14em] text-brand-red hover:text-brand-wine"
+                        >
+                          <Receipt size={12} /> View receipt
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

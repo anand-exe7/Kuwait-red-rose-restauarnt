@@ -52,9 +52,13 @@ export interface WhatsAppOrderInput {
   mode: 'takeaway' | 'delivery';
   customer: CustomerInfo;
   address?: DeliveryAddress;
+  /** Delivery charge added on top of the goods total (delivery mode only). */
+  deliveryFee?: number;
+  /** Customer's preferred pick-up time (takeaway mode only), "HH:MM". */
+  pickupTime?: string;
 }
 
-export function buildOrderMessage({ order, mode, customer, address }: WhatsAppOrderInput): string {
+export function buildOrderMessage({ order, mode, customer, address, deliveryFee = 0, pickupTime }: WhatsAppOrderInput): string {
   const header =
     mode === 'delivery'
       ? '🌹 New DELIVERY order — Red Rose'
@@ -74,8 +78,14 @@ export function buildOrderMessage({ order, mode, customer, address }: WhatsAppOr
       `Discount${order.couponCode ? ` (${order.couponCode})` : ''}: -${formatKWD(order.discount)}`
     );
   }
-  lines.push(`Total: ${formatKWD(order.total)}`);
+  if (mode === 'delivery' && deliveryFee > 0) {
+    lines.push(`Delivery: ${formatKWD(deliveryFee)}`);
+  }
+  lines.push(`Grand total: ${formatKWD(order.total + (mode === 'delivery' ? deliveryFee : 0))}`);
   lines.push('Payment: Cash on ' + (mode === 'delivery' ? 'delivery' : 'pickup'));
+  if (mode === 'takeaway' && pickupTime) {
+    lines.push(`Pick-up time: ${pickupTime}`);
+  }
 
   lines.push('', '— Customer —');
   if (customer.name) lines.push(`Name: ${customer.name}`);
@@ -84,6 +94,13 @@ export function buildOrderMessage({ order, mode, customer, address }: WhatsAppOr
 
   if (mode === 'delivery' && address) {
     lines.push('', '— Delivery address —', formatAddress(address));
+  }
+
+  // Tap-to-view invoice on our own site (no PDF attachment — wa.me can't send files).
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const ref = order.sessionId || order.id;
+  if (origin && ref) {
+    lines.push('', `🧾 View your invoice: ${origin}/receipt/${ref}`);
   }
 
   return lines.join('\n');

@@ -62,8 +62,15 @@ export interface CouponCheck {
   discount: number;
 }
 
-/** Validates a coupon against a subtotal. Throws a 400 with a friendly reason. */
-export async function checkCoupon(sb: SupabaseClient, rawCode: unknown, subtotal: number): Promise<CouponCheck | null> {
+/** Last-8-digit form, so +965 / spaces / country code all compare equal. */
+function normPhone(p: unknown): string {
+  const d = typeof p === 'string' ? p.replace(/\D/g, '') : '';
+  return d.length > 8 ? d.slice(-8) : d;
+}
+
+/** Validates a coupon against a subtotal (and the customer phone, for targeted
+ *  coupons). Throws a 400 with a friendly reason. */
+export async function checkCoupon(sb: SupabaseClient, rawCode: unknown, subtotal: number, phone?: unknown): Promise<CouponCheck | null> {
   if (typeof rawCode !== 'string' || !rawCode.trim()) return null;
   const code = rawCode.trim().toUpperCase().slice(0, 40);
   const { data: c } = await sb.from('coupons').select('*').eq('code', code).maybeSingle();
@@ -72,6 +79,11 @@ export async function checkCoupon(sb: SupabaseClient, rawCode: unknown, subtotal
   if (c.expiry && Date.now() > new Date(`${c.expiry}T23:59:59`).getTime()) throw bad('This coupon has expired');
   if (c.usage_limit && c.used_count >= c.usage_limit) throw bad('This coupon has reached its usage limit');
   if (subtotal < Number(c.min_order)) throw bad(`Minimum order of KD ${Number(c.min_order).toFixed(3)} required`);
+  if (c.targeted_only) {
+    const sent = Array.isArray(c.sent_phones) ? (c.sent_phones as string[]).map(normPhone) : [];
+    const who = normPhone(phone);
+    if (!who || !sent.includes(who)) throw bad('This coupon is only valid for the customers it was sent to.');
+  }
   return {
     code: c.code,
     id: c.id,
