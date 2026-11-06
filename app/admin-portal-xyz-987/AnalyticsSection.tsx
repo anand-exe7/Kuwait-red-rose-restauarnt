@@ -1,101 +1,29 @@
 "use client";
 import React, { useMemo, useState } from 'react';
-import { DollarSign, Activity, Users, TrendingUp, Star, CheckCircle2, Package, Search, Percent, Receipt, CalendarClock, X } from 'lucide-react';
 import { Order, orderLabel } from '../lib/orderStore';
+import { invoiceNumber } from '../lib/invoice';
 import { formatKWD } from '../lib/currency';
-import { Period, isInPeriod } from './analyticsHelpers';
-
-/** Describes which slice of orders a stat tile stands for, so a click
- *  can show that slice in a modal. */
-interface StatDetails {
-  title: string;
-  value: string;
-  hint: string;
-  orders?: Order[];
-  topItems?: { name: string; qty: number; revenue: number }[];
-}
-
-function StatDetailsModal({ details, onClose }: { details: StatDetails; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2a0a0a]/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-brand-cream rounded-3xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col border border-brand-gold/30 shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]" onClick={e => e.stopPropagation()}>
-        <div className="p-5 border-b border-brand-gold/25 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-black text-brand-wine">{details.title}</h3>
-            <p className="text-xs text-brand-wine/55 mt-0.5">{details.hint}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-brand-sand text-brand-wine"><X size={18} /></button>
-        </div>
-        <div className="p-5 bg-gradient-to-br from-brand-red/5 to-transparent border-b border-brand-gold/15">
-          <p className="text-xs font-bold uppercase tracking-wide text-brand-wine/50">Value</p>
-          <p className="text-3xl font-black text-brand-red mt-1">{details.value}</p>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          {details.topItems && details.topItems.length > 0 && (
-            <div>
-              <p className="text-sm font-black text-brand-wine mb-3">Top items</p>
-              <div className="flex flex-col gap-2">
-                {details.topItems.map((it, i) => (
-                  <div key={it.name} className="flex items-center justify-between p-3 rounded-xl bg-white border border-brand-gold/25">
-                    <span className="flex items-center gap-2 min-w-0 text-sm font-bold text-brand-wine">
-                      <span className="text-brand-gold-dark w-5 shrink-0">{i + 1}</span>
-                      <span className="truncate">{it.name}</span>
-                    </span>
-                    <span className="flex items-center gap-3 text-sm shrink-0">
-                      <span className="text-brand-wine/60">{it.qty} pcs</span>
-                      <span className="font-black text-brand-red">{formatKWD(it.revenue)}</span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {details.orders && details.orders.length > 0 && (
-            <div className={details.topItems && details.topItems.length > 0 ? 'mt-5' : ''}>
-              <p className="text-sm font-black text-brand-wine mb-3">Orders ({details.orders.length})</p>
-              <div className="flex flex-col gap-2">
-                {details.orders.slice(0, 25).map(o => (
-                  <div key={o.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-brand-gold/25 text-sm">
-                    <div className="min-w-0">
-                      <p className="font-bold text-brand-red truncate">{o.id}</p>
-                      <p className="text-xs text-brand-wine/60">{orderLabel(o)} · {new Date(o.createdAt).toLocaleDateString()}</p>
-                    </div>
-                    <span className="font-black text-brand-wine shrink-0">{formatKWD(o.total)}</span>
-                  </div>
-                ))}
-                {details.orders.length > 25 && (
-                  <p className="text-xs text-brand-wine/50 text-center pt-2">Showing first 25 of {details.orders.length}</p>
-                )}
-              </div>
-            </div>
-          )}
-          {(!details.orders || details.orders.length === 0) && (!details.topItems || details.topItems.length === 0) && (
-            <p className="text-sm text-brand-wine/50 text-center py-10">No records in this slice yet.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+import { Period, isInPeriod, groupOrdersIntoInvoices } from './analyticsHelpers';
+import { Page, PageHead, Card, Kpi, Badge, Tabs, Pills, SearchBox, Empty, Icon, inputCls, cx, type IconName, type Tone } from './_ui/kit';
 
 const fmt = (n: number) => formatKWD(n);
 
 type AnalyticsTab = 'revenue' | 'today' | 'products' | 'coupons';
 
-const PERIODS: { key: Period; label: string }[] = [
-  { key: 'all', label: 'All Time' },
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This Week' },
-  { key: 'month', label: 'This Month' },
-  { key: 'year', label: 'This Year' },
-  { key: 'custom', label: 'Custom' },
+const PERIODS: { v: Period; t: string }[] = [
+  { v: 'all', t: 'All Time' },
+  { v: 'today', t: 'Today' },
+  { v: 'week', t: 'Week' },
+  { v: 'month', t: 'Month' },
+  { v: 'year', t: 'Year' },
+  { v: 'custom', t: 'Custom' },
 ];
 
-const TABS: { key: AnalyticsTab; label: string }[] = [
-  { key: 'revenue', label: 'Revenue' },
-  { key: 'today', label: "Today's Sales" },
-  { key: 'products', label: 'Products' },
-  { key: 'coupons', label: 'Coupons' },
+const TABS: { v: AnalyticsTab; t: string }[] = [
+  { v: 'revenue', t: 'Revenue' },
+  { v: 'today', t: "Today's Sales" },
+  { v: 'products', t: 'Products' },
+  { v: 'coupons', t: 'Coupons' },
 ];
 
 /** Aggregate order items into a per-product leaderboard, sorted by revenue. */
@@ -110,6 +38,53 @@ function aggregateItems(orders: Order[]) {
     })
   );
   return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+}
+
+/** Renders the drill-down a Kpi shows in its modal. */
+function Drill({ orders, topItems }: { orders?: Order[]; topItems?: { name: string; qty: number; revenue: number }[] }) {
+  if ((!orders || orders.length === 0) && (!topItems || topItems.length === 0)) {
+    return <p className="py-6 text-center text-sm text-slate-400">No records in this slice yet.</p>;
+  }
+  return (
+    <div className="space-y-5">
+      {topItems && topItems.length > 0 && (
+        <div>
+          <p className="mb-3 text-sm font-black text-slate-800">Top items</p>
+          <div className="flex flex-col gap-2">
+            {topItems.map((it, i) => (
+              <div key={it.name} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-3">
+                <span className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-800">
+                  <span className="w-5 shrink-0 text-amber-600">{i + 1}</span>
+                  <span className="truncate">{it.name}</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-3 text-sm">
+                  <span className="text-slate-500">{it.qty} pcs</span>
+                  <span className="adm-num font-black text-red-600">{fmt(it.revenue)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {orders && orders.length > 0 && (
+        <div>
+          <p className="mb-3 text-sm font-black text-slate-800">Orders ({orders.length})</p>
+          <div className="flex flex-col gap-2">
+            {orders.slice(0, 25).map(o => (
+              <div key={o.id} className="flex items-center justify-between rounded-xl border border-slate-100 bg-white p-3 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-bold text-red-600">{invoiceNumber(o.sessionId ?? o.id, o.createdAt)}</p>
+                  <p className="text-xs text-slate-500">{orderLabel(o)} · {new Date(o.createdAt).toLocaleDateString()}</p>
+                </div>
+                <span className="adm-num shrink-0 font-black text-slate-800">{fmt(o.total)}</span>
+              </div>
+            ))}
+            {orders.length > 25 && <p className="pt-2 text-center text-xs text-slate-400">Showing first 25 of {orders.length}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AnalyticsSection({ orders }: { orders: Order[] }) {
@@ -128,55 +103,32 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
   const todayCompleted = useMemo(() => todayOrders.filter(o => o.status === 'served'), [todayOrders]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 md:p-8">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-2xl font-black text-brand-wine">Restaurant Analytics</h2>
-            <p className="text-sm text-brand-wine/60">Real-time revenue & order channel insights</p>
-          </div>
-          <div className="flex flex-wrap gap-2 bg-brand-sand/60 p-1 rounded-full border border-brand-gold/25">
-            {PERIODS.map(p => (
-              <button
-                key={p.key}
-                onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${period === p.key ? 'bg-brand-red text-white shadow-sm' : 'text-brand-wine/60 hover:text-brand-wine'}`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        </div>
+    <Page>
+      <PageHead
+        title="Analytics"
+        sub="Real-time revenue & order channel insights."
+        bar
+        right={<Pills label="Period" value={period} onChange={setPeriod} options={PERIODS} />}
+      />
 
-        {period === 'custom' && (
-          <div className="flex flex-wrap items-center gap-3 mb-6 bg-brand-sand/50 rounded-xl p-3 border border-brand-gold/25">
-            <label className="text-xs font-bold text-brand-wine/60 uppercase tracking-wide">From</label>
-            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="px-3 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-sm text-brand-ink" />
-            <label className="text-xs font-bold text-brand-wine/60 uppercase tracking-wide">To</label>
-            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="px-3 py-1.5 rounded-lg border border-brand-gold/40 bg-white text-sm text-brand-ink" />
+      {period === 'custom' && (
+        <Card className="mb-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">From</span>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className={cx(inputCls, 'h-9 w-auto')} />
+            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">To</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className={cx(inputCls, 'h-9 w-auto')} />
           </div>
-        )}
+        </Card>
+      )}
 
-        <div className="flex flex-wrap gap-1.5 border-b border-brand-gold/25">
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2.5 text-sm font-black uppercase tracking-wide border-b-2 -mb-px transition-colors ${
-                tab === t.key ? 'border-brand-red text-brand-red' : 'border-transparent text-brand-wine/50 hover:text-brand-wine'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Tabs value={tab} onChange={setTab} options={TABS} />
 
       {tab === 'revenue' && <RevenueTab completed={completed} />}
       {tab === 'today' && <TodaySalesTab orders={todayOrders} completed={todayCompleted} />}
       {tab === 'products' && <ProductsTab completed={completed} />}
       {tab === 'coupons' && <CouponsTab completed={completed} />}
-    </div>
+    </Page>
   );
 }
 
@@ -187,7 +139,6 @@ export default function AnalyticsSection({ orders }: { orders: Order[] }) {
 function RevenueTab({ completed }: { completed: Order[] }) {
   const [hoveredMonth, setHoveredMonth] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
-  const [open, setOpen] = useState<StatDetails | null>(null);
 
   const staffOrders = useMemo(() => completed.filter(o => o.source === 'waiter'), [completed]);
   const selfOrders = useMemo(() => completed.filter(o => o.source === 'customer'), [completed]);
@@ -198,19 +149,13 @@ function RevenueTab({ completed }: { completed: Order[] }) {
   const totalItemsSold = completed.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0);
   const avgOrderValue = completed.length ? totalRevenue / completed.length : 0;
   const topItem = useMemo(() => aggregateItems(completed)[0], [completed]);
+  const topItemsAll = useMemo(() => aggregateItems(completed).slice(0, 10), [completed]);
 
   const year = new Date().getFullYear();
   const monthLabels = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const monthly = useMemo(
-    () =>
-      Array.from({ length: 12 }, (_, m) =>
-        completed
-          .filter(o => {
-            const d = new Date(o.createdAt);
-            return d.getFullYear() === year && d.getMonth() === m;
-          })
-          .reduce((s, o) => s + o.total, 0)
-      ),
+    () => Array.from({ length: 12 }, (_, m) =>
+      completed.filter(o => { const d = new Date(o.createdAt); return d.getFullYear() === year && d.getMonth() === m; }).reduce((s, o) => s + o.total, 0)),
     [completed, year]
   );
   const maxMonthly = Math.max(1, ...monthly);
@@ -223,144 +168,123 @@ function RevenueTab({ completed }: { completed: Order[] }) {
   }, []);
   const weekDayLabels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   const weekly = useMemo(
-    () =>
-      Array.from({ length: 7 }, (_, i) => {
-        const day = new Date(startOfWeek);
-        day.setDate(startOfWeek.getDate() + i);
-        return completed
-          .filter(o => new Date(o.createdAt).toDateString() === day.toDateString())
-          .reduce((s, o) => s + o.total, 0);
-      }),
+    () => Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(startOfWeek);
+      day.setDate(startOfWeek.getDate() + i);
+      return completed.filter(o => new Date(o.createdAt).toDateString() === day.toDateString()).reduce((s, o) => s + o.total, 0);
+    }),
     [completed, startOfWeek]
   );
   const maxWeekly = Math.max(1, ...weekly);
   const weekTotal = weekly.reduce((a, b) => a + b, 0);
-  const weekNumber = Math.ceil(
-    ((startOfWeek.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7
-  );
+  const weekNumber = Math.ceil(((startOfWeek.getTime() - new Date(year, 0, 1).getTime()) / 86400000 + new Date(year, 0, 1).getDay() + 1) / 7);
 
-  const topItemsAll = useMemo(() => aggregateItems(completed).slice(0, 10), [completed]);
-
-  const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; details: StatDetails }[] = [
-    { label: 'Total Revenue', value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'From served orders', details: { title: 'Total Revenue', value: fmt(totalRevenue), hint: 'Every served order in this period.', orders: completed, topItems: topItemsAll } },
-    { label: 'Completed Orders', value: String(completed.length), icon: CheckCircle2, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Fully served bills', details: { title: 'Completed Orders', value: String(completed.length), hint: 'Served bills in this period.', orders: completed } },
-    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-placed orders', details: { title: 'Staff-Taken Revenue', value: fmt(staffRevenue), hint: 'Orders placed by a waiter.', orders: staffOrders, topItems: aggregateItems(staffOrders).slice(0, 10) } },
-    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer QR orders', details: { title: 'Self-Ordered Revenue', value: fmt(selfRevenue), hint: 'Orders placed by customers themselves.', orders: selfOrders, topItems: aggregateItems(selfOrders).slice(0, 10) } },
+  type Stat = { label: string; value: string; icon: IconName; tone: Tone; hint: string; details: React.ReactNode };
+  const stats: Stat[] = [
+    { label: 'Total Revenue', value: fmt(totalRevenue), icon: 'billing', tone: 'emerald', hint: 'From served orders', details: <Drill orders={completed} topItems={topItemsAll} /> },
+    { label: 'Completed Orders', value: String(completed.length), icon: 'check', tone: 'slate', hint: 'Fully served bills', details: <Drill orders={completed} /> },
+    { label: 'Staff-Taken Revenue', value: fmt(staffRevenue), icon: 'users', tone: 'red', hint: 'Waiter-placed orders', details: <Drill orders={staffOrders} topItems={aggregateItems(staffOrders).slice(0, 10)} /> },
+    { label: 'Self-Ordered Revenue', value: fmt(selfRevenue), icon: 'zap', tone: 'violet', hint: 'Customer QR orders', details: <Drill orders={selfOrders} topItems={aggregateItems(selfOrders).slice(0, 10)} /> },
   ];
-
-  const stats2: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; details: StatDetails }[] = [
-    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: Users, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'Waiter-taken bills', details: { title: 'Staff Orders', value: String(staffOrders.length), hint: 'Each bill a waiter rang up.', orders: staffOrders } },
-    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: Activity, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Customer self-ordered', details: { title: 'Self-Orders', value: String(selfOrders.length), hint: 'Each self-placed customer order.', orders: selfOrders } },
-    { label: 'Total Items Sold', value: String(totalItemsSold), icon: Package, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'From completed bills', details: { title: 'Items Sold', value: String(totalItemsSold), hint: 'Every unit sold in this period.', topItems: topItemsAll } },
-    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per completed order', details: { title: 'Avg Order Value', value: fmt(avgOrderValue), hint: 'Mean total across the orders below.', orders: completed } },
-    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: Star, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Most sold item', details: { title: 'Top Items', value: topItem ? topItem.name : '—', hint: 'Leaderboard by revenue.', topItems: topItemsAll } },
+  const stats2: Stat[] = [
+    { label: 'Total Staff Orders', value: String(staffOrders.length), icon: 'users', tone: 'red', hint: 'Waiter-taken bills', details: <Drill orders={staffOrders} /> },
+    { label: 'Total Self-Orders', value: String(selfOrders.length), icon: 'zap', tone: 'violet', hint: 'Customer self-ordered', details: <Drill orders={selfOrders} /> },
+    { label: 'Total Items Sold', value: String(totalItemsSold), icon: 'box', tone: 'slate', hint: 'From completed bills', details: <Drill topItems={topItemsAll} /> },
+    { label: 'Avg Order Value', value: fmt(avgOrderValue), icon: 'chart', tone: 'amber', hint: 'Per completed order', details: <Drill orders={completed} /> },
+    { label: 'Top Item', value: topItem ? topItem.name : '—', icon: 'star', tone: 'amber', hint: 'Most sold item', details: <Drill topItems={topItemsAll} /> },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 md:p-8">
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
-          {stats.map((s, i) => (
-            <StatCard key={i} {...s} onOpen={() => setOpen(s.details)} />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-          {stats2.map((s, i) => (
-            <StatCard key={i} {...s} onOpen={() => setOpen(s.details)} />
-          ))}
-        </div>
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((s, i) => <Kpi key={i} label={s.label} value={s.value} hint={s.hint} icon={s.icon} tone={s.tone} details={s.details} />)}
       </div>
-      {open && <StatDetailsModal details={open} onClose={() => setOpen(null)} />}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        {stats2.map((s, i) => <Kpi key={i} label={s.label} value={s.value} hint={s.hint} icon={s.icon} tone={s.tone} small details={s.details} />)}
+      </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-            <p className="text-sm font-bold text-brand-wine/60">Revenue Trend This Year <span className="text-brand-red">{year}</span></p>
-            <p className="text-2xl sm:text-3xl font-black mt-1 text-brand-wine">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
-            <div className="mt-8 flex items-stretch justify-between gap-0.5 sm:gap-2 h-56">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="flex flex-col gap-5 xl:col-span-2">
+          <Card>
+            <p className="text-sm font-bold text-slate-500">Revenue trend this year <span className="text-red-600">{year}</span></p>
+            <p className="adm-num mt-1 text-2xl font-black text-slate-900 sm:text-3xl">{fmt(monthly.reduce((a, b) => a + b, 0))}</p>
+            <div className="mt-8 flex h-56 items-stretch justify-between gap-0.5 sm:gap-2">
               {monthly.map((v, i) => (
-                <div key={i} className="flex-1 min-w-0 flex flex-col items-center relative group">
+                <div key={i} className="group relative flex min-w-0 flex-1 flex-col items-center">
                   {hoveredMonth === i && (
-                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
-                      {fmt(v)}
-                    </div>
+                    <div className="absolute -top-9 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 shadow-lg">{fmt(v)}</div>
                   )}
-                  <div className="flex-1 w-full flex items-end">
+                  <div className="flex w-full flex-1 items-end">
                     <div
                       onMouseEnter={() => setHoveredMonth(i)}
                       onMouseLeave={() => setHoveredMonth(null)}
-                      className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
-                      style={v > 0
-                        ? { height: `${Math.max(6, (v / maxMonthly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #d8313d 0%, #b01e28 60%, #8f1720 100%)' }
-                        : { height: '6%' }}
+                      className={cx('adm-bar w-full cursor-pointer rounded-md transition-all hover:brightness-110', v > 0 ? 'bg-red-600' : 'bg-slate-100')}
+                      style={{ height: v > 0 ? `${Math.max(6, (v / maxMonthly) * 100)}%` : '6%' }}
                     />
                   </div>
-                  <span className="mt-2 text-[7px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{monthLabels[i]}</span>
+                  <span className="mt-2 w-full truncate text-center text-[7px] font-bold text-slate-400 sm:text-[10px]">{monthLabels[i]}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
 
-          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-            <p className="text-sm font-bold text-brand-wine/60">
-              Revenue This Week <span className="text-brand-red">(Week {weekNumber} of {year})</span>
-            </p>
-            <p className="text-xs text-brand-wine/50 mt-1">{fmt(weekTotal)} total</p>
-            <div className="mt-8 flex items-stretch justify-between gap-1 sm:gap-2 h-48">
+          <Card>
+            <p className="text-sm font-bold text-slate-500">Revenue this week <span className="text-red-600">(Week {weekNumber} of {year})</span></p>
+            <p className="adm-num mt-1 text-xs text-slate-400">{fmt(weekTotal)} total</p>
+            <div className="mt-8 flex h-48 items-stretch justify-between gap-1 sm:gap-2">
               {weekly.map((v, i) => (
-                <div key={i} className="flex-1 min-w-0 flex flex-col items-center relative group">
+                <div key={i} className="group relative flex min-w-0 flex-1 flex-col items-center">
                   {hoveredDay === i && (
-                    <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-brand-wine text-brand-gold-light text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-10 border border-brand-gold/40">
-                      {fmt(v)}
-                    </div>
+                    <div className="absolute -top-9 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold text-amber-100 shadow-lg">{fmt(v)}</div>
                   )}
-                  <div className="flex-1 w-full flex items-end">
+                  <div className="flex w-full flex-1 items-end">
                     <div
                       onMouseEnter={() => setHoveredDay(i)}
                       onMouseLeave={() => setHoveredDay(null)}
-                      className={`w-full rounded-md transition-all cursor-pointer ${v > 0 ? 'hover:brightness-110' : 'bg-brand-sand/70'}`}
-                      style={v > 0
-                        ? { height: `${Math.max(6, (v / maxWeekly) * 100)}%`, backgroundImage: 'linear-gradient(180deg, #ecd8a6 0%, #c9a961 60%, #a5843f 100%)' }
-                        : { height: '6%' }}
+                      className={cx('adm-bar w-full cursor-pointer rounded-md transition-all hover:brightness-110', v > 0 ? 'bg-amber-400' : 'bg-slate-100')}
+                      style={{ height: v > 0 ? `${Math.max(6, (v / maxWeekly) * 100)}%` : '6%' }}
                     />
                   </div>
-                  <span className="mt-2 text-[8px] sm:text-[10px] font-bold text-brand-wine/50 truncate w-full text-center">{weekDayLabels[i]}</span>
+                  <span className="mt-2 w-full truncate text-center text-[8px] font-bold text-slate-400 sm:text-[10px]">{weekDayLabels[i]}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
         </div>
 
-        <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6 h-fit">
-          <p className="font-black mb-5 text-brand-wine">Order Source</p>
-          <div className="flex flex-col gap-4">
-            <div>
-              <div className="flex justify-between text-xs font-bold mb-1.5">
-                <span className="text-brand-red uppercase tracking-wide">Staff-Taken</span>
-                <span className="text-brand-wine">{staffOrders.length}</span>
-              </div>
-              <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
-                <div className="h-full bg-brand-red rounded-full" style={{ width: `${completed.length ? (staffOrders.length / completed.length) * 100 : 0}%` }} />
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs font-bold mb-1.5">
-                <span className="text-brand-plum uppercase tracking-wide">Self-Ordered</span>
-                <span className="text-brand-wine">{selfOrders.length}</span>
-              </div>
-              <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
-                <div className="h-full bg-brand-plum rounded-full" style={{ width: `${completed.length ? (selfOrders.length / completed.length) * 100 : 0}%` }} />
-              </div>
-            </div>
-          </div>
-        </div>
+        <Card className="h-fit" title="Order source">
+          <SourceSplit staff={staffOrders.length} self={selfOrders.length} total={completed.length} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function SourceSplit({ staff, self, total }: { staff: number; self: number; total: number }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Bar label="Staff-Taken" color="bg-red-600" labelColor="text-red-600" count={staff} total={total} />
+      <Bar label="Self-Ordered" color="bg-violet-500" labelColor="text-violet-600" count={self} total={total} />
+    </div>
+  );
+}
+
+function Bar({ label, color, labelColor, count, total }: { label: string; color: string; labelColor: string; count: number; total: number }) {
+  return (
+    <div>
+      <div className="mb-1.5 flex justify-between text-xs font-bold">
+        <span className={cx('uppercase tracking-wide', labelColor)}>{label}</span>
+        <span className="text-slate-700">{count}</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+        <div className={cx('adm-fill h-full rounded-full', color)} style={{ width: `${total ? (count / total) * 100 : 0}%` }} />
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Today's Sales tab — always "today", ignores the period selector above
+// Today's Sales tab
 // ---------------------------------------------------------------------------
 
 function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Order[] }) {
@@ -368,129 +292,98 @@ function TodaySalesTab({ orders, completed }: { orders: Order[]; completed: Orde
 
   const staffOrders = useMemo(() => completed.filter(o => o.source === 'waiter'), [completed]);
   const selfOrders = useMemo(() => completed.filter(o => o.source === 'customer'), [completed]);
+  // Group completed orders into bills: a dine-in tab with several orders is ONE
+  // invoice, not one per order.
+  const completedInvoices = useMemo(() => groupOrdersIntoInvoices(completed), [completed]);
+  const staffInvoices = useMemo(() => groupOrdersIntoInvoices(staffOrders), [staffOrders]);
+  const selfInvoices = useMemo(() => groupOrdersIntoInvoices(selfOrders), [selfOrders]);
   const totalRevenue = completed.reduce((s, o) => s + o.total, 0);
   const totalItems = completed.reduce((s, o) => s + o.items.reduce((a, i) => a + i.qty, 0), 0);
-  const avgOrderValue = completed.length ? totalRevenue / completed.length : 0;
+  const avgOrderValue = completedInvoices.length ? totalRevenue / completedInvoices.length : 0;
   const topItems = useMemo(() => aggregateItems(completed).slice(0, 5), [completed]);
 
+  // The transactions list shows every bill today (one row per table tab).
   const transactions = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return [...orders]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .filter(o => !q || o.id.toLowerCase().includes(q) || orderLabel(o).toLowerCase().includes(q));
+    return groupOrdersIntoInvoices(orders).filter(inv =>
+      !q || orderLabel(inv).toLowerCase().includes(q) || inv.orders.some(o => o.id.toLowerCase().includes(q))
+    );
   }, [orders, search]);
 
-  const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: "Today's Revenue", value: fmt(totalRevenue), icon: DollarSign, color: 'text-brand-green', bg: 'bg-brand-green/10', hint: 'Completed today' },
-    { label: "Today's Bills", value: String(completed.length), icon: Receipt, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Completed today' },
-    { label: "Today's Items Sold", value: `${totalItems} pcs`, icon: Package, color: 'text-brand-plum', bg: 'bg-brand-plum/10', hint: 'Quantity sold today' },
-    { label: "Today's Avg Order Value", value: fmt(avgOrderValue), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per invoice today' },
-  ];
-
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          <StatCard key={i} {...s} />
-        ))}
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <Kpi label="Today's Revenue" value={fmt(totalRevenue)} hint="Completed today" icon="billing" tone="emerald" />
+        <Kpi label="Today's Bills" value={completedInvoices.length} hint="One per table tab" icon="billing" tone="slate" small />
+        <Kpi label="Items Sold" value={`${totalItems} pcs`} hint="Quantity sold today" icon="box" tone="violet" small />
+        <Kpi label="Avg Bill Value" value={fmt(avgOrderValue)} hint="Per invoice today" icon="chart" tone="amber" />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-            <p className="font-black text-brand-wine">Today&apos;s Transactions</p>
-            <div className="relative w-full sm:w-64">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search invoice or table..."
-                className="w-full pl-9 pr-3 py-2 rounded-xl border border-brand-gold/40 bg-white text-xs text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
-              />
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[560px]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <Card className="xl:col-span-2" title="Today's bills" right={<SearchBox value={search} onChange={setSearch} placeholder="Search table or ticket…" className="w-full sm:w-64" />}>
+          <div className="adm-scroll overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left">
               <thead>
-                <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
-                  <th className="py-2.5 pr-4 font-bold">Invoice ID</th>
+                <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                  <th className="py-2.5 pr-4 font-bold">Invoice</th>
                   <th className="py-2.5 pr-4 font-bold">Table / Mode</th>
                   <th className="py-2.5 pr-4 font-bold">Source</th>
                   <th className="py-2.5 pr-4 font-bold">Items</th>
-                  <th className="py-2.5 pr-4 font-bold text-right">Grand Total</th>
+                  <th className="py-2.5 pr-4 text-right font-bold">Total</th>
+                  <th className="py-2.5 pr-4 text-right font-bold">Invoice</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.map(o => (
-                  <tr key={o.id} className="border-b border-brand-gold/15 last:border-0">
-                    <td className="py-2.5 pr-4 font-bold text-brand-red text-sm">{o.id}</td>
-                    <td className="py-2.5 pr-4 text-sm text-brand-wine">{orderLabel(o)}</td>
-                    <td className="py-2.5 pr-4 text-xs">
-                      <span className={`inline-block whitespace-nowrap px-2 py-0.5 rounded-full font-bold ${o.source === 'customer' ? 'bg-brand-plum/10 text-brand-plum border border-brand-plum/25' : 'bg-brand-red/10 text-brand-red-dark border border-brand-red/25'}`}>
-                        {o.source === 'customer' ? 'Self-Order' : 'Staff-Taken'}
-                      </span>
+                {transactions.map(inv => (
+                  <tr key={inv.key} className="border-b border-slate-100 last:border-0">
+                    <td className="py-2.5 pr-4 text-sm font-bold text-red-600">
+                      {invoiceNumber(inv.sessionId ?? inv.key, inv.createdAt)}
+                      {inv.orders.length > 1 && <span className="ml-1 text-[11px] font-semibold text-slate-400">+{inv.orders.length - 1}</span>}
                     </td>
-                    <td className="py-2.5 pr-4 text-sm text-brand-wine/60">{o.items.reduce((s, i) => s + i.qty, 0)}</td>
-                    <td className="py-2.5 pr-4 text-sm font-bold text-right text-brand-wine">{fmt(o.total)}</td>
+                    <td className="py-2.5 pr-4 text-sm text-slate-700">{orderLabel(inv)}</td>
+                    <td className="py-2.5 pr-4"><Badge tone={inv.source === 'customer' ? 'violet' : 'red'}>{inv.source === 'customer' ? 'Self' : 'Staff'}</Badge></td>
+                    <td className="py-2.5 pr-4 text-sm text-slate-500">{inv.itemCount}</td>
+                    <td className="adm-num py-2.5 pr-4 text-right text-sm font-bold text-slate-800">{fmt(inv.total)}</td>
+                    <td className="py-2.5 pr-4 text-right">
+                      {inv.sessionId ? (
+                        <a href={`/receipt/${inv.sessionId}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-red-600 hover:text-red-700">
+                          <Icon name="billing" size={12} /> View
+                        </a>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
                   </tr>
                 ))}
-                {transactions.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No transactions found for today.</td>
-                  </tr>
-                )}
               </tbody>
             </table>
+            {transactions.length === 0 && <Empty icon="billing" title="No transactions today." />}
           </div>
-        </div>
+        </Card>
 
-        <div className="flex flex-col gap-6">
-          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-            <p className="font-black mb-5 text-brand-wine">Today&apos;s Channel Split</p>
-            {completed.length === 0 ? (
-              <p className="text-sm text-brand-wine/50">No sales today.</p>
+        <div className="flex flex-col gap-5">
+          <Card title="Channel split">
+            {completedInvoices.length === 0 ? (
+              <p className="text-sm text-slate-400">No sales today.</p>
             ) : (
-              <div className="flex flex-col gap-4">
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1.5">
-                    <span className="text-brand-red uppercase tracking-wide">Staff-Taken</span>
-                    <span className="text-brand-wine">{staffOrders.length}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
-                    <div className="h-full bg-brand-red rounded-full" style={{ width: `${(staffOrders.length / completed.length) * 100}%` }} />
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs font-bold mb-1.5">
-                    <span className="text-brand-plum uppercase tracking-wide">Self-Ordered</span>
-                    <span className="text-brand-wine">{selfOrders.length}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-brand-sand/70 overflow-hidden">
-                    <div className="h-full bg-brand-plum rounded-full" style={{ width: `${(selfOrders.length / completed.length) * 100}%` }} />
-                  </div>
-                </div>
-              </div>
+              <SourceSplit staff={staffInvoices.length} self={selfInvoices.length} total={completedInvoices.length} />
             )}
-          </div>
-
-          <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-            <p className="font-black mb-5 text-brand-wine">Today&apos;s Top Items</p>
+          </Card>
+          <Card title="Top items today">
             {topItems.length === 0 ? (
-              <p className="text-sm text-brand-wine/50">No items sold today.</p>
+              <p className="text-sm text-slate-400">No items sold today.</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {topItems.map((item, i) => (
-                  <div key={item.name} className="flex justify-between items-baseline gap-2 text-sm">
-                    <span className="font-bold flex items-center gap-2 min-w-0 text-brand-wine">
-                      <span className="text-brand-gold-dark shrink-0">{i + 1}</span>
+                  <div key={item.name} className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="flex min-w-0 items-center gap-2 font-bold text-slate-800">
+                      <span className="shrink-0 text-amber-600">{i + 1}</span>
                       <span className="truncate">{item.name}</span>
                     </span>
-                    <span className="text-brand-red font-black shrink-0">{fmt(item.revenue)}</span>
+                    <span className="adm-num shrink-0 font-black text-red-600">{fmt(item.revenue)}</span>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
         </div>
       </div>
     </div>
@@ -508,62 +401,45 @@ function ProductsTab({ completed }: { completed: Order[] }) {
   const filtered = leaderboard.filter(i => i.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
-    <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-        <p className="text-lg font-black text-brand-wine">Product Sales Leaderboard</p>
-        <div className="relative w-full sm:w-72">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search product..."
-            className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
-          />
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left min-w-[640px]">
+    <Card title="Product sales leaderboard" right={<SearchBox value={search} onChange={setSearch} placeholder="Search product…" className="w-full sm:w-72" />}>
+      <div className="adm-scroll overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left">
           <thead>
-            <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
+            <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
               <th className="py-3 pr-4 font-bold">Rank</th>
-              <th className="py-3 pr-4 font-bold">Product Name</th>
-              <th className="py-3 pr-4 font-bold text-right">Qty Sold</th>
-              <th className="py-3 pr-4 font-bold text-right">Revenue</th>
-              <th className="py-3 pr-4 font-bold">Market Share</th>
+              <th className="py-3 pr-4 font-bold">Product</th>
+              <th className="py-3 pr-4 text-right font-bold">Qty</th>
+              <th className="py-3 pr-4 text-right font-bold">Revenue</th>
+              <th className="py-3 pr-4 font-bold">Market share</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((item, i) => (
-              <tr key={item.name} className="border-b border-brand-gold/15 last:border-0">
-                <td className="py-3 pr-4 font-bold text-brand-gold-dark">{i + 1}</td>
-                <td className="py-3 pr-4 font-bold text-brand-wine">{item.name}</td>
-                <td className="py-3 pr-4 text-right text-brand-wine/70">{item.qty} pcs</td>
-                <td className="py-3 pr-4 text-right font-bold text-brand-red">{fmt(item.revenue)}</td>
+              <tr key={item.name} className="border-b border-slate-100 last:border-0">
+                <td className="py-3 pr-4 font-bold text-amber-600">{i + 1}</td>
+                <td className="py-3 pr-4 font-bold text-slate-800">{item.name}</td>
+                <td className="py-3 pr-4 text-right text-slate-500">{item.qty} pcs</td>
+                <td className="adm-num py-3 pr-4 text-right font-bold text-red-600">{fmt(item.revenue)}</td>
                 <td className="py-3 pr-4">
-                  <div className="flex items-center gap-2 min-w-[140px]">
-                    <div className="flex-1 h-1.5 rounded-full bg-brand-sand/70 overflow-hidden">
-                      <div className="h-full bg-brand-red rounded-full" style={{ width: `${(item.revenue / totalRevenue) * 100}%` }} />
+                  <div className="flex min-w-[140px] items-center gap-2">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                      <div className="h-full rounded-full bg-red-600" style={{ width: `${(item.revenue / totalRevenue) * 100}%` }} />
                     </div>
-                    <span className="text-xs font-bold text-brand-wine/60 w-10 text-right">{((item.revenue / totalRevenue) * 100).toFixed(1)}%</span>
+                    <span className="w-10 text-right text-xs font-bold text-slate-500">{((item.revenue / totalRevenue) * 100).toFixed(1)}%</span>
                   </div>
                 </td>
               </tr>
             ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No products sold in this period yet.</td>
-              </tr>
-            )}
           </tbody>
         </table>
+        {filtered.length === 0 && <Empty icon="box" title="No products sold in this period yet." />}
       </div>
-    </div>
+    </Card>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Coupons tab — usage analytics; coupon *definitions* live in the top-level
-// admin Coupons section (CouponsSection.tsx), not here.
+// Coupons tab
 // ---------------------------------------------------------------------------
 
 function CouponsTab({ completed }: { completed: Order[] }) {
@@ -572,102 +448,46 @@ function CouponsTab({ completed }: { completed: Order[] }) {
   const totalDiscount = discounted.reduce((s, o) => s + (o.discount || 0), 0);
   const avgDiscount = discounted.length ? totalDiscount / discounted.length : 0;
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return discounted
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .filter(o => !q || o.id.toLowerCase().includes(q) || (o.couponCode || '').toLowerCase().includes(q) || String(o.total).includes(q));
-  }, [discounted, search]);
-
-  const stats: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string }[] = [
-    { label: 'Total Discounts Given', value: fmt(totalDiscount), icon: Percent, color: 'text-brand-red', bg: 'bg-brand-red/10', hint: 'From completed orders' },
-    { label: 'Discounted Orders', value: String(discounted.length), icon: CalendarClock, color: 'text-brand-wine', bg: 'bg-brand-wine/10', hint: 'Used a coupon code' },
-    { label: 'Avg Discount per Order', value: fmt(avgDiscount), icon: TrendingUp, color: 'text-brand-gold-dark', bg: 'bg-brand-gold/15', hint: 'Per discounted order' },
-  ];
+  const q = search.trim().toLowerCase();
+  const filtered = [...discounted]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .filter(o => !q || o.id.toLowerCase().includes(q) || (o.couponCode || '').toLowerCase().includes(q) || String(o.total).includes(q));
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {stats.map((s, i) => (
-          <StatCard key={i} {...s} />
-        ))}
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Kpi label="Total Discounts Given" value={fmt(totalDiscount)} hint="From completed orders" icon="percent" tone="red" />
+        <Kpi label="Discounted Orders" value={discounted.length} hint="Used a coupon code" icon="calendar" tone="slate" small />
+        <Kpi label="Avg Discount / Order" value={fmt(avgDiscount)} hint="Per discounted order" icon="chart" tone="amber" />
       </div>
 
-      <div className="bg-brand-cream rounded-3xl border border-brand-gold/25 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] p-5 sm:p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <p className="text-lg font-black text-brand-wine">Promo Campaign Performance</p>
-          <div className="relative w-full sm:w-72">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search code/table/amount..."
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/35 focus:outline-none focus:border-brand-red"
-            />
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left min-w-[640px]">
+      <Card title="Promo campaign performance" right={<SearchBox value={search} onChange={setSearch} placeholder="Search code / amount…" className="w-full sm:w-72" />}>
+        <div className="adm-scroll overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left">
             <thead>
-              <tr className="text-brand-wine/50 text-xs uppercase tracking-wide border-b border-brand-gold/25">
-                <th className="py-3 pr-4 font-bold">Transaction ID</th>
+              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-400">
+                <th className="py-3 pr-4 font-bold">Transaction</th>
                 <th className="py-3 pr-4 font-bold">Table / Mode</th>
                 <th className="py-3 pr-4 font-bold">Coupon</th>
-                <th className="py-3 pr-4 font-bold text-right">Order Total</th>
-                <th className="py-3 pr-4 font-bold text-right">Discount Applied</th>
+                <th className="py-3 pr-4 text-right font-bold">Total</th>
+                <th className="py-3 pr-4 text-right font-bold">Discount</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(o => (
-                <tr key={o.id} className="border-b border-brand-gold/15 last:border-0">
-                  <td className="py-3 pr-4 font-bold text-brand-red text-sm">{o.id}</td>
-                  <td className="py-3 pr-4 text-sm text-brand-wine">{orderLabel(o)}</td>
-                  <td className="py-3 pr-4 text-sm">
-                    <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-brand-gold/15 text-brand-gold-dark border border-brand-gold/40">{o.couponCode || '—'}</span>
-                  </td>
-                  <td className="py-3 pr-4 text-right text-sm text-brand-wine">{fmt(o.total)}</td>
-                  <td className="py-3 pr-4 text-right text-sm font-bold text-brand-red">−{fmt(o.discount || 0)}</td>
+                <tr key={o.id} className="border-b border-slate-100 last:border-0">
+                  <td className="py-3 pr-4 text-sm font-bold text-red-600">{invoiceNumber(o.sessionId ?? o.id, o.createdAt)}</td>
+                  <td className="py-3 pr-4 text-sm text-slate-700">{orderLabel(o)}</td>
+                  <td className="py-3 pr-4"><Badge tone="amber">{o.couponCode || '—'}</Badge></td>
+                  <td className="adm-num py-3 pr-4 text-right text-sm text-slate-700">{fmt(o.total)}</td>
+                  <td className="adm-num py-3 pr-4 text-right text-sm font-bold text-red-600">−{fmt(o.discount || 0)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-10 text-center text-brand-wine/40 font-bold text-sm">No discounted orders in this period yet.</td>
-                </tr>
-              )}
             </tbody>
           </table>
+          {filtered.length === 0 && <Empty icon="percent" title="No discounted orders in this period yet." />}
         </div>
-      </div>
+      </Card>
     </div>
-  );
-}
-
-// Each accent tells us which brand color the card leans on, so cards look
-// distinct instead of the whole dashboard being one flat tone.
-const CARD_ACCENTS: Record<string, { panel: string; iconBg: string; iconColor: string; ring: string; valueColor: string }> = {
-  'text-brand-green':     { panel: 'linear-gradient(140deg, #e6f1dd 0%, #ffffff 70%)', iconBg: 'bg-brand-green/15', iconColor: 'text-brand-green',     ring: 'border-brand-green/30',    valueColor: 'text-brand-green' },
-  'text-brand-wine':      { panel: 'linear-gradient(140deg, #efe6c9 0%, #fbf8ee 70%)', iconBg: 'bg-brand-wine/15',  iconColor: 'text-brand-wine',      ring: 'border-brand-gold/35',     valueColor: 'text-brand-wine' },
-  'text-brand-red':       { panel: 'linear-gradient(140deg, #fce1e3 0%, #fff6f6 70%)', iconBg: 'bg-brand-red/15',   iconColor: 'text-brand-red',       ring: 'border-brand-red/30',      valueColor: 'text-brand-red' },
-  'text-brand-plum':      { panel: 'linear-gradient(140deg, #f0d9e8 0%, #fff6fb 70%)', iconBg: 'bg-brand-plum/15',  iconColor: 'text-brand-plum',      ring: 'border-brand-plum/30',     valueColor: 'text-brand-plum' },
-  'text-brand-gold-dark': { panel: 'linear-gradient(140deg, #f3e2b1 0%, #fdf6df 70%)', iconBg: 'bg-brand-gold/25',  iconColor: 'text-brand-gold-dark', ring: 'border-brand-gold/40',     valueColor: 'text-brand-gold-dark' },
-};
-
-function StatCard({ label, value, icon: Icon, color, hint, onOpen }: { label: string; value: string; icon: typeof DollarSign; color: string; bg: string; hint: string; onOpen?: () => void }) {
-  const accent = CARD_ACCENTS[color] ?? CARD_ACCENTS['text-brand-wine'];
-  const clickable = typeof onOpen === 'function';
-  const Tag = clickable ? 'button' : 'div';
-  return (
-    <Tag
-      {...(clickable ? { type: 'button' as const, onClick: onOpen } : {})}
-      className={`text-left p-4 sm:p-5 rounded-2xl border ${accent.ring} shadow-[0_12px_30px_-24px_rgba(74,21,21,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_38px_-20px_rgba(74,21,21,0.55)] ${clickable ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-red/40' : ''}`}
-      style={{ backgroundImage: accent.panel }}
-    >
-      <div className={`w-9 h-9 rounded-xl ${accent.iconBg} ${accent.iconColor} flex items-center justify-center mb-3 border border-current/20`}>
-        <Icon size={18} />
-      </div>
-      <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/55">{label}</p>
-      <p className={`text-lg sm:text-xl font-black mt-0.5 truncate ${accent.valueColor}`}>{value}</p>
-      <p className="text-[11px] text-brand-wine/45 mt-0.5">{hint}</p>
-    </Tag>
   );
 }

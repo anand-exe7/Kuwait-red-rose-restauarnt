@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { staffCall } from './staffApi';
+import { toast } from './_ui/kit';
 import type { DeliveryArea } from '../lib/delivery/shared';
 
 const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-brand-gold/40 text-sm focus:outline-none focus:border-brand-red bg-white';
@@ -18,7 +19,6 @@ export default function AreasPanel() {
   const [rows, setRows] = useState<Draft[] | null>(null);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = async () => {
     const r = await staffCall<{ areas: DeliveryArea[] }>('areas.list');
@@ -30,7 +30,7 @@ export default function AreasPanel() {
     let alive = true;
     staffCall<{ areas: DeliveryArea[] }>('areas.list')
       .then((r) => { if (alive) setRows(r.areas.map(toDraft)); })
-      .catch((e: Error) => { if (alive) { setRows([]); setMsg({ ok: false, text: e.message }); } });
+      .catch((e: Error) => { if (alive) { setRows([]); toast.error(e.message); } });
     return () => { alive = false; };
   }, []);
 
@@ -46,15 +46,15 @@ export default function AreasPanel() {
   const save = async (i: number) => {
     const r = rows[i];
     const k = keyOf(r, i);
-    setBusy(k); setMsg(null);
+    setBusy(k);
     try {
       await staffCall('areas.save', {
         id: r.id ?? undefined, name: r.name, fee: Number(r.fee || 0),
         minOrder: r.minOrder.trim() === '' ? null : Number(r.minOrder), active: r.active, sort: r.sort,
       });
       await load();
-      setMsg({ ok: true, text: `${r.name} saved.` });
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+      toast.success(`${r.name} saved.`);
+    } catch (e) { toast.error((e as Error).message); }
     setBusy(null);
   };
 
@@ -62,9 +62,9 @@ export default function AreasPanel() {
     const r = rows[i];
     if (!r.id) { setRows(rows.filter((_, j) => j !== i)); return; }
     if (!window.confirm(`Delete "${r.name}"? Past orders keep their area name.`)) return;
-    setBusy(r.id); setMsg(null);
-    try { await staffCall('areas.delete', { id: r.id }); await load(); setMsg({ ok: true, text: 'Area deleted.' }); }
-    catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    setBusy(r.id);
+    try { await staffCall('areas.delete', { id: r.id }); await load(); toast.success('Area deleted.'); }
+    catch (e) { toast.error((e as Error).message); }
     setBusy(null);
   };
 
@@ -93,7 +93,6 @@ export default function AreasPanel() {
       })}
       <div className="flex items-center gap-4">
         <button type="button" onClick={addRow} className="flex items-center gap-1 text-sm font-bold text-brand-red"><Plus size={14} /> Add area</button>
-        {msg && <span className={`text-sm font-bold ${msg.ok ? 'text-emerald-600' : 'text-brand-red'}`}>{msg.text}</span>}
       </div>
       <p className="text-xs text-brand-wine/70">Fee 0 means free delivery to that area. Leave &quot;Min. order&quot; empty to use the general minimum order. Switch an area off to hide it from customers without deleting it.</p>
     </div>

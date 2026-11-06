@@ -1,16 +1,14 @@
-import { Anton, Cormorant_Garamond, Jost } from 'next/font/google';
+import { Anton, Poppins } from 'next/font/google';
 
 /*
- * Red Rose type. Loaded here rather than in the root layout so the admin portal
- * (which stays on Geist) doesn't preload faces it never renders. Used by the
- * landing, customer, chef and waiter pages.
+ * Red Rose type — ONE face everywhere.
  *
- *  - Anton      — the RED ROSE wordmark only (hero + logo lockups).
- *  - Cormorant  — every heading, price and quote: a high-contrast serif with a
- *                 real italic, which is what carries the "patisserie" voice.
- *  - Jost       — body copy, labels and buttons; geometric, light and quiet.
+ * The whole app (admin, landing, customer, chef, waiter) now runs on a single
+ * family: Poppins. Hierarchy is carried by weight alone — bold for emphasis,
+ * regular for everything else — so nothing mixes a second typeface anymore.
  *
- * Cormorant and Jost are variable fonts, so each is a single file per style.
+ *  - Anton    — kept ONLY for the "RED ROSE" wordmark logo lockup.
+ *  - Poppins  — body, headings, prices, labels, buttons… everything else.
  */
 export const wordmark = Anton({
   variable: '--font-wordmark-src',
@@ -18,15 +16,12 @@ export const wordmark = Anton({
   weight: '400',
 });
 
-export const display = Cormorant_Garamond({
-  variable: '--font-display-src',
+/** The single UI face for the entire product. */
+export const sans = Poppins({
+  variable: '--font-poppins',
   subsets: ['latin'],
-  style: ['normal', 'italic'],
+  weight: ['300', '400', '500', '600', '700', '800'],
 });
 
-export const body = Jost({
-  variable: '--font-body-src',
-  subsets: ['latin'],
-});
-
-export const landingFonts = `${wordmark.variable} ${display.variable} ${body.variable}`;
+export const landingFonts = `${wordmark.variable} ${sans.variable}`;
+export const adminFonts = sans.variable;

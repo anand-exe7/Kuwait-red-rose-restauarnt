@@ -20,6 +20,28 @@ import HeroCake from './components/HeroCake';
 import CountUp from './components/CountUp';
 import Tilt from './components/Tilt';
 import Reviews, { type Review } from './components/Reviews';
+import { getServerSupabase } from './lib/supabaseServer';
+
+// Admin-managed homepage media (Admin → Homepage) refreshes server-side.
+export const revalidate = 30;
+
+async function fetchHomeMedia(): Promise<{ gallery: string[]; videos: string[]; finest: string[]; celebrations: string }> {
+  const empty = { gallery: [], videos: [], finest: [], celebrations: '' };
+  try {
+    const sb = getServerSupabase();
+    if (!sb) return empty;
+    const { data } = await sb.from('app_settings').select('value').eq('id', 'home_media').maybeSingle();
+    const v = (data?.value ?? {}) as Partial<typeof empty>;
+    return {
+      gallery: Array.isArray(v.gallery) ? v.gallery.filter((x) => typeof x === 'string') : [],
+      videos: Array.isArray(v.videos) ? v.videos.filter((x) => typeof x === 'string') : [],
+      finest: Array.isArray(v.finest) ? v.finest.filter((x) => typeof x === 'string') : [],
+      celebrations: typeof v.celebrations === 'string' ? v.celebrations : '',
+    };
+  } catch {
+    return empty;
+  }
+}
 
 /**
  * Every photo on the landing page lives here so any of them can be swapped in
@@ -39,11 +61,15 @@ const IMAGES = {
   chocolates: 'photo-1481391319762-47dff72954d9', // an open box of chocolates
 } as const;
 
+// A `src` can be an Unsplash id (built into a URL) or a full http(s) URL — the
+// latter is what admin-uploaded homepage photos use, so we pass those through.
+const isFullUrl = (s: string) => /^https?:\/\//.test(s);
 const img = (id: string, w = 700) =>
-  `https://images.unsplash.com/${id}?auto=format&fit=crop&q=85&w=${w}`;
+  isFullUrl(id) ? id : `https://images.unsplash.com/${id}?auto=format&fit=crop&q=85&w=${w}`;
 
 /** Several widths of one photo, so high-density screens get a sharp copy. */
-const srcSet = (id: string, widths: number[]) => widths.map((w) => `${img(id, w)} ${w}w`).join(', ');
+const srcSet = (id: string, widths: number[]) =>
+  isFullUrl(id) ? '' : widths.map((w) => `${img(id, w)} ${w}w`).join(', ');
 
 const CONTAINER = 'mx-auto w-full max-w-6xl px-5 sm:px-8';
 
@@ -205,7 +231,10 @@ const RIBBON = [
   'Since 2012',
 ];
 
-export default function Home() {
+export default async function Home() {
+  const media = await fetchHomeMedia();
+  const finestSrc = (i: number) => media.finest[i] || FLAVOURS[i].src;
+  const celebrationsSrc = media.celebrations || IMAGES.giftBoxes;
   return (
     <div
       className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
@@ -678,15 +707,15 @@ export default function Home() {
                   className="parallax flex flex-col gap-4 sm:gap-5"
                   style={{ '--p0': '24px', '--p1': '-24px' } as React.CSSProperties}
                 >
-                  <Photo i={0} src={FLAVOURS[0].src} label={FLAVOURS[0].label} from={FLAVOURS[0].from} aspect="aspect-[4/5]" />
-                  <Photo i={2} src={FLAVOURS[2].src} label={FLAVOURS[2].label} from={FLAVOURS[2].from} aspect="aspect-square" />
+                  <Photo i={0} src={finestSrc(0)} label={FLAVOURS[0].label} from={FLAVOURS[0].from} aspect="aspect-[4/5]" />
+                  <Photo i={2} src={finestSrc(2)} label={FLAVOURS[2].label} from={FLAVOURS[2].from} aspect="aspect-square" />
                 </div>
                 <div
                   className="parallax mt-12 flex flex-col gap-4 sm:mt-16 sm:gap-5"
                   style={{ '--p0': '80px', '--p1': '-80px' } as React.CSSProperties}
                 >
-                  <Photo i={1} src={FLAVOURS[1].src} label={FLAVOURS[1].label} from={FLAVOURS[1].from} aspect="aspect-square" />
-                  <Photo i={3} src={FLAVOURS[3].src} label={FLAVOURS[3].label} from={FLAVOURS[3].from} aspect="aspect-[4/5]" />
+                  <Photo i={1} src={finestSrc(1)} label={FLAVOURS[1].label} from={FLAVOURS[1].from} aspect="aspect-square" />
+                  <Photo i={3} src={finestSrc(3)} label={FLAVOURS[3].label} from={FLAVOURS[3].from} aspect="aspect-[4/5]" />
                 </div>
               </div>
 
@@ -781,8 +810,8 @@ export default function Home() {
               <div className="arch curtain relative isolate aspect-[4/5] overflow-hidden shadow-[0_40px_80px_-30px_rgba(20,0,3,0.85)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={img(IMAGES.giftBoxes, 1000)}
-                  srcSet={srcSet(IMAGES.giftBoxes, [700, 1000, 1400])}
+                  src={img(celebrationsSrc, 1000)}
+                  srcSet={srcSet(celebrationsSrc, [700, 1000, 1400])}
                   sizes="(min-width: 1024px) 440px, (min-width: 640px) 420px, 340px"
                   alt="Black gift boxes tied with gold ribbon"
                   loading="lazy"
@@ -920,6 +949,45 @@ export default function Home() {
           <EdgeCurve position="bottom" />
         </section>
 
+      {/* ==================== GALLERY (admin-managed) ==================== */}
+      {media.gallery.length > 0 && (
+        <section className="relative py-20 sm:py-28">
+          <div className={CONTAINER}>
+            <div className="text-center">
+              <p className="eyebrow eyebrow-center text-brand-gold-dark">From our kitchen</p>
+              <h2 className="heading mt-5 text-brand-wine">The <em className="text-brand-red">gallery</em></h2>
+            </div>
+            <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {media.gallery.map((url) => (
+                <div key={url} className="aspect-[9/16] overflow-hidden rounded-2xl border border-brand-gold/25 bg-brand-sand shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ==================== VIDEOS (admin-managed) ==================== */}
+      {media.videos.length > 0 && (
+        <section className="relative bg-brand-sand/40 py-20 sm:py-28">
+          <div className={CONTAINER}>
+            <div className="text-center">
+              <p className="eyebrow eyebrow-center text-brand-gold-dark">Watch</p>
+              <h2 className="heading mt-5 text-brand-wine">In <em className="text-brand-red">motion</em></h2>
+            </div>
+            <div className="mx-auto mt-12 grid max-w-4xl grid-cols-2 gap-4 sm:grid-cols-4">
+              {media.videos.map((url) => (
+                <div key={url} className="aspect-[9/16] overflow-hidden rounded-2xl border border-brand-gold/25 bg-black shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)]">
+                  <video src={url} className="h-full w-full object-cover" controls playsInline preload="metadata" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ==================== SWEET WORDS ==================== */}
       <Reveal>
         <section id="reviews" className="relative scroll-mt-24 py-20 sm:py-28">
@@ -1035,14 +1103,7 @@ export default function Home() {
                 />
                 <span className="leading-none">
                   <span className="sr-only">{BRAND.fullName}</span>
-                  <span
-                    aria-hidden
-                    className="block font-wordmark text-[28px] uppercase tracking-[0.04em]"
-                    style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
-                  >
-                    Red Rose
-                  </span>
-                  <span aria-hidden className="mt-1.5 block font-body text-[8px] font-medium uppercase tracking-[0.5em] text-brand-gold-light/85">
+                  <span aria-hidden className="block font-body text-[10px] font-medium uppercase tracking-[0.5em] text-brand-gold-light/85">
                     Pastry · Kuwait
                   </span>
                 </span>
@@ -1118,16 +1179,6 @@ export default function Home() {
               © {new Date().getFullYear()}
             </span>
           </div>
-        </div>
-
-        {/* The wordmark returns, very faint, to close the page.
-            Clamped so it doesn't bleed past the frame on wide screens. */}
-        <div aria-hidden className="pointer-events-none relative h-[12vw] max-h-[160px] select-none overflow-hidden">
-          <p
-            className="rise-in absolute inset-x-0 top-0 whitespace-nowrap text-center font-wordmark text-[clamp(60px,18vw,200px)] uppercase leading-[0.8] tracking-[-0.01em] text-white/[0.06]"
-          >
-            Red Rose
-          </p>
         </div>
       </footer>
     </div>

@@ -12,11 +12,10 @@
   --font-mono: var(--font-geist-mono);
 
   /* Landing page type (loaded in app/fonts.ts, applied on the landing root).
-     body     — Jost: copy, labels, buttons
-     display  — Cormorant Garamond: headings, prices, quotes
-     wordmark — Anton: the RED ROSE lockup only */
-  --font-body: var(--font-body-src), "Segoe UI", Arial, sans-serif;
-  --font-display: var(--font-display-src), "Cormorant Garamond", Georgia, "Times New Roman", serif;
+     ONE face everywhere now — Poppins — so body, headings and prices never mix
+     typefaces; weight carries the hierarchy. Anton stays for the logo only. */
+  --font-body: var(--font-poppins), "Segoe UI", Arial, sans-serif;
+  --font-display: var(--font-poppins), "Segoe UI", Arial, sans-serif;
   --font-wordmark: var(--font-wordmark-src), Impact, "Arial Narrow", sans-serif;
 
   /* Red Rose brand palette (from the shop sign) */
@@ -63,8 +62,8 @@ html:has(.landing) { scroll-behavior: smooth; }
   /* @theme inline doesn't publish --font-* as runtime variables, so these
      classes read the next/font variables (with the same fallbacks). */
   .landing {
-    --lux-body: var(--font-body-src), "Segoe UI", Arial, sans-serif;
-    --lux-display: var(--font-display-src), "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    --lux-body: var(--font-poppins), "Segoe UI", Arial, sans-serif;
+    --lux-display: var(--font-poppins), "Segoe UI", Arial, sans-serif;
   }
 
   /* Small caps label above every heading. */
@@ -99,8 +98,8 @@ html:has(.landing) { scroll-behavior: smooth; }
     text-wrap: balance;
   }
   .heading em {
-    font-style: italic;
-    font-weight: 400;
+    font-style: normal;
+    font-weight: 700;
   }
 
   .lede {
@@ -465,7 +464,8 @@ html:has(.landing) { scroll-behavior: smooth; }
   gap: 1.7rem;
   padding: 0.95rem 0 0.95rem 1.7rem;
   font-family: var(--lux-display);
-  font-style: italic;
+  font-style: normal;
+  font-weight: 600;
   font-size: clamp(19px, 2.3vw, 30px);
   line-height: 1;
   white-space: nowrap;

@@ -1,0 +1,243 @@
+/* ==========================================================================
+   ADMIN — the counter's side of the shop, painted in the Cafe-POS system:
+   cocoa · buttercream · cherry, with caramel and pistachio accents. Layout is
+   Tailwind; this file holds the palette, a few primitives and the print sheets.
+
+   Two re-points, both scoped to `.adm`, do the heavy lifting with no markup
+   changes — Tailwind v4 resolves every utility to `var(--color-*)`:
+     1. Tailwind's own ramps (white / slate / red / amber / emerald) are
+        re-pointed, so the ported kit (`bg-white`, `text-slate-900`,
+        `bg-red-600`…) paints in cocoa-and-cherry.
+     2. Red Rose's `brand-*` tokens are re-pointed too, so every section that
+        was NOT yet rebuilt on the kit (Incoming, Billing, Tables, Analytics,
+        Coupons, Deliveries, Open Tabs) also recolours to the Cafe-POS palette
+        automatically.
+   Palette lifted from the Cafe-POS admin. Tables and all data wiring untouched.
+   ========================================================================== */
+
+.adm {
+  /* ---- base design tokens (Cafe-POS) ---- */
+  --paper: #faf4e8;        /* buttercream canvas */
+  --cream: #f5ecdc;
+  --ink: #26170f;          /* cocoa ink */
+  --cocoa: #1c110c;        /* the near-black sidebar band */
+  --cocoa-2: #26170f;
+  --cocoa-3: #3a2418;
+  --cherry: #d7263d;       /* the accent off the logo */
+  --cherry-deep: #a8182c;
+  --caramel: #e2a75c;
+  --pistachio: #b3c68b;
+  --line-dark: rgba(245, 236, 220, 0.14);
+  --line-light: rgba(38, 23, 15, 0.12);
+  /* One font across the whole admin console: Poppins. */
+  --body: var(--font-poppins), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: var(--font-poppins), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-adm-num: var(--font-poppins), system-ui, "Segoe UI", sans-serif;
+
+  /* ---- 1. Tailwind neutrals: paper and cocoa, not cool grey ---- */
+  --color-white: #fffdf7;
+  --color-slate-50: #f7f0e2;
+  --color-slate-100: #ece0c9;
+  --color-slate-200: #ddcaab;
+  --color-slate-300: #c4ab86;
+  --color-slate-400: #a28a68;
+  --color-slate-500: #857055;
+  --color-slate-600: #6b5344;
+  --color-slate-700: #54402f;
+  --color-slate-800: #3a2418;
+  --color-slate-900: #26170f;
+  --color-slate-950: #1c110c;
+
+  /* the accent is the cherry off the logo */
+  --color-red-50: #fdecee;
+  --color-red-100: #fbd9dd;
+  --color-red-200: #f5bcc3;
+  --color-red-300: #ee96a1;
+  --color-red-400: #e4606f;
+  --color-red-500: #dc3a4e;
+  --color-red-600: #d7263d;
+  --color-red-700: #a8182c;
+  --color-red-800: #8b1424;
+  --color-red-900: #6f111d;
+
+  /* caramel for anything that wants attention without alarm */
+  --color-amber-50: #fdf3e3;
+  --color-amber-100: #f8e3bf;
+  --color-amber-200: #f0cd91;
+  --color-amber-300: #e7b76a;
+  --color-amber-400: #e2a75c;
+  --color-amber-500: #cf8f3e;
+  --color-amber-600: #b0742c;
+  --color-amber-700: #8c5a22;
+  --color-amber-900: #4d3113;
+  --color-amber-950: #2e1d0b;
+
+  /* pistachio for the settled and the safe */
+  --color-emerald-50: #eef3e2;
+  --color-emerald-100: #dde7c6;
+  --color-emerald-200: #c7d7a4;
+  --color-emerald-500: #7d9c4a;
+  --color-emerald-600: #6b8f3a;
+  --color-emerald-700: #55722d;
+
+  /* ---- 2. Red Rose brand-* tokens, re-pointed to the Cafe-POS palette so the
+            not-yet-rebuilt sections recolour with no markup change ---- */
+  --color-brand-cream: #fffdf7;    /* section cards: warm white on the paper canvas */
+  --color-brand-beige: #f3e8d2;
+  --color-brand-sand: #f0e4cc;
+  --color-brand-red: #d7263d;
+  --color-brand-red-dark: #a8182c;
+  --color-brand-wine: #3a2418;     /* dark cocoa for headings/body */
+  --color-brand-gold: #d8b36a;
+  --color-brand-gold-light: #f0cd91;
+  --color-brand-gold-dark: #b0742c;
+  --color-brand-plum: #a8324f;     /* cherry-leaning berry (no cocoa equivalent) */
+  --color-brand-green: #6b8f3a;
+  --color-brand-ink: #26170f;
+}
+
+html:has(.adm) {
+  background: var(--paper);
+  scroll-behavior: auto;
+}
+.adm {
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+.adm ::selection {
+  background: var(--cherry);
+  color: var(--cream);
+}
+.adm :focus-visible {
+  outline: 2px solid var(--cherry);
+  outline-offset: 2px;
+}
+.adm-title {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.adm-num {
+  font-family: var(--font-adm-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.adm input[type="number"]::-webkit-inner-spin-button,
+.adm input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.adm input[type="number"] {
+  -moz-appearance: textfield;
+}
+.adm input:focus-visible,
+.adm textarea:focus-visible,
+.adm select:focus-visible {
+  outline: none;
+}
+.adm select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2326170f' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+.adm-app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
+}
+
+/* ---------- the cocoa band ---------- */
+.adm-side {
+  background: var(--cocoa);
+  color: var(--cream);
+}
+.adm-side__brand b {
+  color: var(--cream);
+}
+.adm-side__brand small {
+  color: rgba(245, 236, 220, 0.42);
+}
+.adm-link {
+  color: rgba(245, 236, 220, 0.72);
+  transition: background-color 0.25s, color 0.25s;
+}
+.adm-link:hover {
+  background: rgba(245, 236, 220, 0.08);
+  color: var(--cream);
+}
+.adm-link.is-on {
+  background: var(--cherry);
+  color: #fff;
+}
+.adm-link.is-on:hover {
+  background: var(--cherry);
+}
+
+/* bars grow from the baseline once, then just resize */
+.adm-bar {
+  transform-origin: bottom;
+  animation: adm-grow 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 35ms);
+}
+.adm-fill {
+  transform-origin: left;
+  animation: adm-grow-x 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes adm-grow {
+  from { transform: scaleY(0); }
+}
+@keyframes adm-grow-x {
+  from { transform: scaleX(0); }
+}
+.adm-in {
+  animation: adm-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes adm-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+.adm-pulse { position: relative; }
+.adm-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  animation: adm-ping 1.6s ease-out infinite;
+}
+@keyframes adm-ping {
+  from { opacity: 0.7; transform: scale(0.9); }
+  to { opacity: 0; transform: scale(1.6); }
+}
+.adm-drawer {
+  animation: adm-drawer 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes adm-drawer {
+  from { transform: translateX(40px); opacity: 0; }
+}
+.adm-scrim { animation: adm-fade 0.25s both; }
+@keyframes adm-fade {
+  from { opacity: 0; }
+}
+.adm-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-slate-200) transparent;
+}
+
+/* ---------- print ---------- */
+.adm-print { display: none; }
+@media print {
+  @page { margin: 10mm; }
+  html:has(.adm),
+  .adm { background: #fff !important; }
+  .adm-app { display: none !important; }
+  .adm-print { display: block; color: #000; }
+}
