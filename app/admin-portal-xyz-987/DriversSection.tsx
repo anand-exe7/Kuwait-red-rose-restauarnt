@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { staffCall } from './staffApi';
+import { toast } from './_ui/kit';
 import { formatKWD } from '../lib/currency';
 import type { DeliveryDto } from '../lib/delivery/shared';
 
@@ -15,7 +16,6 @@ export default function DriversSection() {
   const [drivers, setDrivers] = useState<Driver[] | null>(null);
   const [cod, setCod] = useState<DeliveryDto[]>([]);
   const [form, setForm] = useState(blank);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -25,23 +25,23 @@ export default function DriversSection() {
         staffCall<{ deliveries: DeliveryDto[] }>('cod.report'),
       ]);
       setDrivers(d.drivers); setCod(c.deliveries);
-    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); setDrivers([]); }
+    } catch (e) { toast.error((e as Error).message); setDrivers([]); }
   }, []);
 
   useEffect(() => { const t = setTimeout(load, 0); return () => clearTimeout(t); }, [load]);
 
   const save = async (e: React.FormEvent) => {
-    e.preventDefault(); setBusy(true); setMsg(null);
+    e.preventDefault(); setBusy(true);
     try {
       await staffCall('drivers.save', { id: form.id || undefined, name: form.name, phone: form.phone, pin: form.pin || undefined, active: form.active });
-      setForm(blank); setMsg({ ok: true, text: 'Driver saved.' }); await load();
-    } catch (err) { setMsg({ ok: false, text: (err as Error).message }); }
+      setForm(blank); toast.success('Driver saved.'); await load();
+    } catch (err) { toast.error((err as Error).message); }
     setBusy(false);
   };
 
   const settle = async (driverId: string, name: string, amount: number) => {
     if (!confirm(`Confirm ${name} handed in ${formatKWD(amount)} cash?`)) return;
-    try { await staffCall('cod.settle', { driverId }); await load(); } catch (err) { setMsg({ ok: false, text: (err as Error).message }); }
+    try { await staffCall('cod.settle', { driverId }); toast.success(`${name}'s cash settled.`); await load(); } catch (err) { toast.error((err as Error).message); }
   };
 
   // Cash report: per driver, what they collected and have not yet handed in.
@@ -72,7 +72,6 @@ export default function DriversSection() {
             {form.id && <button type="button" onClick={() => setForm(blank)} className="px-3 text-sm font-bold text-brand-wine/70">Cancel</button>}
           </div>
         </form>
-        {msg && <p className={`mt-3 text-sm font-bold ${msg.ok ? 'text-emerald-600' : 'text-brand-red'}`}>{msg.text}</p>}
 
         <div className="mt-5 divide-y divide-brand-gold/25">
           {!drivers && <div className="flex justify-center py-8"><Loader2 className="animate-spin text-brand-red" /></div>}

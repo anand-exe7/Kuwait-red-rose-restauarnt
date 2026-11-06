@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { staffCall } from './staffApi';
+import { toast } from './_ui/kit';
 import AreasPanel from './AreasPanel';
 import { DAY_NAMES, DEFAULT_SETTINGS, type DeliverySettings, type FeeTier } from '../lib/delivery/shared';
 
@@ -23,13 +24,12 @@ function Toggle({ on, onChange, text, hint }: { on: boolean; onChange: (v: boole
 export default function DeliverySettingsSection() {
   const [s, setS] = useState<DeliverySettings | null>(null);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     let alive = true;
     staffCall<{ settings: DeliverySettings }>('settings.get')
       .then((r) => { if (alive) setS(r.settings); })
-      .catch((e: Error) => { if (alive) { setS(DEFAULT_SETTINGS); setMsg({ ok: false, text: e.message }); } });
+      .catch((e: Error) => { if (alive) { setS(DEFAULT_SETTINGS); toast.error(e.message); } });
     return () => { alive = false; };
   }, []);
 
@@ -39,9 +39,9 @@ export default function DeliverySettingsSection() {
   const numField = (k: keyof DeliverySettings) => (e: React.ChangeEvent<HTMLInputElement>) => set(k, Number(e.target.value) as never);
 
   const save = async (next: DeliverySettings = s, okText = 'Settings saved.') => {
-    setSaving(true); setMsg(null);
-    try { const r = await staffCall<{ settings: DeliverySettings }>('settings.save', { settings: next }); setS(r.settings); setMsg({ ok: true, text: okText }); }
-    catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+    setSaving(true);
+    try { const r = await staffCall<{ settings: DeliverySettings }>('settings.save', { settings: next }); setS(r.settings); toast.success(okText); }
+    catch (e) { toast.error((e as Error).message); }
     setSaving(false);
   };
 
@@ -186,7 +186,6 @@ export default function DeliverySettingsSection() {
         <button onClick={() => save()} disabled={saving} className="px-8 py-3.5 rounded-2xl bg-brand-red text-white font-black shadow-lg shadow-brand-red/25 disabled:opacity-60">
           {saving ? 'Saving…' : 'Save settings'}
         </button>
-        {msg && <span className={`text-sm font-bold ${msg.ok ? 'text-emerald-600' : 'text-brand-red'}`}>{msg.text}</span>}
       </div>
     </div>
   );

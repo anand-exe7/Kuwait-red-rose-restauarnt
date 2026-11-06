@@ -6,19 +6,20 @@
 // customer contact + delivery address when relevant.
 
 import React from 'react';
-import { Check, X, MapPin, Bike, PackageCheck, Phone, Clock } from 'lucide-react';
+import { Phone } from 'lucide-react';
 import { Order, approveOrder, rejectOrder } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
+import { Page, PageHead, Card, Btn, Badge, Icon, Empty, ago, type IconName, type BadgeTone } from './_ui/kit';
 
 interface Props {
   orders: Order[];
 }
 
-const MODE_META: Record<string, { label: string; Icon: React.ComponentType<{ size?: number; className?: string }>; tone: string; strip: string }> = {
-  table:    { label: 'Dine-in',  Icon: MapPin,        tone: 'bg-brand-wine text-white shadow-[0_8px_18px_-6px_rgba(74,21,21,0.5)]', strip: 'from-brand-wine/70 to-brand-wine/30' },
-  standing: { label: 'Standing', Icon: MapPin,        tone: 'bg-brand-wine text-white shadow-[0_8px_18px_-6px_rgba(74,21,21,0.5)]', strip: 'from-brand-wine/70 to-brand-wine/30' },
-  takeaway: { label: 'Takeaway', Icon: PackageCheck,  tone: 'bg-amber-500 text-white shadow-[0_8px_18px_-6px_rgba(217,119,6,0.5)]', strip: 'from-amber-500/70 to-amber-500/30' },
-  delivery: { label: 'Delivery', Icon: Bike,          tone: 'bg-brand-red text-white shadow-[0_8px_18px_-6px_rgba(176,30,40,0.55)]', strip: 'from-brand-red/80 to-brand-red/30' },
+const MODE_META: Record<string, { label: string; icon: IconName; tone: BadgeTone }> = {
+  table:    { label: 'Dine-in',  icon: 'tables',   tone: 'slate' },
+  standing: { label: 'Standing', icon: 'tables',   tone: 'slate' },
+  takeaway: { label: 'Takeaway', icon: 'bag',      tone: 'amber' },
+  delivery: { label: 'Delivery', icon: 'cart',     tone: 'red' },
 };
 
 export default function IncomingOrdersSection({ orders }: Props) {
@@ -26,129 +27,103 @@ export default function IncomingOrdersSection({ orders }: Props) {
     .filter(o => o.status === 'awaiting_admin')
     .sort((a, b) => a.createdAt - b.createdAt); // oldest first — FIFO queue
 
-  if (pending.length === 0) {
-    return (
-      <div className="rounded-3xl border border-brand-gold/30 bg-brand-cream p-16 text-center">
-        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
-          <Check size={28} />
-        </div>
-        <h3 className="font-display text-2xl text-brand-wine">All caught up</h3>
-        <p className="mt-2 font-body text-sm text-brand-wine/70">
-          No orders waiting on approval. New customer orders will appear here instantly.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-2xl font-black">Incoming orders</h2>
-          <p className="text-sm text-brand-wine/70">
-            {pending.length} {pending.length === 1 ? 'order' : 'orders'} waiting on your approval.
-            Approve to send to the kitchen.
-          </p>
-        </div>
-      </div>
+    <Page>
+      <PageHead
+        title="Incoming orders"
+        bar
+        sub={pending.length === 0
+          ? 'New customer orders will appear here instantly.'
+          : `${pending.length} ${pending.length === 1 ? 'order' : 'orders'} waiting on your approval — approve to send to the kitchen.`}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {pending.map(o => {
-          const meta = MODE_META[o.mode ?? 'table'];
-          const minsAgo = Math.max(0, Math.floor((Date.now() - o.createdAt) / 60000));
-          return (
-            <div key={o.id} className="relative overflow-hidden rounded-3xl border border-brand-gold/30 bg-brand-cream p-5 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)] transition-all hover:-translate-y-0.5 hover:shadow-[0_22px_48px_-20px_rgba(74,21,21,0.5)]">
-              <span className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${meta.strip}`} aria-hidden />
-              <div className="flex items-start justify-between gap-3 pl-2">
-                <div className="flex items-center gap-3">
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-body text-[10px] font-black uppercase tracking-[0.18em] ${meta.tone}`}>
-                    <meta.Icon size={12} /> {meta.label}
+      {pending.length === 0 ? (
+        <Card>
+          <Empty icon="check" title="All caught up">
+            No orders waiting on approval. New customer orders will appear here instantly.
+          </Empty>
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {pending.map(o => {
+            const meta = MODE_META[o.mode ?? 'table'];
+            return (
+              <Card key={o.id} className="adm-in">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={meta.tone}>
+                      <Icon name={meta.icon} size={12} /> {meta.label}
+                    </Badge>
+                    <span className="adm-num text-xs font-bold text-slate-500">#{o.id}</span>
+                  </div>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-500">
+                    <Icon name="clock" size={12} /> {ago(o.createdAt)}
                   </span>
-                  <span className="font-mono text-xs font-bold text-brand-wine/70">#{o.id}</span>
                 </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-brand-wine/5 border border-brand-wine/10 px-2.5 py-1 font-body text-xs font-bold text-brand-wine/80">
-                  <Clock size={12} /> {minsAgo < 1 ? 'just now' : `${minsAgo} min ago`}
-                </span>
-              </div>
 
-              {o.customer && (
-                <div className="mt-3 rounded-2xl bg-brand-cream/50 px-4 py-3">
-                  <p className="font-body text-sm font-semibold text-brand-wine">
-                    {o.customer.name || 'Customer'}
+                {o.customer && (
+                  <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-800">{o.customer.name || 'Customer'}</p>
+                    {o.customer.phone && (
+                      <p className="adm-num mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                        <Phone size={11} /> {o.customer.phone}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {o.mode === 'table' && (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Table <span className="font-bold text-red-600">{o.table}</span>
                   </p>
-                  {o.customer.phone && (
-                    <p className="mt-0.5 flex items-center gap-1 font-mono text-xs text-brand-wine/75">
-                      <Phone size={11} /> {o.customer.phone}
+                )}
+
+                {o.mode === 'delivery' && o.deliveryAddress && (
+                  <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+                    <p className="font-semibold text-red-600">Delivery to:</p>
+                    <p className="mt-1">
+                      {[
+                        o.deliveryAddress.governorate,
+                        o.deliveryAddress.area,
+                        o.deliveryAddress.street && `St ${o.deliveryAddress.street}`,
+                        o.deliveryAddress.avenue && `Ave ${o.deliveryAddress.avenue}`,
+                        o.deliveryAddress.building && `Bldg ${o.deliveryAddress.building}`,
+                        o.deliveryAddress.floor && `Fl ${o.deliveryAddress.floor}`,
+                        o.deliveryAddress.apartment && `Apt ${o.deliveryAddress.apartment}`,
+                      ].filter(Boolean).join(' · ')}
                     </p>
-                  )}
+                    {o.deliveryAddress.landmark && <p className="mt-1 italic text-slate-500">— {o.deliveryAddress.landmark}</p>}
+                  </div>
+                )}
+
+                <ul className="mt-3 divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-white px-3">
+                  {o.items.map(i => (
+                    <li key={i.id} className="flex items-center justify-between py-2 text-sm">
+                      <span>
+                        <span className="font-semibold text-slate-800">{i.qty}×</span> {i.name}
+                      </span>
+                      <span className="adm-num text-slate-500">{formatKWD(i.price * i.qty)}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-3 flex items-end justify-between border-t border-slate-100 pt-3">
+                  <div className="text-xs text-slate-500">Subtotal {formatKWD(o.subtotal)}</div>
+                  <div className="text-right">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Total</div>
+                    <div className="adm-num text-2xl font-extrabold text-red-600">{formatKWD(o.total)}</div>
+                  </div>
                 </div>
-              )}
 
-              {o.mode === 'table' && (
-                <p className="mt-3 font-body text-sm text-brand-wine/80">
-                  Table <span className="font-bold text-brand-red">{o.table}</span>
-                </p>
-              )}
-
-              {o.mode === 'delivery' && o.deliveryAddress && (
-                <div className="mt-3 rounded-2xl border border-brand-red/15 bg-brand-red/5 px-4 py-3 font-body text-xs leading-relaxed text-brand-wine/80">
-                  <p className="font-semibold text-brand-red">Delivery to:</p>
-                  <p className="mt-1">
-                    {[
-                      o.deliveryAddress.governorate,
-                      o.deliveryAddress.area,
-                      o.deliveryAddress.street && `St ${o.deliveryAddress.street}`,
-                      o.deliveryAddress.avenue && `Ave ${o.deliveryAddress.avenue}`,
-                      o.deliveryAddress.building && `Bldg ${o.deliveryAddress.building}`,
-                      o.deliveryAddress.floor && `Fl ${o.deliveryAddress.floor}`,
-                      o.deliveryAddress.apartment && `Apt ${o.deliveryAddress.apartment}`,
-                    ].filter(Boolean).join(' · ')}
-                  </p>
-                  {o.deliveryAddress.landmark && (
-                    <p className="mt-1 italic text-brand-wine/75">— {o.deliveryAddress.landmark}</p>
-                  )}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <Btn kind="ghost" icon="x" onClick={() => rejectOrder(o.id)} className="h-11">Reject</Btn>
+                  <Btn kind="red" icon="check" onClick={() => approveOrder(o.id)} className="h-11">Approve → Chef</Btn>
                 </div>
-              )}
-
-              <ul className="mt-3 divide-y divide-brand-gold/25 rounded-2xl bg-white">
-                {o.items.map(i => (
-                  <li key={i.id} className="flex items-center justify-between py-2 text-sm">
-                    <span>
-                      <span className="font-semibold text-brand-wine">{i.qty}×</span> {i.name}
-                    </span>
-                    <span className="font-mono text-brand-wine/75">{formatKWD(i.price * i.qty)}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-3 flex items-end justify-between border-t border-brand-gold/40 pt-3">
-                <div className="text-xs text-brand-wine/70">
-                  Subtotal {formatKWD(o.subtotal)}
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-brand-wine/70">Total</div>
-                  <div className="font-display text-2xl font-bold text-brand-red">{formatKWD(o.total)}</div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => rejectOrder(o.id)}
-                  className="flex items-center justify-center gap-2 rounded-2xl border border-brand-gold/40 bg-white px-4 py-3 text-sm font-semibold text-brand-wine/80 transition-colors hover:border-brand-red hover:text-brand-red"
-                >
-                  <X size={16} /> Reject
-                </button>
-                <button
-                  onClick={() => approveOrder(o.id)}
-                  className="flex items-center justify-center gap-2 rounded-2xl bg-brand-red px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-red-dark"
-                >
-                  <Check size={16} /> Approve → Chef
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </Page>
   );
 }

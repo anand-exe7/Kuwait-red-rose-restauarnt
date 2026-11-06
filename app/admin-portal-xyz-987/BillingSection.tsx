@@ -1,11 +1,12 @@
 "use client";
 import React, { useMemo, useState, useSyncExternalStore } from 'react';
-import { Plus, Minus, Trash2, X, ListPlus, MessageCircle, ShoppingCart, Search, Save } from 'lucide-react';
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
 import { getCouponsSnapshot, getCouponsServerSnapshot, subscribeToCoupons, validateCoupon, isExpired, remainingUses } from '../lib/couponStore';
 import { addOrder } from '../lib/orderStore';
 import { formatKWD } from '../lib/currency';
 import { BRAND } from '../lib/brand';
+import { Page, PageHead, Card, Btn, Field, Pills, Modal, SearchBox, Icon, WaIcon, Empty, toast, inputCls, labelCls, cx } from './_ui/kit';
+import { subscribeToTax, getTaxSnapshot, getTaxServerSnapshot, taxFrom, taxAmountFor } from '../lib/taxStore';
 
 interface Line { key: string; name: string; price: number; qty: number }
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -14,7 +15,7 @@ export default function BillingSection() {
   const menu = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const coupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
 
-  const [source, setSource] = useState<'offline' | 'online'>('offline');
+  const [payMethod, setPayMethod] = useState<'cash' | 'card' | 'upi'>('cash');
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
@@ -24,7 +25,6 @@ export default function BillingSection() {
   const [delivery, setDelivery] = useState('');
   const [amountReceived, setAmountReceived] = useState('');
   const [catalogOpen, setCatalogOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
   const activeCoupons = useMemo(
     () => coupons.filter(c => c.active && !isExpired(c) && (remainingUses(c) === null || (remainingUses(c) as number) > 0)),
@@ -34,7 +34,7 @@ export default function BillingSection() {
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
   const itemCount = lines.reduce((s, l) => s + l.qty, 0);
 
-  const couponResult = couponCode ? validateCoupon(couponCode, subtotal) : null;
+  const couponResult = couponCode ? validateCoupon(couponCode, subtotal, phone) : null;
   const couponDiscount = couponResult?.ok ? (couponResult.discount || 0) : 0;
 
   const manualNum = Number(manualValue) || 0;
@@ -42,7 +42,11 @@ export default function BillingSection() {
 
   const totalDiscount = Math.min(subtotal, couponDiscount + Math.max(0, manualDiscount));
   const deliveryNum = Math.max(0, Number(delivery) || 0);
-  const grandTotal = Math.max(0, subtotal - totalDiscount) + deliveryNum;
+  const taxableBase = Math.max(0, subtotal - totalDiscount);
+  const taxSettings = taxFrom(useSyncExternalStore(subscribeToTax, getTaxSnapshot, getTaxServerSnapshot));
+  const taxAmt = taxAmountFor(taxableBase, taxSettings);
+  // Inclusive tax is already inside the prices, so it doesn't change the total.
+  const grandTotal = taxableBase + deliveryNum + (taxSettings.inclusive ? 0 : taxAmt);
   const received = Number(amountReceived) || 0;
   const change = received - grandTotal;
 
@@ -61,14 +65,11 @@ export default function BillingSection() {
     setManualValue(''); setDelivery(''); setAmountReceived('');
   };
 
-  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
-
   // Saves the bill as a completed order (shows up in Orders & Analytics).
-  // If `sendWhatsApp` is true, also opens a pre-filled WhatsApp draft.
   const saveBill = (sendWhatsApp: boolean) => {
-    if (lines.length === 0 || itemCount === 0) { flash('Add at least one item first.'); return; }
+    if (lines.length === 0 || itemCount === 0) { toast.error('Add at least one item first.'); return; }
 
-    addOrder({
+    const order = addOrder({
       table: 0,
       mode: 'takeaway',
       source: 'waiter',
@@ -76,15 +77,22 @@ export default function BillingSection() {
       priority: 'normal',
       items: lines.map(l => ({ id: l.key, name: l.name || 'Item', price: l.price, qty: l.qty })),
       subtotal,
-      tax: 0,
+      tax: taxAmt,
       total: grandTotal,
       discount: totalDiscount > 0 ? totalDiscount : undefined,
       couponCode: couponResult?.ok ? couponCode : undefined,
       billImmediately: true,
+      paidMethod: payMethod,
       customer: (customerName.trim() || phone.trim())
         ? { name: customerName.trim() || undefined, phone: phone.trim() || undefined }
         : undefined,
     });
+
+    // Shareable invoice page on our own site — the customer taps it to see the
+    // itemised bill. Uses the live origin so it's the real domain in production.
+    const invoiceUrl = order.sessionId && typeof window !== 'undefined'
+      ? `${window.location.origin}/receipt/${order.sessionId}`
+      : '';
 
     if (sendWhatsApp) {
       const lineText = lines.map(l => `• ${l.qty}× ${l.name || 'Item'} — ${formatKWD(l.price * l.qty)}`).join('%0A');
@@ -94,9 +102,12 @@ export default function BillingSection() {
         `%0A${lineText}`,
         `%0ASubtotal: ${formatKWD(subtotal)}`,
         totalDiscount > 0 ? `Discount: -${formatKWD(totalDiscount)}` : '',
+        taxAmt > 0 ? `${taxSettings.label} (${taxSettings.rate}%): ${formatKWD(taxAmt)}` : '',
         deliveryNum > 0 ? `Delivery: ${formatKWD(deliveryNum)}` : '',
         `*Total: ${formatKWD(grandTotal)}*`,
-        source === 'offline' && received > 0 ? `Cash: ${formatKWD(received)} · Change: ${formatKWD(Math.max(0, change))}` : '',
+        `Paid by: ${payMethod.toUpperCase()}`,
+        payMethod === 'cash' && received > 0 ? `Cash: ${formatKWD(received)} · Change: ${formatKWD(Math.max(0, change))}` : '',
+        invoiceUrl ? `%0A🧾 View your invoice:%0A${invoiceUrl}` : '',
         `%0AThank you! 🌹`,
       ].filter(Boolean);
       const msg = parts.join('%0A');
@@ -104,122 +115,111 @@ export default function BillingSection() {
       const withCc = digits.length && digits.length <= 8 ? `965${digits}` : digits;
       const url = withCc ? `https://wa.me/${withCc}?text=${msg}` : `https://wa.me/?text=${msg}`;
       window.open(url, '_blank');
-      flash('Bill saved · WhatsApp draft opened');
+      toast.success('Bill saved · WhatsApp draft opened');
     } else {
-      flash('Bill saved locally — see Orders tab');
+      toast.success('Bill saved locally — see Orders tab');
     }
     clearOrder();
   };
 
-  const inputCls = 'w-full px-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink placeholder:text-brand-wine/40 focus:outline-none focus:border-brand-red';
-  const panelCls = 'bg-brand-cream rounded-3xl border border-brand-gold/30 shadow-[0_18px_40px_-24px_rgba(74,21,21,0.35)]';
-
   return (
-    <div className="flex flex-col gap-6">
-      {toast && (
-        <div className="fixed top-20 right-6 z-50 bg-brand-wine text-brand-gold-light px-4 py-2.5 rounded-xl text-sm font-bold shadow-xl border border-brand-gold/40">{toast}</div>
-      )}
+    <Page>
+      <PageHead
+        title="POS Billing"
+        sub="Quick invoice generator & database-synced checkout."
+        bar
+      />
 
-      {/* Header + source toggle */}
-      <div className={`${panelCls} p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
-        <div className="flex items-center gap-3">
-          <span className="w-1.5 h-8 rounded-full bg-brand-red" />
-          <div>
-            <h2 className="text-xl font-black text-brand-wine">POS Billing Panel</h2>
-            <p className="text-xs text-brand-wine/60">Quick invoice generator &amp; database-synced checkout</p>
-          </div>
-        </div>
-        <div className="flex bg-brand-sand/70 rounded-full p-1 self-start border border-brand-gold/30">
-          <button onClick={() => setSource('offline')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${source === 'offline' ? 'bg-brand-red text-white shadow' : 'text-brand-wine/70 hover:text-brand-wine'}`}>
-            ● OFFLINE (POS)
-          </button>
-          <button onClick={() => setSource('online')} className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${source === 'online' ? 'bg-brand-green text-white shadow' : 'text-brand-wine/70 hover:text-brand-wine'}`}>
-            ● ONLINE ORDER
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         {/* LEFT: customer + items */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          <div className={`${panelCls} p-5 sm:p-6`}>
-            <h3 className="text-sm font-black uppercase tracking-wide text-brand-wine/70 mb-4">Customer Details</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase">Customer Name</label>
+        <div className="flex flex-col gap-5 lg:col-span-3">
+          <Card title="Customer details">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Customer name">
                 <input value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Enter name" className={inputCls} />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block uppercase">Mobile (WhatsApp)</label>
+              </Field>
+              <Field label="Mobile (WhatsApp)">
                 <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="Enter 8-digit number" className={inputCls} />
-              </div>
+              </Field>
             </div>
-          </div>
+          </Card>
 
-          <div className={`${panelCls} p-5 sm:p-6`}>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <h3 className="text-sm font-black uppercase tracking-wide text-brand-wine/70">Order Items</h3>
-              <div className="flex gap-2 flex-wrap">
-                <button onClick={clearOrder} className="px-3 py-2 rounded-lg bg-brand-sand/70 hover:bg-brand-sand text-brand-wine text-xs font-bold">Clear Order</button>
-                <button onClick={() => setCatalogOpen(true)} className="px-3 py-2 rounded-lg bg-brand-sand/70 hover:bg-brand-sand text-brand-wine text-xs font-bold flex items-center gap-1.5"><ListPlus size={14} /> Catalog</button>
-                <button onClick={addCustom} className="px-3 py-2 rounded-lg bg-brand-red/10 text-brand-red hover:bg-brand-red/20 text-xs font-bold flex items-center gap-1.5"><Plus size={14} /> Add Custom Item</button>
+          <Card
+            title="Order items"
+            right={
+              <div className="flex flex-wrap gap-2">
+                <Btn kind="ghost" size="sm" onClick={clearOrder}>Clear</Btn>
+                <Btn kind="ghost" size="sm" icon="list" onClick={() => setCatalogOpen(true)}>Catalog</Btn>
+                <Btn kind="soft" size="sm" icon="plus" onClick={addCustom}>Custom item</Btn>
               </div>
-            </div>
-
+            }
+          >
             {lines.length === 0 ? (
-              <div className="py-10 text-center text-brand-wine/50 font-bold text-sm">No items yet — add from Catalog or a custom item.</div>
+              <Empty icon="cart" title="No items yet" >Add from the Catalog or a custom item.</Empty>
             ) : (
               <div className="flex flex-col gap-2.5">
-                <div className="hidden sm:grid grid-cols-[1fr_110px_120px_44px] gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">
+                <div className="hidden grid-cols-[1fr_110px_120px_44px] gap-3 px-1 text-[11px] font-bold uppercase tracking-wide text-slate-400 sm:grid">
                   <span>Item / Description</span><span>Price (KD)</span><span>Qty</span><span />
                 </div>
                 {lines.map(l => (
-                  <div key={l.key} className="grid grid-cols-1 sm:grid-cols-[1fr_110px_120px_44px] gap-2 sm:gap-3 items-center bg-brand-sand/50 rounded-xl p-2.5 border border-brand-gold/25">
-                    <input value={l.name} onChange={e => updateLine(l.key, { name: e.target.value })} placeholder="Type product description…" className="px-3 py-2 rounded-lg border border-brand-gold/40 text-sm text-brand-ink focus:outline-none focus:border-brand-red bg-white" />
-                    <input value={l.price || ''} onChange={e => updateLine(l.key, { price: Number(e.target.value) || 0 })} type="number" min="0" step="0.001" placeholder="0.000" className="px-3 py-2 rounded-lg border border-brand-gold/40 text-sm text-brand-ink focus:outline-none focus:border-brand-red bg-white" />
-                    <div className="flex items-center gap-1 bg-white rounded-lg border border-brand-gold/40 p-1 w-fit">
-                      <button onClick={() => updateLine(l.key, { qty: Math.max(1, l.qty - 1) })} className="w-8 h-8 rounded-md bg-brand-sand hover:bg-brand-gold/20 text-brand-wine flex items-center justify-center"><Minus size={14} /></button>
-                      <span className="w-8 text-center font-black text-sm text-brand-wine">{l.qty}</span>
-                      <button onClick={() => updateLine(l.key, { qty: l.qty + 1 })} className="w-8 h-8 rounded-md bg-brand-red text-white hover:bg-brand-red-dark flex items-center justify-center"><Plus size={14} /></button>
+                  <div key={l.key} className="grid grid-cols-1 items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 p-2.5 sm:grid-cols-[1fr_110px_120px_44px] sm:gap-3">
+                    <input value={l.name} onChange={e => updateLine(l.key, { name: e.target.value })} placeholder="Type product description…" className={cx(inputCls, 'bg-white')} />
+                    <input value={l.price || ''} onChange={e => updateLine(l.key, { price: Number(e.target.value) || 0 })} type="number" min="0" step="0.001" placeholder="0.000" className={cx(inputCls, 'bg-white')} />
+                    <div className="flex w-fit items-center gap-1 rounded-xl border border-slate-200 bg-white p-1">
+                      <button type="button" onClick={() => updateLine(l.key, { qty: Math.max(1, l.qty - 1) })} className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200"><Icon name="minus" size={14} /></button>
+                      <span className="w-8 text-center text-sm font-black text-slate-800">{l.qty}</span>
+                      <button type="button" onClick={() => updateLine(l.key, { qty: l.qty + 1 })} className="flex h-8 w-8 items-center justify-center rounded-md bg-red-600 text-white hover:bg-red-700"><Icon name="plus" size={14} /></button>
                     </div>
-                    <button onClick={() => removeLine(l.key)} className="w-9 h-9 rounded-lg bg-brand-red/10 text-brand-red hover:bg-brand-red/20 flex items-center justify-center justify-self-start sm:justify-self-auto"><Trash2 size={15} /></button>
+                    <button type="button" onClick={() => removeLine(l.key)} className="flex h-9 w-9 items-center justify-center justify-self-start rounded-lg bg-red-50 text-red-600 hover:bg-red-100 sm:justify-self-auto"><Icon name="trash" size={15} /></button>
                   </div>
                 ))}
               </div>
             )}
-          </div>
+          </Card>
         </div>
 
         {/* RIGHT: summary */}
-        <div className={`${panelCls} p-5 sm:p-6 flex flex-col gap-4 h-fit lg:sticky lg:top-20`}>
-          <div className="rounded-2xl bg-brand-sand/60 border border-brand-gold/30 p-4 text-sm">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60">Source</span>
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded ${source === 'offline' ? 'bg-brand-red/10 text-brand-red' : 'bg-brand-green/10 text-brand-green'}`}>{source === 'offline' ? 'OFFLINE' : 'ONLINE'}</span>
-            </div>
-            <div className="flex justify-between text-xs text-brand-wine/70"><span>Customer</span><span className="font-bold text-brand-wine">{customerName || '—'}</span></div>
-            <div className="flex justify-between text-xs text-brand-wine/70 mt-1"><span>Phone</span><span className="font-bold text-brand-wine">{phone || '—'}</span></div>
+        <Card className="h-fit lg:col-span-2 lg:sticky lg:top-6">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm">
+            <div className="flex justify-between text-xs text-slate-500"><span>Customer</span><span className="font-bold text-slate-800">{customerName || '—'}</span></div>
+            <div className="mt-1 flex justify-between text-xs text-slate-500"><span>Phone</span><span className="font-bold text-slate-800">{phone || '—'}</span></div>
           </div>
 
-          {/* Coupon */}
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60 mb-1.5 block">Apply Coupon</label>
+          {/* Payment method */}
+          <div className="mt-4">
+            <span className={labelCls}>Payment method</span>
+            <div className="grid grid-cols-3 gap-2">
+              {(['cash', 'card', 'upi'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPayMethod(m)}
+                  className={cx(
+                    'rounded-xl border px-3 py-2.5 text-sm font-bold uppercase transition-colors',
+                    payMethod === m ? 'border-red-600 bg-red-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <span className={labelCls}>Apply coupon</span>
             <select value={couponCode} onChange={e => setCouponCode(e.target.value)} className={inputCls}>
-              <option value="">No Coupon</option>
+              <option value="">No coupon</option>
               {activeCoupons.map(c => (
                 <option key={c.id} value={c.code}>{c.code} — {c.discountPercent}% (min KD {c.minOrder.toFixed(3)})</option>
               ))}
             </select>
-            {couponCode && couponResult && !couponResult.ok && (
-              <p className="text-xs font-semibold text-brand-red mt-1">{couponResult.reason}</p>
-            )}
+            {couponCode && couponResult && !couponResult.ok && <p className="mt-1 text-xs font-semibold text-red-600">{couponResult.reason}</p>}
           </div>
 
-          {/* Manual discount */}
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60 mb-1.5 block">Manual Discount</label>
+          <div className="mt-4">
+            <span className={labelCls}>Manual discount</span>
             <div className="flex gap-2">
-              <select value={manualType} onChange={e => setManualType(e.target.value as 'KD' | '%')} className="px-3 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-sm text-brand-ink focus:outline-none focus:border-brand-red">
+              <select value={manualType} onChange={e => setManualType(e.target.value as 'KD' | '%')} className={cx(inputCls, 'w-20')}>
                 <option value="KD">KD</option>
                 <option value="%">%</option>
               </select>
@@ -227,48 +227,45 @@ export default function BillingSection() {
             </div>
           </div>
 
-          <div className="border-t border-brand-gold/30 pt-4 flex flex-col gap-2 text-sm">
-            <div className="flex justify-between text-brand-wine/70"><span>Subtotal ({itemCount} items)</span><span className="font-bold text-brand-wine">{formatKWD(subtotal)}</span></div>
-            {totalDiscount > 0 && <div className="flex justify-between text-brand-green"><span>Discount</span><span className="font-bold">− {formatKWD(totalDiscount)}</span></div>}
-            <div className="flex justify-between items-center text-brand-wine/70">
+          <div className="mt-4 flex flex-col gap-2 border-t border-slate-100 pt-4 text-sm">
+            <div className="flex justify-between text-slate-500"><span>Subtotal ({itemCount} items)</span><span className="adm-num font-bold text-slate-800">{formatKWD(subtotal)}</span></div>
+            {totalDiscount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount</span><span className="adm-num font-bold">− {formatKWD(totalDiscount)}</span></div>}
+            {taxAmt > 0 && <div className="flex justify-between text-slate-500"><span>{taxSettings.label} ({taxSettings.rate}%){taxSettings.inclusive ? ' incl.' : ''}</span><span className="adm-num font-bold text-slate-800">{formatKWD(taxAmt)}</span></div>}
+            <div className="flex items-center justify-between text-slate-500">
               <span>Delivery</span>
-              <input value={delivery} onChange={e => setDelivery(e.target.value)} type="number" min="0" step="0.001" placeholder="0" className="w-24 px-2 py-1 rounded-lg border border-brand-gold/40 bg-white text-brand-ink text-sm text-right focus:outline-none focus:border-brand-red" />
+              <div className="relative w-28">
+                <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">KD</span>
+                <input value={delivery} onChange={e => setDelivery(e.target.value)} type="number" min="0" step="0.001" placeholder="0.000" className={cx(inputCls, 'h-9 pl-8 pr-2.5 text-right text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none')} />
+              </div>
             </div>
           </div>
 
-          <div className="flex justify-between items-center border-t border-brand-gold/30 pt-4">
-            <span className="text-lg font-black text-brand-wine">GRAND TOTAL</span>
-            <span className="text-2xl font-black text-brand-red">{formatKWD(grandTotal)}</span>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+            <span className="text-lg font-black text-slate-800">GRAND TOTAL</span>
+            <span className="adm-num text-2xl font-black text-red-600">{formatKWD(grandTotal)}</span>
           </div>
 
-          {source === 'offline' && (
-            <div className="rounded-2xl bg-brand-sand/60 border border-brand-gold/30 p-4">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-brand-wine/60 mb-2">Cash Payment</p>
-              <label className="text-xs font-bold text-brand-wine/60 mb-1.5 block">Amount Received (KD)</label>
-              <input value={amountReceived} onChange={e => setAmountReceived(e.target.value)} type="number" min="0" step="0.001" placeholder="0.000" className={inputCls} />
+          {payMethod === 'cash' && (
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Cash payment</p>
+              <Field label="Amount received (KD)">
+                <input value={amountReceived} onChange={e => setAmountReceived(e.target.value)} type="number" min="0" step="0.001" placeholder="0.000" className={cx(inputCls, 'bg-white')} />
+              </Field>
               {received > 0 && (
-                <p className={`text-sm font-bold mt-2 ${change >= 0 ? 'text-brand-green' : 'text-brand-red'}`}>
+                <p className={cx('mt-2 text-sm font-bold', change >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                   {change >= 0 ? `Change due: ${formatKWD(change)}` : `Short by ${formatKWD(Math.abs(change))}`}
                 </p>
               )}
             </div>
           )}
 
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => saveBill(true)}
-              className="w-full py-4 rounded-2xl bg-brand-green text-white font-black text-base flex items-center justify-center gap-2 hover:brightness-110 transition-all shadow-lg"
-            >
-              <MessageCircle size={20} /> SEND VIA WHATSAPP
-            </button>
-            <button
-              onClick={() => saveBill(false)}
-              className="w-full py-3.5 rounded-2xl bg-brand-wine text-brand-gold-light font-black text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all border border-brand-gold/40"
-            >
-              <Save size={18} /> SAVE LOCALLY (no WhatsApp)
-            </button>
+          <div className="mt-4 flex flex-col gap-2">
+            <Btn kind="green" size="lg" className="w-full" onClick={() => saveBill(true)}>
+              <WaIcon size={18} /> Send via WhatsApp
+            </Btn>
+            <Btn kind="dark" className="w-full" onClick={() => saveBill(false)}>Save locally (no WhatsApp)</Btn>
           </div>
-        </div>
+        </Card>
       </div>
 
       {catalogOpen && (
@@ -278,7 +275,7 @@ export default function BillingSection() {
           onClose={() => setCatalogOpen(false)}
         />
       )}
-    </div>
+    </Page>
   );
 }
 
@@ -286,7 +283,6 @@ function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: s
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<string>('All');
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [addedToast, setAddedToast] = useState<string | null>(null);
 
   const categories = useMemo(() => {
     const s = new Set<string>();
@@ -301,67 +297,41 @@ function CatalogModal({ items, onPick, onClose }: { items: { id: string; name: s
   });
 
   const getQty = (id: string) => qty[id] ?? 1;
-  const bump = (id: string, delta: number) =>
-    setQty(prev => ({ ...prev, [id]: Math.max(1, Math.min(99, (prev[id] ?? 1) + delta)) }));
+  const bump = (id: string, delta: number) => setQty(prev => ({ ...prev, [id]: Math.max(1, Math.min(99, (prev[id] ?? 1) + delta)) }));
 
   const pick = (i: { id: string; name: string; price: number }) => {
     const count = getQty(i.id);
     onPick(i.name, i.price, count);
-    setAddedToast(`Added ${count} × ${i.name}`);
-    setTimeout(() => setAddedToast(null), 1800);
+    toast.success(`Added ${count} × ${i.name}`);
     setQty(prev => ({ ...prev, [i.id]: 1 }));
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2a0a0a]/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-brand-cream rounded-3xl w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col border border-brand-gold/30 shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]" onClick={e => e.stopPropagation()}>
-        <div className="p-5 border-b border-brand-gold/25 flex items-center justify-between">
-          <h3 className="text-lg font-black flex items-center gap-2 text-brand-wine"><ShoppingCart size={18} /> Catalog</h3>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-brand-sand text-brand-wine"><X size={18} /></button>
-        </div>
-        <div className="p-4 border-b border-brand-gold/25 flex flex-col gap-3">
-          <div className="relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
-            <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Search menu…" className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-brand-gold/40 bg-white text-brand-ink text-sm focus:outline-none focus:border-brand-red" />
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-            {categories.map(c => (
-              <button
-                key={c}
-                onClick={() => setCat(c)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-colors ${cat === c ? 'bg-brand-red text-white shadow-sm' : 'bg-brand-sand/70 text-brand-wine/70 hover:bg-brand-sand'}`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
-          {filtered.map(i => (
-            <div key={i.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-brand-sand/60 transition-colors">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={i.image} alt={i.name} className="w-11 h-11 rounded-lg object-cover bg-brand-sand" />
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm truncate text-brand-wine">{i.name}</p>
-                <p className="text-xs text-brand-wine/60">{i.category}</p>
-              </div>
-              <span className="font-black text-sm text-brand-red">{formatKWD(i.price)}</span>
-              <div className="flex items-center gap-1 rounded-full border border-brand-gold/40 bg-white p-0.5">
-                <button type="button" onClick={() => bump(i.id, -1)} className="h-6 w-6 flex items-center justify-center rounded-full text-brand-wine hover:bg-brand-sand"><Minus size={12} /></button>
-                <span className="w-6 text-center text-xs font-black text-brand-wine">{getQty(i.id)}</span>
-                <button type="button" onClick={() => bump(i.id, 1)} className="h-6 w-6 flex items-center justify-center rounded-full text-brand-wine hover:bg-brand-sand"><Plus size={12} /></button>
-              </div>
-              <button onClick={() => pick(i)} className="px-3 py-1.5 rounded-lg bg-brand-red text-white text-xs font-bold hover:bg-brand-red-dark">Add</button>
-            </div>
-          ))}
-          {filtered.length === 0 && <p className="text-center text-brand-wine/50 font-bold py-8 text-sm">No items found.</p>}
-        </div>
-        {addedToast && (
-          <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-brand-wine text-white text-xs font-bold px-4 py-2 shadow-lg">
-            {addedToast}
-          </div>
-        )}
+    <Modal open onClose={onClose} title="Catalog" wide>
+      <div className="flex flex-col gap-3">
+        <SearchBox value={q} onChange={setQ} placeholder="Search menu…" />
+        <Pills value={cat} onChange={setCat} options={categories.map(c => ({ v: c, t: c }))} />
       </div>
-    </div>
+      <div className="adm-scroll mt-3 flex max-h-[55vh] flex-col gap-2 overflow-y-auto">
+        {filtered.map(i => (
+          <div key={i.id} className="flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-slate-50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={i.image} alt={i.name} className="h-11 w-11 rounded-lg border border-slate-100 object-cover" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-slate-800">{i.name}</p>
+              <p className="text-xs text-slate-400">{i.category}</p>
+            </div>
+            <span className="adm-num text-sm font-black text-red-600">{formatKWD(i.price)}</span>
+            <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-0.5">
+              <button type="button" onClick={() => bump(i.id, -1)} className="flex h-6 w-6 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100"><Icon name="minus" size={12} /></button>
+              <span className="w-6 text-center text-xs font-black text-slate-800">{getQty(i.id)}</span>
+              <button type="button" onClick={() => bump(i.id, 1)} className="flex h-6 w-6 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100"><Icon name="plus" size={12} /></button>
+            </div>
+            <Btn kind="red" size="sm" onClick={() => pick(i)}>Add</Btn>
+          </div>
+        ))}
+        {filtered.length === 0 && <p className="py-8 text-center text-sm font-bold text-slate-400">No items found.</p>}
+      </div>
+    </Modal>
   );
 }
