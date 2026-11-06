@@ -206,8 +206,57 @@ export function getSessionOrders(orders: Order[], sessionId: string): Order[] {
   return orders.filter((o) => o.sessionId === sessionId);
 }
 
+/** A customer's live, un-billed dine-in tab (one open bill they keep adding to). */
+export interface UserOpenTab {
+  sessionId: string;
+  table: number;
+  orders: Order[];     // oldest first
+  subtotal: number;
+  total: number;
+  billRequested: boolean;
+}
+
+/** Find the signed-in customer's open dine-in tab, if any.
+ *
+ *  The tab is keyed to the *account*, not the table: we look for the customer's
+ *  own un-billed dine-in orders that still sit on an OPEN session. This is what
+ *  lets "order again" re-attach to the same bill without re-picking a table, and
+ *  what powers the "add to your current bill?" prompt at checkout. A tab stays
+ *  live until the admin closes it (which bills the orders and closes the
+ *  session), at which point it drops out of here and becomes order history. */
+export function getUserOpenDineInTab(
+  orders: Order[],
+  openDineInSessions: { id: string; tableNumber: number | null; billRequestedAt?: number | null }[],
+  user: { id?: string | null; email?: string | null } | null | undefined,
+): UserOpenTab | null {
+  if (!user || (!user.id && !user.email)) return null;
+  const openById = new Map(openDineInSessions.map((s) => [s.id, s]));
+  const mine = orders.filter((o) => {
+    if (o.billed || (o.mode ?? 'table') !== 'table' || !o.sessionId) return false;
+    if (!openById.has(o.sessionId)) return false;
+    if (user.id && o.customer?.userId && o.customer.userId === user.id) return true;
+    if (user.email && o.customer?.email && o.customer.email === user.email) return true;
+    return false;
+  });
+  if (mine.length === 0) return null;
+  // The customer's most recently touched open tab wins (there should be only one).
+  const sessionId = mine.reduce((a, b) => (b.createdAt > a.createdAt ? b : a)).sessionId!;
+  const sess = openById.get(sessionId)!;
+  const tabOrders = orders
+    .filter((o) => o.sessionId === sessionId && !o.billed)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  return {
+    sessionId,
+    table: sess.tableNumber ?? tabOrders[0]?.table ?? 0,
+    orders: tabOrders,
+    subtotal: tabOrders.reduce((s, o) => s + o.subtotal, 0),
+    total: tabOrders.reduce((s, o) => s + o.total, 0),
+    billRequested: !!sess.billRequestedAt,
+  };
+}
+
 /** Mark all orders in a session as billed and served, write a Bill, and close the Session. */
-export function billSession(sessionId: string) {
+export function billSession(sessionId: string, paidMethod?: string) {
   const sessionOrders = store.get().filter((o) => o.sessionId === sessionId);
   const totals = sessionOrders.reduce(
     (acc, o) => {
@@ -236,7 +285,7 @@ export function billSession(sessionId: string) {
   });
 
   // Record the bill and close the guest tab.
-  const bill = createBill({ sessionId, ...totals, couponCode });
+  const bill = createBill({ sessionId, ...totals, couponCode, paidMethod: paidMethod ?? null });
   closeSession(sessionId, bill.id);
 }
 
@@ -246,6 +295,8 @@ function resolveSessionId(input: {
   mode: OrderMode;
   standingLabel?: string;
   sessionId?: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
 }): string {
   if (input.sessionId) return input.sessionId;
   if (input.mode === 'standing') {
@@ -260,9 +311,14 @@ function resolveSessionId(input: {
     // Delivery orders never reuse a session — one order, one bill.
     return openSession({ tableNumber: null, mode: 'takeaway' }).id;
   }
-  // dine-in
+  // dine-in — stamp the opener's name/phone on the new tab so staff see who's seated.
   return (getOpenSessionForTable(input.table)?.id
-    ?? openSession({ tableNumber: input.table, mode: 'table' }).id);
+    ?? openSession({
+      tableNumber: input.table,
+      mode: 'table',
+      customerName: input.customerName ?? undefined,
+      customerPhone: input.customerPhone ?? undefined,
+    }).id);
 }
 
 /** Collision-safe ticket id (a random 4-digit number clashed after ~100 orders). */
@@ -288,11 +344,20 @@ export function addOrder(input: {
   sessionId?: string;
   /** Admin POS: the sale is paid on the spot, so bill and close it as soon as it is saved. */
   billImmediately?: boolean;
+  /** Payment method recorded on the bill when billImmediately (e.g. 'cash' | 'card' | 'upi'). */
+  paidMethod?: string;
   customer?: CustomerInfo;
   deliveryAddress?: DeliveryAddress;
 }): Order {
   const mode = input.mode ?? 'table';
-  const sessionId = resolveSessionId({ table: input.table, mode, standingLabel: input.standingLabel, sessionId: input.sessionId });
+  const sessionId = resolveSessionId({
+    table: input.table,
+    mode,
+    standingLabel: input.standingLabel,
+    sessionId: input.sessionId,
+    customerName: input.customer?.name,
+    customerPhone: input.customer?.phone,
+  });
   // Customer-placed orders queue for admin approval; waiter-placed orders are
   // staff and skip the queue.
   const defaultStatus: OrderStatus = input.source === 'waiter' ? 'pending' : 'awaiting_admin';
@@ -330,7 +395,7 @@ export function addOrder(input: {
         return;
       }
       // Settle only once the order row exists, so the bill can see it.
-      if (input.billImmediately) billSession(finalId);
+      if (input.billImmediately) billSession(finalId, input.paidMethod);
     });
   });
   return newOrder;

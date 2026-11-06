@@ -12,7 +12,9 @@ import { createRealtimeStore } from './createRealtimeStore';
 import { write } from './dbWrite';
 import { getSupabase, isSupabaseConfigured } from './supabase';
 
-export type MenuCategory = 'Arabic Sweets' | 'Cakes' | 'Pastries' | 'Drinks';
+// Categories are free-form: admins can add their own from the product form.
+// These are just the built-in starters that always appear in the pickers.
+export type MenuCategory = string;
 
 export const MENU_CATEGORIES: MenuCategory[] = ['Arabic Sweets', 'Cakes', 'Pastries', 'Drinks'];
 
@@ -27,6 +29,7 @@ export interface MenuItem {
   status: 'active' | 'inactive';
   isPopular?: boolean;
   isChefSpecial?: boolean;
+  isBestSeller?: boolean;
   isSpicy?: boolean;
   // Inventory / stock tracking
   stock?: number;
@@ -48,6 +51,7 @@ function fromRow(r: Record<string, unknown>): MenuItem {
     status: (r.status as MenuItem['status']) ?? 'active',
     isPopular: (r.is_popular as boolean) ?? false,
     isChefSpecial: (r.is_chef_special as boolean) ?? false,
+    isBestSeller: (r.is_best_seller as boolean) ?? false,
     isSpicy: (r.is_spicy as boolean) ?? false,
     stock: r.stock == null ? undefined : Number(r.stock),
     lowStockThreshold: r.low_stock_threshold == null ? undefined : Number(r.low_stock_threshold),
@@ -69,6 +73,7 @@ function toRow(m: Partial<MenuItem>): Record<string, unknown> {
   if (m.status !== undefined) row.status = m.status;
   if (m.isPopular !== undefined) row.is_popular = m.isPopular;
   if (m.isChefSpecial !== undefined) row.is_chef_special = m.isChefSpecial;
+  if (m.isBestSeller !== undefined) row.is_best_seller = m.isBestSeller;
   if (m.isSpicy !== undefined) row.is_spicy = m.isSpicy;
   if (m.stock !== undefined) row.stock = m.stock;
   if (m.lowStockThreshold !== undefined) row.low_stock_threshold = m.lowStockThreshold;
@@ -79,6 +84,29 @@ function toRow(m: Partial<MenuItem>): Record<string, unknown> {
 }
 
 const store = createRealtimeStore<MenuItem>({ table: 'menu_items', fromRow });
+
+// `is_best_seller` is a newer column. If the live DB hasn't had the migration
+// applied yet, a write including it is rejected — so we retry once without it,
+// exactly like the coupon targeting columns, so saving a product never breaks.
+let menuSchemaIsLegacy = false;
+function isMissingColumnError(msg: string): boolean {
+  return /could not find the .* column|column .* does not exist|schema cache|is_best_seller/i.test(msg);
+}
+function stripNewMenuColumns(row: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...row };
+  delete clean.is_best_seller;
+  return clean;
+}
+async function writeMenu(op: 'insert' | 'update' | 'delete', values: Record<string, unknown>, match?: Record<string, string>) {
+  const payload = menuSchemaIsLegacy ? stripNewMenuColumns(values) : values;
+  const res = await write({ table: 'menu_items', op, values: payload, match });
+  if (res.error && isMissingColumnError(res.error.message || '')) {
+    menuSchemaIsLegacy = true;
+    console.warn('[menu] is_best_seller column missing — apply supabase/best_seller.sql to enable Best Sellers. Saving without it for now.');
+    return write({ table: 'menu_items', op, values: stripNewMenuColumns(values), match });
+  }
+  return res;
+}
 
 // ---------- Offline demo seed ----------
 // Twelve items across the four categories so the whole app (customer, chef,
@@ -207,7 +235,7 @@ export function getMenuServerSnapshot(): MenuItem[] {
 export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem {
   const item: MenuItem = { ...input, id: `p${Date.now().toString(36)}`, createdAt: Date.now() };
   store.patchLocal((cur) => [item, ...cur]);
-  void write({ table: 'menu_items', op: 'insert', values: toRow(item) }).then(({ error }) => {
+  void writeMenu('insert', toRow(item)).then(({ error }) => {
     if (error) console.error('[menu] add failed', error.message);
   });
   return item;
@@ -215,7 +243,7 @@ export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem
 
 export function updateMenuItem(id: string, patch: Partial<Omit<MenuItem, 'id' | 'createdAt'>>) {
   store.patchLocal((cur) => cur.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-  void write({ table: 'menu_items', op: 'update', values: toRow(patch), match: { id: id } }).then(({ error }) => {
+  void writeMenu('update', toRow(patch), { id: id }).then(({ error }) => {
     if (error) console.error('[menu] update failed', error.message);
   });
 }
