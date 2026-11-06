@@ -38,15 +38,17 @@ It is not a template. Every flow — dine-in, takeaway, and delivery — was des
 
 ## 🏗️ System Architecture
 
-A single Next.js App Router codebase powering **five distinct user surfaces**, each on its own obfuscated route:
+A single Next.js App Router codebase powering **five distinct user surfaces**. Each staff surface lives behind its own private, non-discoverable route (the paths are intentionally kept out of this document and any public listing):
 
-| Surface | Route | Purpose |
-|---|---|---|
-| 🛍️ **Customer Storefront** | `/` · `/menu` | Landing page, live menu, cart, dine-in / takeaway / delivery checkout |
-| 🧑‍💼 **Admin Console** | `/admin-portal-xyz-987` | Billing/POS, analytics, inventory, tables, coupons, deliveries, homepage CMS |
-| 👨‍🍳 **Chef Station** | `/chef-station-abc-123` | Live kitchen tickets & order status |
-| 🧑‍🔧 **Waiter Dashboard** | `/waiter-dashboard-def-456` | Table service, open tabs, customer call alerts |
-| 🛵 **Driver Station** | `/driver-station-ghi-789` | Delivery queue & status updates |
+| Surface | Purpose |
+|---|---|
+| 🛍️ **Customer Storefront** | Landing page, live menu, cart, dine-in / takeaway / delivery checkout |
+| 🧑‍💼 **Admin Console** | Billing/POS, analytics, inventory, tables, coupons, deliveries, homepage CMS |
+| 👨‍🍳 **Chef Station** | Live kitchen tickets & order status |
+| 🧑‍🔧 **Waiter Dashboard** | Table service, open tabs, customer call alerts |
+| 🛵 **Driver Station** | Delivery queue & status updates |
+
+> 🔐 **Access note:** Staff portal URLs are deliberately omitted from documentation. They are shared privately with authorized staff only.
 
 ### Admin Console modules
 
