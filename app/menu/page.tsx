@@ -12,7 +12,7 @@ import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X,
-  Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone, Hash,
+  Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone,
   ClipboardList, CalendarClock, Home, Receipt, Clock, PlusCircle,
 } from 'lucide-react';
 import {
@@ -157,6 +157,44 @@ export default function MenuPage() {
   // doesn't render the list, but without this, store.get() in validateCoupon
   // sees an empty cache and every code reads as "invalid".
   useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
+
+  // Deep link from home-page best-seller tiles: /menu?item=<id>. Once the
+  // matching card is in the DOM, scroll to it and flash a highlight ring.
+  // The menu data lives in a client store that hydrates after mount, and the
+  // page's above-the-fold images are lazy-loaded, so the target keeps moving
+  // for a while after mount. We retry scrolling a few times to land it even
+  // as layout settles.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const want = new URL(window.location.href).searchParams.get('item');
+    if (!want) return;
+    let tries = 0;
+    let landed = false;
+    const scrollAttempts = [250, 700, 1400, 2200];
+    const landOn = (el: HTMLElement) => {
+      landed = true;
+      el.scrollIntoView({ behavior: 'auto', block: 'center' });
+      el.classList.add('menu-item-flash');
+      window.setTimeout(() => el.classList.remove('menu-item-flash'), 2400);
+      const u = new URL(window.location.href);
+      u.searchParams.delete('item');
+      window.history.replaceState({}, '', u.toString());
+      // Re-center the item after images finish loading and push the layout.
+      for (const d of scrollAttempts) {
+        window.setTimeout(() => {
+          const cur = document.getElementById(`menu-item-${want}`);
+          if (cur) cur.scrollIntoView({ behavior: 'auto', block: 'center' });
+        }, d);
+      }
+    };
+    const run = () => {
+      if (landed) return;
+      const el = document.getElementById(`menu-item-${want}`);
+      if (el) { landOn(el); return; }
+      if (tries++ < 40) window.setTimeout(run, 150);
+    };
+    run();
+  }, []);
 
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
   const menu = allMenuItems.filter(m => m.status === 'active');
@@ -490,6 +528,14 @@ export default function MenuPage() {
           <BrandMark href="/" sub="Pastry · Kuwait" compact />
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            <Link
+              href="/"
+              aria-label="Back to home"
+              className="btn btn-outline-light h-9 justify-center gap-1.5 px-3 py-0 sm:h-10 sm:px-4 sm:py-3 sm:text-[10px]"
+            >
+              <Home size={14} />
+              <span className="hidden sm:inline">Home</span>
+            </Link>
             {auth.user ? (
               <>
                 <button
@@ -499,7 +545,7 @@ export default function MenuPage() {
                 >
                   {auth.user.avatarUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={auth.user.avatarUrl} alt="" className="h-5 w-5 rounded-full" />
+                    <img src={auth.user.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-5 w-5 rounded-full" />
                   ) : (
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-gold/30 text-[9px] font-black">
                       {(auth.user.name || auth.user.email || 'U').charAt(0).toUpperCase()}
@@ -748,7 +794,7 @@ export default function MenuPage() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 lg:grid-cols-3">
             {filteredMenu.map(item => (
-              <div key={item.id} className="group relative flex flex-col overflow-hidden rounded-2xl border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
+              <div key={item.id} id={`menu-item-${item.id}`} className="menu-item-card group relative flex flex-col overflow-hidden rounded-2xl border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
                 <div className="relative aspect-[4/3] w-full flex-shrink-0 overflow-hidden bg-brand-sand">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.07]" />
@@ -1295,7 +1341,7 @@ function CustomerProfileModal({
           <div className="flex items-center gap-3">
             {user.avatarUrl ? (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={user.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-brand-gold/40" />
+              <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="h-14 w-14 rounded-full object-cover ring-2 ring-brand-gold/40" />
             ) : (
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-red font-black text-xl text-white ring-2 ring-brand-gold/40">
                 {(user.name || user.email || 'U').charAt(0).toUpperCase()}
@@ -1387,7 +1433,6 @@ function CustomerProfileModal({
               <ProfileRow icon={User}  label="Name"  value={user.name || '—'} />
               <ProfileRow icon={Mail}  label="Email" value={user.email || '—'} />
               <ProfileRow icon={Phone} label="Phone" value={latestPhone || 'Add at next checkout'} />
-              <ProfileRow icon={Hash}  label="User ID" value={user.id} mono />
             </div>
           </div>
 

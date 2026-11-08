@@ -1,16 +1,11 @@
 "use client";
 
-// Modal that appears when an action requires sign-in. Offers two paths:
-//  1. "Continue with your name" — a quick local sign-in that works everywhere
-//     and never leaves the page, so the user never gets stuck on an OAuth
-//     redirect that failed to come back.
-//  2. Google — optional, shown only when Supabase is configured. It is a
-//     collapsed secondary option so the primary quick-sign-in is what the
-//     user acts on first.
+// Modal that appears when an action requires sign-in. Google OAuth only.
+// Supabase handles the redirect to Google and back to /auth/callback.
 
 import { useEffect, useState } from 'react';
-import { X, ArrowRight, Loader2 } from 'lucide-react';
-import { signInWithGoogle, signInAsDemo, customerAuthAvailable } from '../lib/customerAuthStore';
+import { X, Loader2 } from 'lucide-react';
+import { signInWithGoogle, customerAuthAvailable } from '../lib/customerAuthStore';
 
 interface SignInGateProps {
   open: boolean;
@@ -25,13 +20,16 @@ interface SignInGateProps {
 export default function SignInGate({
   open,
   onClose,
-  onSignedIn,
+  // onSignedIn is kept for API compatibility with callers — Google OAuth
+  // returns via a full page redirect, so we never actually fire it in this
+  // flow, but the prop stays to match the earlier contract.
+  onSignedIn: _onSignedIn,
   title = 'Sign in to continue',
-  message = 'Enter your name to place your order. We only use this to tie the order to you.',
+  message = 'Sign in with Google to place your order. We only use this to tie the order to you.',
 }: SignInGateProps) {
-  const [name, setName] = useState('');
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -49,16 +47,6 @@ export default function SignInGate({
 
   const configured = customerAuthAvailable();
 
-  const continueWithName = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    signInAsDemo(trimmed);
-    onClose();
-    // Tell the parent we signed in *right now*, so it can advance the flow
-    // without waiting for an effect to notice the external-store change.
-    if (onSignedIn) onSignedIn();
-  };
-
   const continueWithGoogle = async () => {
     setGoogleError(null);
     setGoogleBusy(true);
@@ -66,7 +54,7 @@ export default function SignInGate({
     if (!ok) {
       setGoogleBusy(false);
       setGoogleError(
-        'Google sign-in is not available on this deploy. The admin needs to enable Google in Supabase → Authentication → Providers and add this origin to the allowed redirect URLs.'
+        'Google sign-in is not available on this deploy. Check that NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set on Vercel, that Google is enabled in Supabase → Authentication → Providers, and that this origin is in the Redirect URLs list.'
       );
       return;
     }
@@ -96,37 +84,16 @@ export default function SignInGate({
         <h2 className="font-wordmark text-2xl text-brand-wine">{title}</h2>
         <p className="mt-3 font-body text-sm leading-relaxed text-brand-wine/75">{message}</p>
 
-        <label className="mt-6 block">
-          <span className="mb-1.5 block font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-wine/70">Your name</span>
-          <input
-            autoFocus
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') continueWithName(); }}
-            placeholder="e.g. Anand"
-            className="w-full rounded-2xl border border-brand-gold/40 bg-white px-4 py-3 font-body text-sm text-brand-ink focus:border-brand-red focus:outline-none"
-          />
-        </label>
-
-        <button
-          onClick={continueWithName}
-          disabled={!name.trim()}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-red px-5 py-3.5 font-body text-sm font-semibold text-white shadow-sm transition-all hover:bg-brand-red-dark disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Continue <ArrowRight size={16} />
-        </button>
-
-        {configured && (
+        {!configured ? (
+          <p className="mt-6 rounded-xl border border-brand-red/30 bg-brand-red/5 px-3 py-3 font-body text-[12px] leading-relaxed text-brand-red">
+            Sign-in is not configured on this deploy. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to Vercel, and enable Google in Supabase → Authentication → Providers.
+          </p>
+        ) : (
           <>
-            <div className="my-5 flex items-center gap-3">
-              <span className="h-px flex-1 bg-brand-wine/10" />
-              <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine/40">or</span>
-              <span className="h-px flex-1 bg-brand-wine/10" />
-            </div>
             <button
               onClick={() => void continueWithGoogle()}
               disabled={googleBusy}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream disabled:cursor-not-allowed disabled:opacity-70"
+              className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-brand-wine/15 bg-white px-5 py-3.5 font-body text-sm font-semibold text-brand-wine shadow-sm transition-all hover:border-brand-wine/30 hover:bg-brand-cream disabled:cursor-not-allowed disabled:opacity-70"
             >
               {googleBusy ? <Loader2 size={16} className="animate-spin" /> : <GoogleG />}
               {googleBusy ? 'Redirecting to Google…' : 'Continue with Google'}

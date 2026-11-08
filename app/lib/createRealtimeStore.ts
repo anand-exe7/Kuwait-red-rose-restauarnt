@@ -3,6 +3,11 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
 
+// Tables that returned PGRST205 (missing from PostgREST schema cache) — we
+// warn once per table and then stay quiet, so the dev console isn't spammed
+// on every refetch. The UI already has in-memory fallbacks for these.
+const missingTableWarned = new Set<string>();
+
 // Factory behind every domain store. It gives each Supabase table:
 //   * an in-memory cache with a STABLE array reference (required by
 //     useSyncExternalStore — the snapshot must not change identity unless the
@@ -95,6 +100,22 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
     }
     const { data, error } = await sb.from(opts.table).select('*');
     if (error) {
+      // PGRST205 = table missing from PostgREST schema cache. That is a one-time
+      // setup issue (apply supabase/<table>.sql), not a per-render error — warn
+      // once so the dev console isn't spammed, and treat the table as empty so
+      // the UI uses its fallback instead of looking broken.
+      const code = (error as { code?: string }).code;
+      if (code === 'PGRST205' || /schema cache/i.test(error.message)) {
+        if (!missingTableWarned.has(opts.table)) {
+          missingTableWarned.add(opts.table);
+          console.warn(
+            `[store:${opts.table}] table missing — apply supabase/${opts.table}.sql in the Supabase SQL editor to enable this feature. Using in-memory fallback for now.`
+          );
+        }
+        hydrated = true;
+        notify();
+        return;
+      }
       console.error(`[store:${opts.table}] fetch failed`, error.message);
       return;
     }

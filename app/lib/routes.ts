@@ -4,7 +4,7 @@
 import type { Role } from './session';
 
 export const ROLE_SLUGS: Record<Role, string> = {
-  admin: 'admin-portal-xyz-987',
+  admin: 'admin',
   waiter: 'waiter-dashboard-def-456',
   chef: 'chef-station-abc-123',
 };

@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lock, Loader2, ShieldCheck } from 'lucide-react';
+import { Lock, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import type { Role } from '../lib/session';
 
 const ROLE_TITLES: Record<Role, string> = {
@@ -13,6 +13,7 @@ const ROLE_TITLES: Record<Role, string> = {
 export default function LoginForm({ role, next }: { role: Role; next: string }) {
   const router = useRouter();
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -65,14 +66,23 @@ export default function LoginForm({ role, next }: { role: Role; next: string }) 
           <div className="relative mb-4">
             <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-ink/30" />
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoFocus
               autoComplete="current-password"
               placeholder="••••••••"
-              className="w-full pl-10 pr-4 py-3 rounded-xl border border-brand-ink/10 bg-brand-cream/40 text-sm focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
+              className="w-full pl-10 pr-11 py-3 rounded-xl border border-brand-ink/10 bg-brand-cream/40 text-sm focus:outline-none focus:border-brand-red focus:ring-2 focus:ring-brand-red/20 transition-all"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-lg text-brand-ink/40 hover:text-brand-ink/70 hover:bg-brand-ink/5 transition-colors"
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
           </div>
 
           {error && (
