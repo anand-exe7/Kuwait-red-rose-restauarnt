@@ -18,7 +18,6 @@ import HeroNav from './components/HeroNav';
 import Reveal from './components/Reveal';
 import HeroCake from './components/HeroCake';
 import CountUp from './components/CountUp';
-import Tilt from './components/Tilt';
 import Reviews, { type Review } from './components/Reviews';
 import { getServerSupabase } from './lib/supabaseServer';
 
@@ -43,6 +42,34 @@ async function fetchHomeMedia(): Promise<{ gallery: string[]; videos: string[]; 
   }
 }
 
+/** Admin-flagged best-seller products, capped at four for the landing grid.
+ *  Falls back to an empty list when the DB isn't reachable or the column isn't
+ *  there yet — the section hides itself in that case. */
+type BestSellerCard = { id: string; name: string; price: number; image: string; category: string };
+async function fetchBestSellers(): Promise<BestSellerCard[]> {
+  try {
+    const sb = getServerSupabase();
+    if (!sb) return [];
+    const { data } = await sb
+      .from('menu_items')
+      .select('id, name, price, image, category, status, is_best_seller, created_at')
+      .eq('is_best_seller', true)
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(4);
+    if (!Array.isArray(data)) return [];
+    return data.map((r) => ({
+      id: String(r.id),
+      name: String(r.name ?? ''),
+      price: Number(r.price ?? 0),
+      image: String(r.image ?? ''),
+      category: String(r.category ?? ''),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Every photo on the landing page lives here so any of them can be swapped in
  * one place. All IDs were checked to resolve before being used.
@@ -53,8 +80,13 @@ const IMAGES = {
   berryCream: 'photo-1488477181946-6428a0291777', // strawberry cream glasses
   tartlets: 'photo-1495147466023-ac5c588e2e94', // fruit tartlets with flowers
   baklava: 'photo-1761828122856-8703baac8e86', // pistachio baklava
+  // Kuwait's Finest Flavours fallbacks — admin can override each one via
+  // Admin → Homepage → Kuwait's Finest Flavours, and that upload wins. These
+  // Unsplash IDs are verified to resolve.
+  // Fallback photos used until the admin uploads real ones in
+  // Admin → Homepage → Kuwait's Finest Flavours (overrides these per-slot).
   baklavaTray: 'photo-1598110750624-207050c4f28c', // a tray of baklava
-  dates: 'photo-1770617476915-7269d29d27dc', // rows of dates
+  dates: 'photo-1770617476915-7269d29d27dc', // rows of Medjool dates
   saffron: 'photo-1643471672168-f4a4b6cfa440', // saffron threads from a jar
   pistachios: 'photo-1610137512859-aa919f651a05', // pistachios in the shell
   giftBoxes: 'photo-1607344645866-009c320b63e0', // black boxes, gold ribbon
@@ -81,36 +113,13 @@ const FOOTER_LINKS = [
   { label: 'Contact', href: '#contact' },
 ];
 
-const BESTSELLERS = [
-  {
-    name: 'Macaron Box',
-    kind: 'Pâtisserie',
-    note: 'Twelve shells in the season’s flavours, boxed and ribboned by hand.',
-    price: 4.5,
-    image: IMAGES.macarons,
-    badge: 'Most loved',
-  },
-  {
-    name: 'Pistachio Baklava',
-    kind: 'Arabic Sweets',
-    note: 'Paper-thin filo, Aleppo pistachio and a whisper of orange blossom.',
-    price: 3.25,
-    image: IMAGES.baklava,
-  },
-  {
-    name: 'Butter Croissant',
-    kind: 'Viennoiserie',
-    note: 'French butter, laminated by hand and out of the oven at dawn.',
-    price: 0.75,
-    image: IMAGES.croissant,
-  },
-  {
-    name: 'Fruit Tartlets',
-    kind: 'Pâtisserie',
-    note: 'Vanilla crème pâtissière under the morning’s freshest fruit.',
-    price: 1.75,
-    image: IMAGES.tartlets,
-  },
+/** Fallback best-sellers used when the admin hasn't flagged any in inventory
+ *  (so the section never looks broken on a fresh deploy). */
+const FALLBACK_BESTSELLERS: BestSellerCard[] = [
+  { id: 'fb-macarons', name: 'Macaron Box', category: 'Pâtisserie', price: 4.5, image: IMAGES.macarons },
+  { id: 'fb-baklava', name: 'Pistachio Baklava', category: 'Arabic Sweets', price: 3.25, image: IMAGES.baklava },
+  { id: 'fb-croissant', name: 'Butter Croissant', category: 'Viennoiserie', price: 0.75, image: IMAGES.croissant },
+  { id: 'fb-tartlets', name: 'Fruit Tartlets', category: 'Pâtisserie', price: 1.75, image: IMAGES.tartlets },
 ];
 
 const FLAVOURS = [
@@ -232,9 +241,13 @@ const RIBBON = [
 ];
 
 export default async function Home() {
-  const media = await fetchHomeMedia();
+  const [media, bestSellers] = await Promise.all([fetchHomeMedia(), fetchBestSellers()]);
   const finestSrc = (i: number) => media.finest[i] || FLAVOURS[i].src;
   const celebrationsSrc = media.celebrations || IMAGES.giftBoxes;
+  // Only live (DB-flagged) best sellers can deep-link into the menu page —
+  // fallback cards have placeholder ids that aren't real menu items.
+  const usingLiveBestSellers = bestSellers.length > 0;
+  const bestSellersDisplay = (usingLiveBestSellers ? bestSellers : FALLBACK_BESTSELLERS).slice(0, 4);
   return (
     <div
       className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
@@ -596,57 +609,36 @@ export default async function Home() {
               </div>
             </div>
 
-            {/* Four across in a single row on tablet and up; two columns on phones. */}
-            <div className="stagger mt-12 grid grid-cols-2 gap-x-4 gap-y-10 sm:mt-16 sm:grid-cols-4 sm:gap-x-5 sm:gap-y-14">
-              {BESTSELLERS.map((p, i) => (
+            {/* Menu-style cards: a 2×2 grid on phones, four across on desktop.
+                Only four cards ever — flagged by the admin from Inventory →
+                Best seller. The look matches the Best sellers strip on /menu. */}
+            <div className="stagger mt-12 grid grid-cols-2 gap-3 sm:mt-16 sm:gap-5 lg:grid-cols-4">
+              {bestSellersDisplay.map((p, i) => (
                 <Link
-                  key={p.name}
-                  href="/menu"
-                  className="group block w-[72%] shrink-0 snap-start sm:w-auto"
+                  key={p.id}
+                  href={usingLiveBestSellers ? `/menu?item=${encodeURIComponent(p.id)}` : '/menu'}
+                  className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60"
                   style={{ '--i': i } as React.CSSProperties}
+                  aria-label={`${p.name} — open on the menu`}
                 >
-                  <Tilt>
-                  <div className="arch curtain relative isolate aspect-[4/5] overflow-hidden bg-brand-sand shadow-[0_26px_50px_-30px_rgba(74,21,21,0.55)]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img(p.image, 900)}
-                      srcSet={srcSet(p.image, [500, 800, 1100])}
-                      sizes="(min-width: 1024px) 270px, (min-width: 640px) 46vw, 72vw"
-                      alt={p.name}
-                      loading="lazy"
-                      className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.06]"
-                    />
-                    <span aria-hidden className="arch pointer-events-none absolute inset-[9px] border border-white/55" />
-                    {p.badge && (
-                      <span className="absolute bottom-5 left-1/2 z-[3] -translate-x-1/2 whitespace-nowrap rounded-full bg-brand-cream/95 px-3.5 py-1.5 font-body text-[9px] font-medium uppercase tracking-[0.24em] text-brand-red shadow-sm">
-                        {p.badge}
-                      </span>
-                    )}
-                    <span aria-hidden className="tilt-glare" />
-                  </div>
-                  </Tilt>
-
-                  <div className="signature-copy flex flex-col items-center px-2 pt-6 text-center">
-                    <p className="font-body text-[9.5px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark">
-                      {p.kind}
-                    </p>
-                    <h3 className="signature-name mt-2.5 font-display text-[22px] font-bold leading-tight text-brand-wine sm:text-[26px]">
-                      {p.name}
-                    </h3>
-                    <p className="mt-2 max-w-[250px] font-body text-[13px] font-light leading-relaxed text-brand-ink/60">
-                      {p.note}
-                    </p>
-                    <div className="mt-4 flex items-center gap-3">
-                      <span className="lining-nums font-display text-[21px] font-semibold text-brand-red">
-                        {formatKWD(p.price)}
-                      </span>
-                      <span aria-hidden className="h-3.5 w-px bg-brand-gold/50" />
-                      <span className="inline-flex items-center gap-1.5 font-body text-[10px] font-medium uppercase tracking-[0.24em] text-brand-wine/70 transition-colors duration-300 group-hover:text-brand-red">
-                        Order
-                        <ArrowRight size={12} strokeWidth={1.8} className="transition-transform duration-300 group-hover:translate-x-1" />
-                      </span>
-                    </div>
-                  </div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={isFullUrl(p.image) ? p.image : img(p.image, 900)}
+                    srcSet={srcSet(p.image, [500, 800, 1100])}
+                    sizes="(min-width: 1024px) 280px, (min-width: 640px) 46vw, 46vw"
+                    alt={p.name}
+                    loading="lazy"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                  <span className="absolute left-2 top-2 rounded-full bg-brand-red px-2 py-0.5 font-body text-[8px] font-bold uppercase tracking-[0.14em] text-white sm:px-3 sm:py-1 sm:text-[9px]">
+                    Best seller
+                  </span>
+                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-8 sm:p-4 sm:pt-10">
+                    <span className="block truncate font-body text-[13px] font-bold text-white sm:text-[14px]">{p.name}</span>
+                    <span className="font-body text-[12px] font-medium text-brand-gold-light sm:text-[13px]">
+                      {formatKWD(p.price)}
+                    </span>
+                  </span>
                 </Link>
               ))}
             </div>

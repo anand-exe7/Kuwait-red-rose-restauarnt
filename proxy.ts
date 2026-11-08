@@ -8,6 +8,10 @@ import { roleForPath } from './app/lib/routes';
 // (In Next.js 16 the old `middleware.ts` convention is renamed to `proxy.ts`.)
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  // Admin has its own sign-in page at /admin/login — never gate it, or the
+  // user gets bounced in a loop before they can submit the form.
+  if (pathname === '/admin/login') return NextResponse.next();
+
   const requiredRole = roleForPath(pathname);
   if (!requiredRole) return NextResponse.next();
 
@@ -18,9 +22,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const loginUrl = new URL('/login', request.url);
-  loginUrl.searchParams.set('role', requiredRole);
-  loginUrl.searchParams.set('next', pathname);
+  // Admin → the dedicated /admin/login page; chef and waiter still share
+  // the generic /login page.
+  const loginUrl =
+    requiredRole === 'admin'
+      ? new URL('/admin/login', request.url)
+      : new URL('/login', request.url);
+  if (requiredRole !== 'admin') {
+    loginUrl.searchParams.set('role', requiredRole);
+    loginUrl.searchParams.set('next', pathname);
+  }
   return NextResponse.redirect(loginUrl);
 }
 
@@ -28,7 +39,7 @@ export const config = {
   // Only guard the secret role slugs; everything else (customer, takeaway, home,
   // login, api, static assets) is public.
   matcher: [
-    '/admin-portal-xyz-987/:path*',
+    '/admin/:path*',
     '/waiter-dashboard-def-456/:path*',
     '/chef-station-abc-123/:path*',
   ],

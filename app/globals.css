@@ -1130,3 +1130,16 @@ html:has(.landing) { scroll-behavior: smooth; }
 .staff-themed [class*="rounded-\[2rem\]"] {
   box-shadow: 0 10px 30px -22px rgba(74, 21, 21, 0.35);
 }
+
+/* Flash a menu card when the page is opened via /menu?item=<id> (home-page
+   best-seller deep-link). Fades in a thick ring and lift, then fades out. */
+@keyframes menu-item-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(176, 30, 40, 0.0),  0 18px 40px -28px rgba(74,21,21,0.45); transform: translateY(0); }
+  18%  { box-shadow: 0 0 0 6px rgba(176, 30, 40, 0.55), 0 28px 60px -22px rgba(176,30,40,0.5); transform: translateY(-4px); }
+  60%  { box-shadow: 0 0 0 4px rgba(176, 30, 40, 0.35), 0 24px 50px -24px rgba(176,30,40,0.4); transform: translateY(-2px); }
+  100% { box-shadow: 0 0 0 0 rgba(176, 30, 40, 0.0),  0 18px 40px -28px rgba(74,21,21,0.45); transform: translateY(0); }
+}
+.menu-item-card.menu-item-flash {
+  animation: menu-item-flash 2.4s ease-out;
+  border-color: rgba(176, 30, 40, 0.55);
+}
