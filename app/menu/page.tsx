@@ -33,6 +33,7 @@ import {
 import {
   subscribeToAreas, getAreasSnapshot, getAreasServerSnapshot, activeAreas,
 } from '../lib/deliveryAreaStore';
+import { feeForWeight, type WeightTier } from '../lib/delivery/shared';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import SignInGate from '../components/SignInGate';
@@ -41,7 +42,7 @@ import {
   signOut,
 } from '../lib/customerAuthStore';
 import { sendOrderToShop, isWhatsAppConfigured, type WhatsAppOrderInput } from '../lib/whatsapp';
-import { invoicePath, resolveInvoiceNo, resolveOrderNo } from '../lib/invoice';
+import { resolveInvoiceNo, resolveOrderNo } from '../lib/invoice';
 import { subscribeToTables, getTablesSnapshot, getTablesServerSnapshot } from '../lib/tableStore';
 import { getBills, getBillsSnapshot, getBillsServerSnapshot, subscribeToBills } from '../lib/billStore';
 import { BRAND } from '../lib/brand';
@@ -238,7 +239,21 @@ export default function MenuPage() {
   const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
   const bestSellers = menu.filter(m => m.isBestSeller);
 
-  const addToCart = (id: string) => setCart(p => ({ ...p, [id]: (p[id] || 0) + 1 }));
+  /* Stock is only "sold out" when the shop actually tracks it. A product with
+     no count is unlimited, which is how most of the drinks are set up. */
+  const stockLeft = (id: string): number | null => {
+    const item = allMenuItems.find(m => m.id === id);
+    return item?.stock === null || item?.stock === undefined ? null : item.stock;
+  };
+  const isSoldOut = (id: string) => (stockLeft(id) ?? Infinity) <= 0;
+
+  const addToCart = (id: string) => setCart(p => {
+    const left = stockLeft(id);
+    const have = p[id] || 0;
+    // Sold out, or the basket already holds everything on the shelf.
+    if (left !== null && have >= left) return p;
+    return { ...p, [id]: have + 1 };
+  });
   const removeFromCart = (id: string) => setCart(p => {
     const n = { ...p };
     if (n[id] > 1) n[id]--;
@@ -257,16 +272,33 @@ export default function MenuPage() {
   // Delivery zones come from the admin (Delivery Zones page). Until any exist we
   // fall back to the default governorates so delivery always has options.
   const areas = useSyncExternalStore(subscribeToAreas, getAreasSnapshot, getAreasServerSnapshot);
+  // How heavy the basket is. Each product carries its own weight (set in
+  // Inventory); anything without one counts as nothing, so a shop that hasn't
+  // filled weights in keeps paying the flat fee rather than being overcharged.
+  const cartGrams = Object.entries(cart).reduce((acc, [id, qty]) => {
+    const item = menu.find(m => m.id === id);
+    return acc + (item?.weightGrams ?? 0) * qty;
+  }, 0);
+  const liveAreas = React.useMemo(() => activeAreas(areas), [areas]);
   const deliveryZones = React.useMemo(() => {
-    const a = activeAreas(areas);
-    return a.length ? a.map(x => ({ name: x.name, fee: x.fee })) : FALLBACK_ZONES;
-  }, [areas]);
-  const feeForZone = (name: string) => deliveryZones.find(z => z.name === name)?.fee ?? 0;
+    if (!liveAreas.length) return FALLBACK_ZONES.map(z => ({ name: z.name, fee: z.fee, tiers: [] as WeightTier[] }));
+    return liveAreas.map(x => ({ name: x.name, fee: x.fee, tiers: x.tiers ?? [] }));
+  }, [liveAreas]);
+  /** What delivery costs for this basket in this area — the weight bracket the
+   *  order falls into, or the area's flat fee when it has no brackets. */
+  const feeForZone = (name: string) => {
+    const z = deliveryZones.find(x => x.name === name);
+    if (!z) return 0;
+    return feeForWeight({ fee: z.fee, tiers: z.tiers }, cartGrams);
+  };
   // Goods total (what the order stores). Delivery is charged on top and shown
   // separately at checkout + in the WhatsApp message, so the stored total stays
   // consistent with the itemised receipt.
   const grandTotal = Math.max(0, cartTotal - discount);
   const deliveryFee = selectedMode === 'delivery' ? feeForZone(address.governorate) : 0;
+  const deliveryIsByWeight =
+    selectedMode === 'delivery' &&
+    (deliveryZones.find(z => z.name === address.governorate)?.tiers.length ?? 0) > 0;
   const payableTotal = grandTotal + deliveryFee;
 
   const applyCoupon = () => {
@@ -498,11 +530,15 @@ export default function MenuPage() {
         priority: 'normal',
         subtotal: cartTotal,
         tax: taxAmt,
-        total: grandTotal,
+        // Delivery is part of what the customer owes, so it rides on the
+        // order's total. The server re-prices the fee from the area's weight
+        // brackets and will correct this if the browser got it wrong.
+        total: grandTotal + (selectedMode === 'delivery' ? deliveryFee : 0),
         source: 'customer',
         mode: selectedMode,
         discount: discount > 0 ? discount : undefined,
         couponCode: appliedCoupon?.code,
+        deliveryFee: selectedMode === 'delivery' ? deliveryFee : undefined,
         sessionId: attach ? myOpenTab!.sessionId : undefined,
         customer,
         deliveryAddress: selectedMode === 'delivery' ? address : undefined,
@@ -801,9 +837,15 @@ export default function MenuPage() {
                 key={item.id}
                 type="button"
                 onClick={() => addToCart(item.id)}
-                className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60"
-                aria-label={`Add ${item.name} to cart`}
+                disabled={isSoldOut(item.id)}
+                className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60 disabled:pointer-events-none"
+                aria-label={isSoldOut(item.id) ? `${item.name} is sold out` : `Add ${item.name} to cart`}
               >
+                {isSoldOut(item.id) && (
+                  <span className="absolute inset-0 z-10 flex items-center justify-center bg-[#2a0a0a]/65">
+                    <span className="rounded-full bg-white/95 px-3 py-1 font-body text-[8px] font-black uppercase tracking-[0.2em] text-brand-red">Sold out</span>
+                  </span>
+                )}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={item.image} alt={item.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
                 <span className="absolute left-2 top-2 rounded-full bg-brand-red px-2 py-0.5 font-body text-[8px] font-bold uppercase tracking-[0.14em] text-white">Best seller</span>
@@ -885,6 +927,16 @@ export default function MenuPage() {
                   <span className="absolute bottom-2 left-2 rounded-full bg-brand-cream/95 px-2 py-0.5 font-body text-[7.5px] font-medium uppercase tracking-[0.22em] text-brand-gold-dark shadow-sm backdrop-blur-sm sm:bottom-4 sm:left-4 sm:px-3 sm:py-1 sm:text-[9px] sm:tracking-[0.3em]">
                     {item.category}
                   </span>
+
+                  {/* Nothing left on the shelf. The card stays so customers can
+                      see we make it — but it can't be ordered. */}
+                  {isSoldOut(item.id) && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-[#2a0a0a]/65 backdrop-blur-[1px]">
+                      <span className="rounded-full border border-white/50 bg-white/95 px-4 py-1.5 font-body text-[9px] font-black uppercase tracking-[0.24em] text-brand-red sm:text-[11px]">
+                        Sold out
+                      </span>
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex flex-1 flex-col p-3 sm:p-5 md:p-6">
@@ -915,11 +967,20 @@ export default function MenuPage() {
                       <div className="qty-pop flex w-full items-center justify-between gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5 sm:w-auto sm:shrink-0 sm:justify-start sm:gap-2 sm:p-1">
                         <button onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-all hover:scale-105 hover:text-brand-red active:scale-95 sm:h-9 sm:w-9"><Minus size={13} /></button>
                         <span key={cart[item.id]} className="qty-bump w-5 text-center font-wordmark text-base text-brand-wine sm:text-xl" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{cart[item.id]}</span>
-                        <button onClick={() => addToCart(item.id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-8 w-8 shrink-0 p-0 transition-transform hover:scale-105 active:scale-95 sm:h-9 sm:w-9"><Plus size={13} /></button>
+                        <button
+                          onClick={() => addToCart(item.id)}
+                          aria-label={`Add one ${item.name}`}
+                          disabled={(stockLeft(item.id) ?? Infinity) <= cart[item.id]}
+                          className="btn btn-wine h-8 w-8 shrink-0 p-0 transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:h-9 sm:w-9"
+                        ><Plus size={13} /></button>
                       </div>
                     ) : (
-                      <button onClick={() => addToCart(item.id)} className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5">
-                        <Plus size={13} /> Add
+                      <button
+                        onClick={() => addToCart(item.id)}
+                        disabled={isSoldOut(item.id)}
+                        className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5"
+                      >
+                        <Plus size={13} /> {isSoldOut(item.id) ? 'Sold out' : 'Add'}
                       </button>
                     )}
                   </div>
@@ -1004,16 +1065,6 @@ export default function MenuPage() {
                   </div>
                 )}
                 <div className="mt-2 flex w-full flex-col gap-3">
-                  {lastOrderId && (
-                    <a
-                      href={invoicePath({ sessionId: lastSessionId, id: lastOrderId })}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-outline w-full justify-center py-4"
-                    >
-                      <Receipt size={16} /> Track my order
-                    </a>
-                  )}
                   {waConfigured && lastWhatsApp && (
                     <button onClick={resendWhatsApp} className="btn btn-outline w-full py-4">
                       <Send size={16} /> Open WhatsApp again
@@ -1087,7 +1138,12 @@ export default function MenuPage() {
                               <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
                                 <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${item.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={12} /></button>
                                 <span key={qty} className="qty-bump w-5 text-center font-wordmark text-[15px] text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
-                                <button onClick={() => addToCart(id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={12} /></button>
+                                <button
+                                  onClick={() => addToCart(id)}
+                                  aria-label={`Add one ${item.name}`}
+                                  disabled={(stockLeft(id) ?? Infinity) <= qty}
+                                  className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
+                                ><Plus size={12} /></button>
                               </div>
                             </div>
                           );
@@ -1235,7 +1291,10 @@ export default function MenuPage() {
                           <Field label="Delivery area" required>
                             <select value={address.governorate} onChange={e => setAddress(a => ({ ...a, governorate: e.target.value }))} className="input-plain">
                               <option value="">Select your area…</option>
-                              {deliveryZones.map(z => <option key={z.name} value={z.name}>{z.name} · {z.fee > 0 ? formatKWD(z.fee) : 'Free'}</option>)}
+                              {deliveryZones.map(z => {
+                                const f = feeForWeight({ fee: z.fee, tiers: z.tiers }, cartGrams);
+                                return <option key={z.name} value={z.name}>{z.name} · {f > 0 ? formatKWD(f) : 'Free'}</option>;
+                              })}
                             </select>
                           </Field>
                           <div className="grid grid-cols-2 gap-4">
@@ -1324,7 +1383,14 @@ export default function MenuPage() {
                       {discount > 0 && <div className="mb-2 flex justify-between font-body text-[13px] text-brand-green"><span>Discount{appliedCoupon ? ` · ${appliedCoupon.code}` : ''}</span><span className="font-medium">− {formatKWD(discount)}</span></div>}
                       {selectedMode === 'delivery' && (
                         <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65">
-                          <span>Delivery{address.governorate ? ` · ${address.governorate}` : ''}</span>
+                          <span>
+                            Delivery{address.governorate ? ` · ${address.governorate}` : ''}
+                            {deliveryIsByWeight && cartGrams > 0 && (
+                              <span className="ml-1 text-[11px] text-brand-ink/45">
+                                ({cartGrams >= 1000 ? `${(cartGrams / 1000).toFixed(cartGrams % 1000 === 0 ? 0 : 1)} kg` : `${cartGrams} g`})
+                              </span>
+                            )}
+                          </span>
                           <span className="font-medium text-brand-ink">{address.governorate ? formatKWD(deliveryFee) : '—'}</span>
                         </div>
                       )}
@@ -1518,7 +1584,10 @@ function CustomerProfileModal({
                       <span className="truncate">
                         <span className="font-bold text-brand-wine">{it.qty}×</span> {it.name}
                         {o.source === 'waiter' && (
-                          <span className="ml-1.5 align-middle rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Added by staff</span>
+                          <span className="ml-1.5 align-middle rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Added by waiter</span>
+                        )}
+                        {o.source === 'admin' && (
+                          <span className="ml-1.5 align-middle rounded-full bg-brand-red/10 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-red">Added by admin</span>
                         )}
                       </span>
                       <span className="shrink-0 text-brand-wine/60">{formatKWD(it.price * it.qty)}</span>
@@ -1530,22 +1599,26 @@ function CustomerProfileModal({
                   <span className="font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>{formatKWD(openTab.total)}</span>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button onClick={onAddToTab} className="btn btn-outline justify-center py-3 text-[10px]">
-                  <PlusCircle size={14} /> Add items
-                </button>
-                {openTab.billRequested ? (
-                  <span className="flex items-center justify-center rounded-full border border-brand-green/40 bg-brand-green/10 px-4 py-3 text-center font-body text-[10px] font-black uppercase tracking-[0.16em] text-brand-green">
-                    Waiting for staff
-                  </span>
-                ) : (
+              {/* Asking for the bill closes the tab to new items: what you pay
+                  has to be what you agreed to. */}
+              {openTab.billRequested ? (
+                <div className="mt-3 flex items-center justify-center rounded-full border border-brand-green/40 bg-brand-green/10 px-4 py-3 text-center font-body text-[10px] font-black uppercase tracking-[0.16em] text-brand-green">
+                  Bill requested — waiting for staff
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button onClick={onAddToTab} className="btn btn-outline justify-center py-3 text-[10px]">
+                    <PlusCircle size={14} /> Add items
+                  </button>
                   <button onClick={onRequestBill} className="btn btn-wine justify-center py-3 text-[10px]">
                     <Receipt size={14} /> Request bill
                   </button>
-                )}
-              </div>
+                </div>
+              )}
               <p className="mt-2.5 text-center font-body text-[11px] text-brand-wine/50">
-                Your tab stays open until a staff member closes the bill. Then it moves to your order history.
+                {openTab.billRequested
+                  ? 'No more items can go on this tab. Staff are bringing your bill — it moves to your order history once it is paid.'
+                  : 'Your tab stays open until a staff member closes the bill. Then it moves to your order history.'}
               </p>
             </div>
           )}
@@ -1636,7 +1709,10 @@ function CustomerProfileModal({
                           {new Date(o.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           <span className="opacity-50">·</span> {orderLabel(o)}
                           {o.source === 'waiter' && (
-                            <span className="rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Staff</span>
+                            <span className="rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-gold-dark">Added by waiter</span>
+                          )}
+                          {o.source === 'admin' && (
+                            <span className="rounded-full bg-brand-red/10 px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wide text-brand-red">Added by admin</span>
                           )}
                         </p>
                       </div>
@@ -1753,6 +1829,12 @@ function OrderDetailModal({ order, invoiceNo, onClose }: { order: Order; invoice
                 <dd>-{formatKWD(order.discount)}</dd>
               </div>
             )}
+            {!!order.deliveryFee && order.deliveryFee > 0 && (
+              <div className="flex justify-between">
+                <dt>Delivery charge</dt>
+                <dd>{formatKWD(order.deliveryFee)}</dd>
+              </div>
+            )}
             <div className="flex items-end justify-between border-t border-brand-gold/25 pt-2">
               <dt className="font-body text-[10px] font-black uppercase tracking-[0.2em] text-brand-wine">Total</dt>
               <dd className="font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
@@ -1783,14 +1865,20 @@ function OrderDetailModal({ order, invoiceNo, onClose }: { order: Order; invoice
 
         <div className="flex items-center gap-2 border-t border-brand-gold/25 bg-brand-sand/40 p-4">
           <button onClick={onClose} className="btn btn-outline flex-1 justify-center py-3 text-[11px]">Close</button>
-          <Link
-            href={invoice ? `/invoice/${encodeURIComponent(invoice)}` : invoicePath({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt, billed: order.billed })}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-wine flex-1 justify-center py-3 text-[11px]"
-          >
-            <Receipt size={14} /> {billed ? 'View invoice' : 'Track order'}
-          </Link>
+          {billed ? (
+            <Link
+              href={`/invoice/${encodeURIComponent(invoice)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-wine flex-1 justify-center py-3 text-[11px]"
+            >
+              <Receipt size={14} /> View invoice
+            </Link>
+          ) : (
+            <span className="flex-1 text-center font-body text-[11px] font-semibold text-brand-wine/50">
+              Invoice comes once the shop bills it
+            </span>
+          )}
         </div>
       </div>
     </div>

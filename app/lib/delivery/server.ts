@@ -1,8 +1,8 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  DEFAULT_SETTINGS, type DeliveryArea, type DeliverySettings, type PricingMode, feeForDistance, haversineKm, hoursLabel,
-  isOpenNow, rowToArea, rowToSettings,
+  DEFAULT_SETTINGS, type DeliveryArea, type DeliverySettings, type PricingMode, feeForDistance, feeForWeight,
+  haversineKm, hoursLabel, isOpenNow, rowToArea, rowToSettings,
 } from './shared';
 
 // ---------------------------------------------------------------------------
@@ -109,7 +109,11 @@ export interface QuoteTarget { areaId?: string; lat?: number; lng?: number }
 export async function buildQuote(
   sb: SupabaseClient,
   target: QuoteTarget,
-  subtotal?: number
+  subtotal?: number,
+  /** Weight of the basket in grams — decides which of the area's weight
+   *  brackets applies. 0 when we don't know it yet (a quote before the basket
+   *  exists), which lands on the lightest bracket. */
+  grams = 0
 ): Promise<{ quote: Quote; settings: DeliverySettings; area: DeliveryArea | null }> {
   const s = await loadSettings(sb);
 
@@ -125,7 +129,10 @@ export async function buildQuote(
     const areas = target.areaId ? await loadAreas(sb, true) : [];
     area = areas.find((a) => a.id === target.areaId) ?? null;
     if (!area) missingTarget = 'Please choose your delivery area.';
-    else { fee = area.fee; minOrder = area.minOrder ?? s.minOrder; }
+    else {
+      fee = feeForWeight(area, grams);
+      minOrder = area.minOrder ?? s.minOrder;
+    }
   } else if (typeof target.lat === 'number' && typeof target.lng === 'number') {
     const r = await roadDistance({ lat: s.shopLat, lng: s.shopLng }, { lat: target.lat, lng: target.lng });
     km = r.km; source = r.source; fee = feeForDistance(s, km);
@@ -163,4 +170,25 @@ export async function buildQuote(
       taxOnFee: s.taxOnFee,
     },
   };
+}
+
+/**
+ * Delivery charge for an order placed from /menu.
+ *
+ * That checkout picks an area by NAME (the "governorate" field on the address),
+ * not by id, so this looks the area up by name and prices it the same way the
+ * browser did — the basket's weight against the area's brackets, falling back
+ * to the area's flat fee. Returns 0 when the shop has no matching area, which
+ * is the old flat-rate behaviour.
+ *
+ * The point is that the fee is decided HERE: the browser's number is only ever
+ * a preview, so nobody can post a delivery order with the fee set to zero.
+ */
+export async function feeForAreaName(sb: SupabaseClient, name: unknown, grams = 0): Promise<number> {
+  const wanted = typeof name === 'string' ? name.trim().toLowerCase() : '';
+  if (!wanted) return 0;
+  const areas = await loadAreas(sb, true);
+  const area = areas.find((a) => a.name.trim().toLowerCase() === wanted);
+  if (!area) return 0;
+  return Math.round(feeForWeight(area, grams) * 1000) / 1000;
 }

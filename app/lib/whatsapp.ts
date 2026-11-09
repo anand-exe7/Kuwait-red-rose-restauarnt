@@ -10,9 +10,8 @@
 
 import type { Order, OrderItem, DeliveryAddress, CustomerInfo } from './orderStore';
 import { formatKWD } from './currency';
-import { publicLink, publicLinkIsLocalOnly } from './publicUrl';
 import { shopName } from './shop';
-import { invoicePath, resolveOrderNo } from './invoice';
+import { resolveOrderNo } from './invoice';
 
 export function shopWhatsAppNumber(): string | null {
   const raw = process.env.NEXT_PUBLIC_SHOP_WHATSAPP;
@@ -90,10 +89,11 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
       `Discount${order.couponCode ? ` (${order.couponCode})` : ''}: -${formatKWD(order.discount)}`
     );
   }
-  if (mode === 'delivery' && deliveryFee > 0) {
-    lines.push(`Delivery: ${formatKWD(deliveryFee)}`);
-  }
-  lines.push(`Grand total: ${formatKWD(order.total + (mode === 'delivery' ? deliveryFee : 0))}`);
+  // The delivery charge is already part of order.total — it is stored on the
+  // order so the tab, the bill and the invoice all agree with this message.
+  const fee = mode === 'delivery' ? (order.deliveryFee ?? deliveryFee) : 0;
+  if (fee > 0) lines.push(`Delivery: ${formatKWD(fee)}`);
+  lines.push(`Grand total: ${formatKWD(order.total)}`);
   lines.push('Payment: Cash on ' + (mode === 'delivery' ? 'delivery' : 'pickup'));
   if (mode === 'takeaway' && pickupTime) {
     lines.push(`Pick-up time: ${pickupTime}`);
@@ -117,16 +117,6 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
     '',
     'We will confirm this order shortly. Your invoice is sent once it is ready and billed.',
   );
-
-  // Tap-to-track link on our own site (no PDF attachment — wa.me can't send
-  // files). The path is the order number, not the internal session id, so the
-  // customer sees the same 5 digits in the message and in the URL. The origin
-  // comes from NEXT_PUBLIC_SITE_URL so the link works on the customer's phone
-  // even when the order was placed from a laptop on localhost.
-  const path = invoicePath({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt });
-  if (path && !publicLinkIsLocalOnly()) {
-    lines.push('', `📦 Track your order: ${publicLink(path)}`);
-  }
 
   return lines.join('\n');
 }

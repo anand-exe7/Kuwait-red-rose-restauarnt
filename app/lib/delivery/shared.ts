@@ -14,13 +14,50 @@ export type FailedPolicy = 'customer_pays_all' | 'customer_pays_fee' | 'restaura
 /** areas = admin-defined areas with a fee each (default); distance = map pin + km. */
 export type PricingMode = 'areas' | 'distance';
 
+/** One weight bracket: everything from minG up to (and including) maxG costs
+ *  `fee` to deliver. maxG === null means "and anything heavier". */
+export interface WeightTier {
+  minG: number;
+  maxG: number | null;
+  fee: number;
+}
+
 export interface DeliveryArea {
   id: string;
   name: string;
+  /** Flat fee, used when this area has no weight brackets. */
   fee: number;
+  /** Weight brackets, cheapest first. Empty = charge the flat fee. */
+  tiers: WeightTier[];
   minOrder: number | null; // null = use the general minimum order
   active: boolean;
   sort: number;
+}
+
+export function parseTiers(raw: unknown): WeightTier[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => {
+      const o = (t ?? {}) as Record<string, unknown>;
+      const minG = Number(o.minG ?? o.min_g ?? 0);
+      const maxRaw = o.maxG ?? o.max_g;
+      const maxG = maxRaw === null || maxRaw === undefined || maxRaw === '' ? null : Number(maxRaw);
+      const fee = Number(o.fee ?? 0);
+      if (!Number.isFinite(minG) || !Number.isFinite(fee)) return null;
+      if (maxG !== null && !Number.isFinite(maxG)) return null;
+      return { minG: Math.max(0, minG), maxG, fee: Math.max(0, fee) };
+    })
+    .filter((t): t is WeightTier => t !== null)
+    .sort((a, b) => a.minG - b.minG);
+}
+
+/** What delivery costs for a basket of this weight in this area. */
+export function feeForWeight(area: Pick<DeliveryArea, 'fee' | 'tiers'>, grams: number): number {
+  if (!area.tiers || area.tiers.length === 0) return area.fee;
+  const hit = area.tiers.find((t) => grams >= t.minG && (t.maxG === null || grams <= t.maxG));
+  // Heavier than every bracket → the heaviest bracket's fee, so an order can
+  // never slip through free just because nobody added a bracket for it.
+  return hit ? hit.fee : area.tiers[area.tiers.length - 1].fee;
 }
 
 export function rowToArea(r: Record<string, unknown>): DeliveryArea {
@@ -28,6 +65,7 @@ export function rowToArea(r: Record<string, unknown>): DeliveryArea {
     id: String(r.id),
     name: String(r.name ?? ''),
     fee: Number(r.fee ?? 0),
+    tiers: parseTiers(r.tiers),
     minOrder: r.min_order === null || r.min_order === undefined ? null : Number(r.min_order),
     active: r.active !== false,
     sort: Number(r.sort ?? 0),

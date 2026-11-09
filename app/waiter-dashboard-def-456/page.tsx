@@ -100,21 +100,31 @@ interface Tab {
   readyToHandOver: boolean;
   /** The remark the customer typed at checkout. */
   note?: string;
+  /** Discount the guest already has (a coupon they used), and the coupon code.
+   *  The waiter is the one standing at the table being asked "do I get my
+   *  discount?", so they can see it. */
+  discount: number;
+  couponCode?: string;
+  /** Delivery charge on this order. */
+  deliveryFee: number;
 }
 
 const card = 'rounded-3xl border border-brand-gold/25 bg-white shadow-[0_22px_48px_-34px_rgba(74,21,21,0.45)]';
 const sectionTitle = 'flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.22em] text-brand-gold-dark';
 
 /** Merge the items of several orders into one list, keeping notes apart. */
-function mergeItems(orders: Order[]): (OrderItem & { lineTotal: number; byStaff: boolean })[] {
-  const map = new Map<string, OrderItem & { lineTotal: number; byStaff: boolean }>();
+function mergeItems(orders: Order[]): (OrderItem & { lineTotal: number; byStaff: boolean; addedBy: Order['source'] })[] {
+  const map = new Map<string, OrderItem & { lineTotal: number; byStaff: boolean; addedBy: Order['source'] }>();
   for (const o of orders) {
-    const byStaff = o.source === 'waiter' || o.source === 'admin';
+    const addedBy = o.source;
+    const byStaff = addedBy === 'waiter' || addedBy === 'admin';
+    // Keyed by who put it on, so "added by admin" can't be absorbed into a
+    // line the customer ordered themselves.
     for (const it of o.items) {
-      const key = `${it.name}@@${it.price}@@${it.notes ?? ''}@@${byStaff ? 's' : 'c'}`;
+      const key = `${it.name}@@${it.price}@@${it.notes ?? ''}@@${addedBy}`;
       const cur = map.get(key);
       if (cur) { cur.qty += it.qty; cur.lineTotal += it.price * it.qty; }
-      else map.set(key, { ...it, lineTotal: it.price * it.qty, byStaff });
+      else map.set(key, { ...it, lineTotal: it.price * it.qty, byStaff, addedBy });
     }
   }
   return [...map.values()];
@@ -192,6 +202,8 @@ export default function WaiterDashboard() {
       home: false,
       billed: false,
       readyToHandOver: false,
+      discount: 0,
+      deliveryFee: 0,
     });
 
     // Start from the open sessions the admin sees…
@@ -249,6 +261,9 @@ export default function WaiterDashboard() {
         if (o.mode === 'table' && tab.table == null) tab.table = o.table;
       }
       if (o.billed) tab.billed = true;
+      tab.discount += o.discount ?? 0;
+      tab.deliveryFee += o.deliveryFee ?? 0;
+      if (!tab.couponCode && o.couponCode) tab.couponCode = o.couponCode;
       if (!tab.note && o.note) tab.note = o.note;
       if (!tab.guest) tab.guest = o.customer?.name || undefined;
       if (!tab.guestPhone) tab.guestPhone = o.customer?.phone || undefined;
@@ -269,6 +284,8 @@ export default function WaiterDashboard() {
       tab.home = home;
       tab.orders.sort((a, b) => a.createdAt - b.createdAt);
       tab.total = round3(tab.total);
+      tab.discount = round3(tab.discount);
+      tab.deliveryFee = round3(tab.deliveryFee);
       tab.allReady = tab.orders.every(o => o.status === 'ready' || o.status === 'served');
       // Cooked is not the hand-over moment: the admin has to close the bill and
       // send the invoice first. Only then does this one leave the shop.
@@ -311,11 +328,21 @@ export default function WaiterDashboard() {
   // Before the admin bills it there is nothing for the waiter to do but wait.
   const handoverOrders = useMemo(
     () => orders
-      .filter(o => (o.mode === 'takeaway' || o.mode === 'delivery') && o.billed && !o.handedOverAt)
+      // 'served' on a home order IS the hand-over. Without this the card stayed
+      // on the board after the waiter tapped it whenever the handed_over_at
+      // column is missing — the write falls back to status only.
+      .filter(o => (o.mode === 'takeaway' || o.mode === 'delivery') && o.billed && !o.handedOverAt && o.status !== 'served')
       .sort((a, b) => a.createdAt - b.createdAt),
     [orders]
   );
-  const alertCount = openCalls.length + readyOrders.length + handoverOrders.length;
+  /* Guests who have asked to pay. The waiter can't take the money, but they
+     are the one at the table — they should know before the guest has to ask
+     twice. */
+  const billRequests = useMemo(
+    () => tabs.filter(t => t.billRequested && !t.billed).sort((a, b) => (a.session?.billRequestedAt ?? 0) - (b.session?.billRequestedAt ?? 0)),
+    [tabs]
+  );
+  const alertCount = openCalls.length + readyOrders.length + handoverOrders.length + billRequests.length;
 
   // Standing sessions are keyed by their label, so two unnamed walk-ins would
   // merge onto one tab. Number them instead.
@@ -337,6 +364,7 @@ export default function WaiterDashboard() {
   useChimeOnNew(readyOrders.map(o => o.id), chime);
   useChimeOnNew(handoverOrders.map(o => o.id), chime);
   useChimeOnNew(openCalls.map(c => c.id), chime);
+  useChimeOnNew(billRequests.map(t => t.sessionId), chime);
 
   // ── The live tab for whatever the panel is pointed at ─────────────────────
   const activeTab = target?.sessionId ? tabsBySession.get(target.sessionId) ?? null : null;
@@ -532,11 +560,13 @@ export default function WaiterDashboard() {
           calls={openCalls}
           ready={readyOrders}
           handover={handoverOrders}
+          billRequests={billRequests}
           tickets={kitchenTickets}
           onClose={() => setAlertsOpen(false)}
           onResolve={(id) => { resolveWaiterCall(id); showToast('Call cleared'); }}
           onServe={serve}
           onHandOver={handOverOrder}
+          onOpenTab={(t) => { setAlertsOpen(false); setLane(t.mode === 'delivery' ? 'delivery' : t.mode === 'takeaway' ? 'takeaway' : 'tables'); openTab(t); }}
         />
       )}
 
@@ -1002,9 +1032,13 @@ function TabDetail({
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-semibold leading-tight text-brand-wine">{l.name}</p>
                   {l.notes && <p className="mt-0.5 text-[11.5px] italic text-brand-ink/55">{l.notes}</p>}
-                  {l.byStaff && (
-                    <span className="mt-1 inline-block rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-brand-gold-dark">
-                      Added by staff
+                  {l.addedBy !== 'customer' && (
+                    <span
+                      className={`mt-1 inline-block rounded-full px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide ${
+                        l.addedBy === 'admin' ? 'bg-brand-red/10 text-brand-red' : 'bg-brand-gold/15 text-brand-gold-dark'
+                      }`}
+                    >
+                      Added by {l.addedBy}
                     </span>
                   )}
                 </div>
@@ -1020,6 +1054,18 @@ function TabDetail({
               <span>{tab.itemCount} item{tab.itemCount === 1 ? '' : 's'} · {tab.orders.length} ticket{tab.orders.length === 1 ? '' : 's'}</span>
               <span>{timeOf(tab.openedAt)}</span>
             </div>
+            {tab.discount > 0 && (
+              <div className="flex items-center justify-between text-[12.5px] font-bold text-brand-green">
+                <span>Discount{tab.couponCode ? ` · ${tab.couponCode}` : ''}</span>
+                <span>−{formatKWD(tab.discount)}</span>
+              </div>
+            )}
+            {tab.deliveryFee > 0 && (
+              <div className="flex items-center justify-between text-[12.5px] font-bold text-brand-wine/70">
+                <span>Delivery charge</span>
+                <span>{formatKWD(tab.deliveryFee)}</span>
+              </div>
+            )}
             <div className="flex items-end justify-between border-t border-brand-wine/15 pt-2">
               <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-wine">Total</span>
               <span className="font-wordmark text-[34px] leading-none text-brand-red">{formatKWD(tab.total)}</span>
@@ -1039,18 +1085,26 @@ function TabDetail({
 
       {!target.readOnly && (
         <div className="shrink-0 border-t border-brand-gold/25 bg-white p-3.5 pb-[max(14px,env(safe-area-inset-bottom))] sm:p-4">
-          <div className="flex gap-2.5">
-            <button onClick={onAddItems} className="btn btn-outline flex-1 py-4 text-[11px]">
-              <Plus size={16} /> Add items
-            </button>
-            <button
-              onClick={onBill}
-              disabled={!tab}
-              className="btn btn-wine flex-1 py-4 text-[11px] disabled:opacity-40"
-            >
-              <Banknote size={16} /> Close bill
-            </button>
-          </div>
+          {/* Once the guest has asked for the bill, nothing else goes on the
+              tab — not from their phone, not from here. */}
+          {tab?.billRequested ? (
+            <div className="flex items-center justify-center gap-2 rounded-full border-2 border-brand-gold bg-brand-gold/10 py-4 text-[11px] font-bold uppercase tracking-[0.16em] text-brand-wine">
+              <Receipt size={16} /> Bill requested — the admin is settling it
+            </div>
+          ) : (
+            <div className="flex gap-2.5">
+              <button onClick={onAddItems} className="btn btn-outline flex-1 py-4 text-[11px]">
+                <Plus size={16} /> Add items
+              </button>
+              <button
+                onClick={onBill}
+                disabled={!tab}
+                className="btn btn-wine flex-1 py-4 text-[11px] disabled:opacity-40"
+              >
+                <Banknote size={16} /> Close bill
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Sheet>
@@ -1324,26 +1378,28 @@ function ItemPicker({
    ════════════════════════════════════════════════════════════════════════ */
 
 function AlertsSheet({
-  calls, ready, handover, tickets, onClose, onResolve, onServe, onHandOver,
+  calls, ready, handover, billRequests, tickets, onClose, onResolve, onServe, onHandOver, onOpenTab,
 }: {
   calls: WaiterCall[];
   ready: Order[];
   handover: Order[];
+  billRequests: Tab[];
   tickets: Order[];
   onClose: () => void;
   onResolve: (id: string) => void;
   onServe: (id: string) => void;
   onHandOver: (o: Order) => void;
+  onOpenTab: (t: Tab) => void;
 }) {
   const [view, setView] = useState<'alerts' | 'kitchen'>('alerts');
-  const nothing = calls.length === 0 && ready.length === 0 && handover.length === 0;
+  const nothing = calls.length === 0 && ready.length === 0 && handover.length === 0 && billRequests.length === 0;
 
   return (
     <Sheet onClose={onClose} title="Alerts" subtitle="Tables ringing, food ready, and the kitchen feed">
       <div className="shrink-0 border-b border-brand-gold/25 bg-brand-sand/50 px-4 py-2.5 sm:px-5">
         <div className="flex gap-1.5 rounded-full border border-brand-gold/30 bg-white p-1">
           {([
-            { key: 'alerts', label: 'Needs you', n: calls.length + ready.length },
+            { key: 'alerts', label: 'Needs you', n: calls.length + ready.length + handover.length + billRequests.length },
             { key: 'kitchen', label: 'Kitchen feed', n: tickets.length },
           ] as const).map(v => (
             <button
@@ -1370,6 +1426,34 @@ function AlertsSheet({
             <div className="py-10"><Empty icon={Check} text="All clear. Nothing needs you right now." /></div>
           ) : (
             <div className="flex flex-col gap-5">
+              {billRequests.length > 0 && (
+                <section>
+                  <h2 className={`${sectionTitle} mb-2.5`}><Receipt size={14} className="text-brand-gold-dark" /> Asking for the bill</h2>
+                  <div className="flex flex-col gap-2.5">
+                    {billRequests.map(t => (
+                      <button
+                        key={t.sessionId}
+                        onClick={() => onOpenTab(t)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 border-brand-gold bg-brand-gold/10 px-4 py-3.5 text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">{t.title}</p>
+                          <p className="mt-1 truncate text-[11.5px] text-brand-ink/60">
+                            {t.guest || 'Guest'}{t.guestPhone ? ` · ${t.guestPhone}` : ''} · {formatKWD(t.total)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-gold-dark">
+                            The admin has been told — go and take the order to them
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full bg-brand-wine px-3.5 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-white">
+                          Open tab
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {calls.length > 0 && (
                 <section>
                   <h2 className={`${sectionTitle} mb-2.5`}><Bell size={14} className="text-brand-red" /> Tables ringing for you</h2>
@@ -1396,9 +1480,15 @@ function AlertsSheet({
                     {handover.map(o => (
                       <div key={o.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 border-emerald-400 bg-emerald-50 px-4 py-3.5">
                         <div className="min-w-0">
+                          {/* You hand it to a person, so their name comes first
+                              and the order number second. */}
                           <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">
+                            {o.customer?.name || 'Guest'}
+                          </p>
+                          <p className="mt-0.5 text-[11.5px] font-bold text-brand-ink/70">
                             {o.mode === 'delivery' ? 'Delivery' : 'Takeaway'} #
                             {resolveOrderNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })}
+                            {o.customer?.phone ? ` · ${o.customer.phone}` : ''}
                           </p>
                           <p className="mt-1 truncate text-[11.5px] text-brand-ink/55">
                             {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
@@ -1527,7 +1617,13 @@ function BillSheet({ tab, onClose, onConfirm }: { tab: Tab; onClose: () => void;
         <div className="mt-3 space-y-1.5 rounded-2xl bg-brand-sand/60 p-4 text-[13px]">
           <div className="flex justify-between text-brand-ink/60"><span>Subtotal</span><span className="font-bold text-brand-ink">{formatKWD(subtotal)}</span></div>
           {discount > 0 && (
-            <div className="flex justify-between text-brand-red"><span className="font-bold">Discount</span><span className="font-bold">−{formatKWD(discount)}</span></div>
+            <div className="flex justify-between text-brand-red">
+              <span className="font-bold">Discount{tab.couponCode ? ` · ${tab.couponCode}` : ''}</span>
+              <span className="font-bold">−{formatKWD(discount)}</span>
+            </div>
+          )}
+          {tab.deliveryFee > 0 && (
+            <div className="flex justify-between text-brand-ink/60"><span className="font-bold">Delivery charge</span><span className="font-bold">{formatKWD(tab.deliveryFee)}</span></div>
           )}
           <div className="flex items-end justify-between border-t border-brand-wine/15 pt-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-wine">Running total</span>

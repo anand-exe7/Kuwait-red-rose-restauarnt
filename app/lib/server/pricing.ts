@@ -22,14 +22,25 @@ export async function priceItems(
   sb: SupabaseClient,
   rawItems: unknown,
   opts: { admin: boolean }
-): Promise<{ items: PricedItem[]; subtotal: number }> {
+): Promise<{ items: PricedItem[]; subtotal: number; grams: number }> {
   if (!Array.isArray(rawItems) || rawItems.length === 0 || rawItems.length > 50) throw bad('Invalid items');
   const ids = rawItems.map((i) => (isObj(i) ? String(i.id ?? '') : ''));
-  const { data: menuRows, error } = await sb.from('menu_items').select('id,name,price,status').in('id', ids);
-  if (error) throw new HttpError(500, 'Menu lookup failed');
+  // weight_grams arrives with supabase/delivery_weight_tiers.sql. Until that is
+  // applied the column isn't there, so we fall back to the query without it
+  // rather than refusing the order.
+  let menuRows: Record<string, unknown>[] | null = null;
+  const withWeight = await sb.from('menu_items').select('id,name,price,status,weight_grams').in('id', ids);
+  if (withWeight.error) {
+    const plain = await sb.from('menu_items').select('id,name,price,status').in('id', ids);
+    if (plain.error) throw new HttpError(500, 'Menu lookup failed');
+    menuRows = plain.data as Record<string, unknown>[];
+  } else {
+    menuRows = withWeight.data as Record<string, unknown>[];
+  }
   const menu = new Map((menuRows ?? []).map((m) => [m.id as string, m]));
 
   let subtotal = 0;
+  let grams = 0;
   const items = rawItems.map((raw) => {
     if (!isObj(raw)) throw bad('Invalid item');
     const qty = int(raw.qty, 1, 99, 'quantity');
@@ -48,11 +59,12 @@ export async function priceItems(
       throw bad('Unknown menu item');
     }
     subtotal += price * qty;
+    grams += Number((m?.weight_grams as number | null | undefined) ?? 0) * qty;
     const out: PricedItem = { id: String(raw.id), name, price, qty };
     if (typeof raw.notes === 'string' && raw.notes.trim()) out.notes = raw.notes.slice(0, 200);
     return out;
   });
-  return { items, subtotal: round3(subtotal) };
+  return { items, subtotal: round3(subtotal), grams: Math.max(0, Math.round(grams)) };
 }
 
 export interface CouponCheck {
