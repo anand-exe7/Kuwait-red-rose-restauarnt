@@ -1,134 +1,409 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { Order, OrderStatus } from "./types";
+import type { AdminState, OrderItem, OrderMode, OrderSource, Product } from "./types";
 import { rupee } from "./money";
 import { useAdmin, whoIs } from "./Store";
+import Catalog from "./Catalog";
 import { Badge, Btn, Empty, Icon, Page, PageHead, cx, fmtTime } from "./kit";
+import { resolveOrderNo } from "../../lib/invoice";
 
 const minsSince = (t: number, now: number) => Math.max(0, Math.round((now - t) / 60000));
 
-const COLS: { key: OrderStatus; title: string; next: OrderStatus; cta: string; tone: "amber" | "sky" | "green" }[] = [
-  { key: "new", title: "New", next: "preparing", cta: "Start cooking", tone: "amber" },
-  { key: "preparing", title: "Preparing", next: "served", cta: "Mark served", tone: "sky" },
-  { key: "served", title: "Served", next: "served", cta: "", tone: "green" },
-];
+/** Each kind of tab gets its own colour, so a counter full of takeaway bags
+ *  never gets confused with the tables. Violet = delivery, blue = takeaway,
+ *  white = eat-in. */
+const SKIN: Record<OrderMode, { label: string; icon: "bag" | "cart" | "tables" | "users"; chip: string; card: string; ring: string }> = {
+  delivery: { label: "Delivery", icon: "cart", chip: "bg-violet-100 text-violet-800", card: "border-violet-300 bg-violet-50/70", ring: "ring-violet-400" },
+  takeaway: { label: "Takeaway", icon: "bag", chip: "bg-sky-100 text-sky-800", card: "border-sky-300 bg-sky-50/70", ring: "ring-sky-400" },
+  table: { label: "Dine-in", icon: "tables", chip: "bg-slate-100 text-slate-700", card: "border-slate-100 bg-white", ring: "ring-slate-900" },
+  standing: { label: "Walk-in", icon: "users", chip: "bg-amber-100 text-amber-800", card: "border-amber-200 bg-amber-50/60", ring: "ring-amber-400" },
+};
 
-const CARD = "rounded-2xl border border-slate-100 bg-white p-3.5 shadow-[0_2px_10px_-4px_rgba(15,23,42,.1)] flex flex-col gap-2.5";
-const COL = "rounded-[22px] bg-slate-50/70 p-3 min-w-0";
+/** What to call this tab on screen: a home order is known by its order number,
+ *  a table by its number, a walk-in by its name. */
+function tabTitle(t: { mode: OrderMode; orderNo: string; guest: string; session: { tableNumber: number | null; standingLabel: string } }): string {
+  if (t.mode === "takeaway" || t.mode === "delivery") return `${t.guest || "Guest"} · #${t.orderNo}`;
+  if (t.mode === "standing") return t.session.standingLabel || t.guest || "Walk-in";
+  return t.session.tableNumber != null ? `Table ${t.session.tableNumber}` : t.guest || "Guest";
+}
 
-/* The on-screen Kitchen Order Ticket (KOT) queue. Admin can disable the whole
-   feature from Settings — the server guard sends staff back to Billing and the
-   nav link hides, so this page only renders when the toggle is on. */
-export default function KitchenPage() {
-  const { s, act, now, confirm } = useAdmin();
-  const [busy, setBusy] = useState<string | null>(null);
+/** The open tabs on the floor and the counter, newest need first. Lives
+ *  outside the component so its return type can name the Tab shape the detail
+ *  panel takes. */
+function buildTabs(s: AdminState) {
+  return s.sessions
+    .filter((x) => x.status === "open" || x.status === "bill_requested")
+    .map((sess) => {
+      const sessOrders = s.orders.filter((o) => o.sessionId === sess.id && o.status !== "cancelled");
+      const lines = mergeLinesBySource(sessOrders);
+      const items = lines.reduce((a, i) => a + i.qty, 0);
+      const total = lines.reduce((a, i) => a + i.price * i.qty, 0);
+      const fresh = sessOrders.filter((o) => o.status === "new").length;
+      const cooking = sessOrders.filter((o) => o.status === "preparing").length;
+      const lastOrderAt = sessOrders.reduce((a, o) => Math.max(a, o.createdAt), 0);
+      // The order's mode wins over the session's: sessions opened before
+      // delivery had its own mode were all written as 'takeaway'.
+      const mode: OrderMode = sessOrders[0]?.mode ?? sess.mode ?? "table";
+      const home = mode === "takeaway" || mode === "delivery";
+      const live = sessOrders.filter((o) => !o.billed);
+      return {
+        session: sess,
+        mode,
+        home,
+        orders: sessOrders,
+        lines,
+        items,
+        total,
+        fresh,
+        cooking,
+        lastOrderAt,
+        billRequested: sess.billRequestedAt !== null,
+        // The remark the customer typed at checkout — the chef has it on the
+        // ticket, and whoever bills it should see it too.
+        note: sessOrders.map((o) => o.note).find(Boolean) ?? "",
+        // Who this is. Older home sessions were opened before we stamped the
+        // customer on them, so the order is the better source.
+        guest: sess.customerName || sessOrders.map((o) => o.customerName).find(Boolean) || "",
+        phone: sess.customerPhone || sessOrders.map((o) => o.customerPhone).find(Boolean) || "",
+        awaitingApproval: live.some((o) => o.live === "awaiting_admin"),
+        readyToBill: items > 0 && live.length > 0 && live.every((o) => o.live === "ready" || o.live === "served"),
+        orderNo: resolveOrderNo({ sessionId: sess.id, createdAt: sess.openedAt }),
+      };
+    })
+    // A takeaway/delivery order the admin has not accepted yet is not a tab
+    // — it is still sitting in Online orders waiting to be let in.
+    .filter((t) => !(t.home && t.awaitingApproval))
+    // Cooked home orders stack on top: those are the ones where a customer is
+    // standing at the counter (or a driver is idle) waiting on a bill. Then
+    // tabs with new orders, then by most recent activity.
+    .sort((a, b) => {
+      // A session with nothing on it is a leftover (an order that never
+      // landed, or a tab opened and abandoned). Keep it — it is the only
+      // place staff can clear one — but always at the bottom.
+      const aEmpty = a.items === 0 ? 1 : 0;
+      const bEmpty = b.items === 0 ? 1 : 0;
+      if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+      const aUrgent = a.home && a.readyToBill ? 1 : 0;
+      const bUrgent = b.home && b.readyToBill ? 1 : 0;
+      if (aUrgent !== bUrgent) return bUrgent - aUrgent;
+      if (a.fresh !== b.fresh) return b.fresh - a.fresh;
+      if (a.lastOrderAt !== b.lastOrderAt) return b.lastOrderAt - a.lastOrderAt;
+      return a.session.openedAt - b.session.openedAt;
+    });
+}
 
-  const orders = useMemo(() => {
-    /* Served tickets in the last 30 min stay visible as a "just-sent" tail;
-       after that they fall off automatically. */
-    const cutoff = now - 30 * 60_000;
-    return s.orders
-      .filter((o) => o.status === "new" || o.status === "preparing" || (o.status === "served" && o.updatedAt >= cutoff))
-      .sort((a, b) => a.createdAt - b.createdAt);
-  }, [s.orders, now]);
+type Tab = ReturnType<typeof buildTabs>[number];
 
-  const grouped = useMemo(() => {
-    const g: Record<OrderStatus, Order[]> = { new: [], preparing: [], ready: [], served: [], cancelled: [] };
-    for (const o of orders) g[o.status]?.push(o);
-    return g;
-  }, [orders]);
+/** Items on a tab, kept separate per `addedBy` role so the "Added by admin"
+ *  / "Added by waiter" / customer badges stay accurate when the same item
+ *  came in from different places. Same name+price+role are merged. */
+type TabLine = OrderItem & { addedBy: OrderSource; firstAt: number };
 
-  const advance = async (o: Order, next: OrderStatus) => {
-    if (next === "served" && o.items.length > 0) {
-      const ok = await confirm({ title: `Mark ticket #${o.no} as served?`, body: `${whoIs(o)} · ${o.items.reduce((a, i) => a + i.qty, 0)} items`, ok: "Mark served" });
-      if (!ok) return;
+function mergeLinesBySource(orders: { items: OrderItem[]; source: OrderSource; createdAt: number }[]): TabLine[] {
+  const map = new Map<string, TabLine>();
+  for (const o of orders) {
+    for (const it of o.items) {
+      const key = `${o.source}@@${it.name}@@${it.price}@@${it.notes ?? ""}`;
+      const cur = map.get(key);
+      if (cur) cur.qty += it.qty;
+      else map.set(key, { ...it, addedBy: o.source, firstAt: o.createdAt });
     }
-    setBusy(o.id);
-    await act("order.status", { id: o.id, status: next });
-    setBusy(null);
+  }
+  return [...map.values()].sort((a, b) => b.firstAt - a.firstAt);
+}
+
+/** Open tabs — the active guests, their items and the one place the admin can
+ *  add more items to a tab, cancel it, or send it to Billing for finishing. */
+export default function KitchenPage() {
+  const { s, act, now, confirm, toast } = useAdmin();
+  const [selId, setSelId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const tabs = useMemo(() => buildTabs(s), [s]);
+
+  const selected = selId ? tabs.find((t) => t.session.id === selId) ?? null : tabs[0] ?? null;
+  const activeId = selected?.session.id ?? null;
+
+  const addItems = async (picks: { productId: string; qty: number }[]) => {
+    if (!selected) return false;
+    if (selected.home) {
+      toast({ kind: "err", title: "A takeaway or delivery order can't have items added to it." });
+      return false;
+    }
+    const items: OrderItem[] = [];
+    for (const pick of picks) {
+      const p = s.products.find((x) => x.id === pick.productId);
+      if (!p) continue;
+      items.push({ productId: p.id, name: p.name, price: p.price, qty: pick.qty });
+    }
+    if (!items.length) return false;
+    setBusy(true);
+    const r = await act("session.addItems", { sessionId: selected.session.id, items });
+    setBusy(false);
+    if (!r.ok) {
+      toast({ kind: "err", title: r.error || "Couldn't add items." });
+      return false;
+    }
+    toast({ kind: "ok", title: `Added ${items.length} item${items.length === 1 ? "" : "s"} to ${whoIs(selected.session)}'s tab.` });
+    return true;
   };
 
-  const cancel = async (o: Order) => {
-    if (!(await confirm({ title: `Cancel ticket #${o.no}?`, body: `Items go back into stock. ${whoIs(o)}'s tab stays open.`, ok: "Cancel ticket", danger: true }))) return;
-    setBusy(o.id);
-    await act("order.status", { id: o.id, status: "cancelled" });
-    setBusy(null);
+  const cancelTab = async (t: (typeof tabs)[number]) => {
+    if (!(await confirm({ title: `Cancel ${whoIs(t.session)}'s tab?`, body: "The tab closes with no bill. Any orders already prepared are still gone from the kitchen.", ok: "Cancel tab", danger: true }))) return;
+    setBusy(true);
+    const r = await act("session.cancel", { sessionId: t.session.id });
+    setBusy(false);
+    if (r.ok) {
+      toast({ kind: "ok", title: `${whoIs(t.session)}'s tab cancelled.` });
+      if (selId === t.session.id) setSelId(null);
+    } else {
+      toast({ kind: "err", title: r.error || "Couldn't cancel." });
+    }
   };
 
   return (
     <Page>
       <PageHead
-        title="Kitchen Queue"
-        sub="Every open ticket on one screen — slide a card right as it moves through the kitchen."
+        title="Open tabs"
+        sub="Everything the shop owes someone right now — tables, walk-ins and accepted online orders. Green means cooked and waiting to be billed."
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {COLS.map((col) => {
-          const list = grouped[col.key];
-          return (
-            <section key={col.key} className={COL}>
-              <header className="mb-3 flex items-center justify-between px-1">
-                <h2 className="flex items-center gap-2 text-[13px] font-bold uppercase tracking-[0.14em] text-slate-700">
-                  {col.title}
-                  <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[11px] font-black text-slate-700">{list.length}</span>
-                </h2>
-                {col.key === "new" && list.length > 0 && <Badge tone="amber">Needs attention</Badge>}
-              </header>
-              {list.length === 0 ? (
-                <Empty icon={col.key === "new" ? "bell" : col.key === "preparing" ? "utensils" : "check"} title={col.key === "new" ? "No new tickets" : col.key === "preparing" ? "Nothing cooking" : "No served tickets yet"} />
-              ) : (
-                <ul className="flex flex-col gap-2.5">
-                  {list.map((o) => {
-                    const mins = minsSince(o.createdAt, now);
-                    const items = o.items.reduce((a, i) => a + i.qty, 0);
-                    const hot = col.key !== "served" && mins >= 15;
-                    return (
-                      <li key={o.id} className={cx(CARD, hot && "border-red-200 ring-1 ring-red-100")}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <b className="block truncate text-[14px] text-slate-900">#{o.no} · {whoIs(o)}</b>
-                            <p className="truncate text-[11.5px] text-slate-500">
-                              {o.source === "customer" ? "Self-ordered" : "Counter"} · {fmtTime(o.createdAt)}
-                            </p>
-                          </div>
-                          <span className={cx("adm-num shrink-0 rounded-full px-2 py-1 text-[11px] font-bold", hot ? "bg-red-50 text-red-600" : mins >= 7 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600")}>
-                            {mins === 0 ? "just now" : `${mins}m`}
-                          </span>
-                        </div>
-                        <ul className="rounded-xl bg-slate-50 px-3 py-2 text-[12.5px] text-slate-700">
-                          {o.items.map((i, k) => (
-                            <li key={k} className="flex justify-between py-0.5">
-                              <span className="truncate pr-2"><b className="adm-num text-slate-900">{i.qty}×</b> {i.name}</span>
-                              <span className="adm-num shrink-0 text-slate-500">{rupee(i.price * i.qty)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {o.note && <p className="rounded-lg bg-amber-50 px-3 py-1.5 text-[11.5px] text-amber-900"><b>Note:</b> {o.note}</p>}
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11.5px] text-slate-500">{items} item{items === 1 ? "" : "s"} · {rupee(o.subtotal)}</span>
-                          {col.key !== "served" ? (
-                            <div className="flex gap-1.5">
-                              <Btn size="sm" kind="ghost" onClick={() => cancel(o)} disabled={busy === o.id} aria-label="Cancel ticket">
-                                <Icon name="x" size={14} />
-                              </Btn>
-                              <Btn size="sm" kind={col.key === "new" ? "dark" : "red"} onClick={() => advance(o, col.next)} disabled={busy === o.id}>
-                                {col.cta}
-                              </Btn>
-                            </div>
-                          ) : (
-                            <Badge tone="green">Served</Badge>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+      {!tabs.length ? (
+        <Empty icon="utensils" title="No open tabs right now">
+          Open tabs appear here the moment a guest orders from their phone or you open one from Billing.
+        </Empty>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+          {/* Left: tab list */}
+          <aside className="space-y-2">
+            {tabs.map((t) => {
+              const on = t.session.id === activeId;
+              const skin = SKIN[t.mode];
+              return (
+                <button
+                  key={t.session.id}
+                  type="button"
+                  onClick={() => setSelId(t.session.id)}
+                  className={cx(
+                    "w-full rounded-2xl border-2 p-3 text-left transition",
+                    skin.card,
+                    on ? cx("ring-2", skin.ring) : "hover:brightness-[.98]",
+                    t.home && t.readyToBill && "border-emerald-400 bg-emerald-50",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-start gap-2">
+                      <span className={cx("mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg", skin.chip)}>
+                        <Icon name={skin.icon} size={14} />
+                      </span>
+                      <div className="min-w-0">
+                        <b className="block truncate text-[15px] font-extrabold text-slate-900">{tabTitle(t)}</b>
+                        <p className="truncate text-[11.5px] text-slate-500">
+                          {skin.label} · {t.session.customerPhone || "No number"} · {minsSince(t.session.openedAt, now)}m
+                        </p>
+                      </div>
+                    </div>
+                    <span className="adm-num shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-slate-800">
+                      {rupee(t.total)}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1 text-[11px]">
+                    {t.home && t.readyToBill && (
+                      <span className="adm-pulse rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                        Ready — bill now
+                      </span>
+                    )}
+                    {t.fresh > 0 && !t.home && (
+                      <span className="adm-pulse rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                        New · {t.fresh}
+                      </span>
+                    )}
+                    {t.billRequested && <Badge tone="amber">Bill requested</Badge>}
+                    {t.cooking > 0 && <Badge tone="sky">{t.cooking} cooking</Badge>}
+                    {t.items === 0 ? <Badge tone="slate">Empty — nothing ordered</Badge> : <Badge tone="slate">{t.items} items</Badge>}
+                  </div>
+                </button>
+              );
+            })}
+          </aside>
+
+          {/* Right: selected tab detail */}
+          <section className="min-w-0">
+            {selected ? (
+              <TabDetail
+                tab={selected}
+                products={s.products}
+                busy={busy}
+                onAddItems={() => setAdding(true)}
+                onCancel={() => cancelTab(selected)}
+              />
+            ) : (
+              <div className="rounded-2xl border border-slate-100 bg-white p-6 text-center text-slate-500">
+                Pick a tab on the left to see its items.
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      <Catalog
+        open={adding}
+        onClose={() => setAdding(false)}
+        title={selected ? `Add to ${tabTitle(selected)}` : "Add items"}
+        addLabel="Add to tab"
+        onAdd={async (picks) => {
+          const ok = await addItems(picks);
+          if (ok) setAdding(false);
+          return ok;
+        }}
+      />
     </Page>
+  );
+}
+
+function AddedByTag({ by }: { by: OrderSource }) {
+  if (by === "admin")
+    return (
+      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-red-700">
+        Added by admin
+      </span>
+    );
+  if (by === "waiter")
+    return (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
+        Added by waiter
+      </span>
+    );
+  return (
+    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+      From customer
+    </span>
+  );
+}
+
+function TabDetail({
+  tab,
+  products,
+  busy,
+  onAddItems,
+  onCancel,
+}: {
+  tab: Tab;
+  products: Product[];
+  busy: boolean;
+  onAddItems: () => void;
+  onCancel: () => void;
+}) {
+  const { session, lines, total, fresh, home, mode, readyToBill, note, guest, phone } = tab;
+  const skin = SKIN[mode];
+
+  return (
+    <div className={cx("rounded-2xl border-2 p-5 shadow-[0_2px_12px_-6px_rgba(15,23,42,.1)]", skin.card)}>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
+        <div className="min-w-0">
+          <h2 className="flex flex-wrap items-center gap-2 text-[20px] font-extrabold text-slate-900">
+            <span className={cx("grid h-8 w-8 shrink-0 place-items-center rounded-lg", skin.chip)}>
+              <Icon name={skin.icon} size={16} />
+            </span>
+            {tabTitle(tab)}
+            <span className={cx("rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide", skin.chip)}>{skin.label}</span>
+            {fresh > 0 && !home && (
+              <span className="adm-pulse inline-flex rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                New · {fresh}
+              </span>
+            )}
+          </h2>
+          <p className="truncate text-[12.5px] text-slate-500">
+            {guest || "Guest"} · {phone || "No number"} · opened {fmtTime(session.openedAt)} · running total {rupee(total)}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {/* A home order is exactly what the customer ordered and paid for —
+              there is no table to walk back to with an extra plate, so nothing
+              can be added to it here. */}
+          {!home && (
+            <Btn kind="soft" icon="plus" disabled={busy} onClick={onAddItems}>
+              Add items from inventory
+            </Btn>
+          )}
+          <Btn kind="plain" icon="x" disabled={busy} onClick={onCancel}>
+            Cancel {home ? "order" : "tab"}
+          </Btn>
+          <Link
+            href={`/admin/billing?tab=${encodeURIComponent(session.id)}`}
+            className={cx(
+              "inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-[12.5px] font-extrabold uppercase tracking-wide text-white",
+              home && readyToBill ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-900 hover:bg-slate-800",
+            )}
+          >
+            <Icon name="billing" size={14} /> {home ? "Bill & send invoice" : "Complete in Billing"}
+          </Link>
+        </div>
+      </header>
+
+      {home && (
+        <p
+          className={cx(
+            "mt-4 rounded-xl px-4 py-3 text-[12.5px] leading-snug",
+            readyToBill ? "bg-emerald-100 text-emerald-900" : "bg-white/70 text-slate-600",
+          )}
+        >
+          {readyToBill
+            ? "Cooked and packed. Bill it now — closing the bill issues the invoice number and sends it to the customer."
+            : "The kitchen is still working on this one. It can be billed once every item is marked ready."}{" "}
+          Items can&apos;t be added to a {skin.label.toLowerCase()} order.
+        </p>
+      )}
+
+      {note && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <b className="block text-[10.5px] font-black uppercase tracking-wide text-amber-700">Customer&rsquo;s remark</b>
+          <p className="text-[13px] leading-snug text-amber-900">{note}</p>
+        </div>
+      )}
+
+      <div className="mt-5">
+        <h3 className="mb-2 text-[11.5px] font-bold uppercase tracking-[0.14em] text-slate-500">Items on this tab</h3>
+        {lines.length ? (
+          <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-100">
+            {lines.map((i, k) => {
+              const p = products.find((x) => x.id === i.productId);
+              return (
+                <li key={k} className="flex items-center gap-3 bg-white px-4 py-3">
+                  {p?.image ? (
+                    <img src={p.image} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
+                  ) : (
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-[15px] font-bold text-slate-400">
+                      {i.name[0]}
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <b className="truncate text-[14px] text-slate-900">{i.name}</b>
+                      <AddedByTag by={i.addedBy} />
+                    </div>
+                    <p className="truncate text-[11.5px] text-slate-500">{rupee(i.price)} each</p>
+                    {i.notes && <p className="truncate text-[11.5px] font-semibold italic text-amber-700">{i.notes}</p>}
+                  </div>
+                  <span className="shrink-0 rounded-lg bg-slate-100 px-3 py-1 text-[13px] font-extrabold text-slate-800">×{i.qty}</span>
+                  <b className="adm-num w-24 shrink-0 text-right text-[14px] text-slate-900">{rupee(i.price * i.qty)}</b>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-[13px] text-slate-500">This tab is open with no items yet. Use &ldquo;Add items from inventory&rdquo; to put the first ones on.</p>
+        )}
+      </div>
+
+      {!home && (
+        <p className="mt-4 text-[11.5px] text-slate-400">
+          Adding items saves to the tab — it doesn&apos;t close it. Hit &ldquo;Complete in Billing&rdquo; when the guest is ready to pay.
+        </p>
+      )}
+    </div>
   );
 }

@@ -1,193 +1,329 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { Coupon } from "./types";
-import { couponStatus, rupee } from "./money";
-import { useAdmin } from "./Store";
-import { Btn, Empty, Icon, Page, PageHead, SearchBox, cx, labelCls } from "./kit";
+import React, { useMemo, useState, useSyncExternalStore } from "react";
+import { Pagination, usePagination } from "../../components/Pagination";
+import {
+  Coupon,
+  getCouponsSnapshot,
+  getCouponsServerSnapshot,
+  subscribeToCoupons,
+  addCoupon,
+  updateCoupon,
+  deleteCoupon,
+  recordCouponSent,
+  codeExists,
+  isExpired,
+  remainingUses,
+} from "../../lib/couponStore";
+import { publicLink, publicLinkIsLocalOnly } from "../../lib/publicUrl";
+import { BRAND } from "../../lib/brand";
+import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, WaIcon, inputCls, cx } from "./kit";
 
-type Form = { id?: string; code: string; percent: string; minOrder: string; expiresAt: string; limit: string; active: boolean };
-const EMPTY: Form = { code: "", percent: "", minOrder: "", expiresAt: "", limit: "", active: true };
-
-const field = "h-12 w-full rounded-xl bg-slate-50 px-4 text-[14px] font-medium text-slate-900 outline-none ring-slate-100 transition placeholder:text-slate-400 focus:bg-white focus:ring-4";
-const STATUS = {
-  active: ["Active", "text-emerald-600"],
-  expired: ["Expired", "text-red-600"],
-  exhausted: ["Used up", "text-red-600"],
-  paused: ["Paused", "text-slate-500"],
-} as const;
-
-function gen() {
-  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const r = new Uint32Array(7);
-  crypto.getRandomValues(r);
-  return Array.from(r, (n) => A[n % A.length]).join("");
+function randomCode(len = 7) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
 }
 
-const ddmmyyyy = (d: string) => {
-  const [y, m, day] = d.split("-").map(Number);
-  return `${day}/${m}/${y}`;
-};
+function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className={cx("relative h-6 w-11 shrink-0 rounded-full transition-colors", on ? "bg-emerald-500" : "bg-slate-300")}
+    >
+      <span className={cx("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", on ? "translate-x-5" : "translate-x-0.5")} />
+    </button>
+  );
+}
 
-/* The form sits on the left and is always open; the list sits on the right. Editing a
-   coupon loads it into the same form. */
+const blankForm = { code: "", discountPercent: "", minOrder: "", expiry: "", usageLimit: "", active: true, targetedOnly: false };
+
 export default function CouponsPage() {
-  const { s, act, confirm, toast, refresh } = useAdmin();
-  const [f, setF] = useState<Form>(EMPTY);
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const coupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
+  const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<typeof blankForm>(blankForm);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState<Coupon | null>(null);
 
-  const save = async (e: React.FormEvent) => {
+  const sorted = useMemo(
+    () => [...coupons].sort((a, b) => b.createdAt - a.createdAt).filter((c) => c.code.toLowerCase().includes(search.trim().toLowerCase())),
+    [coupons, search],
+  );
+
+  const pager = usePagination(sorted, 6, search);
+
+  const resetForm = () => {
+    setForm(blankForm);
+    setEditingId(null);
+    setError(null);
+  };
+
+  const startEdit = (c: Coupon) => {
+    setEditingId(c.id);
+    setError(null);
+    setForm({
+      code: c.code,
+      discountPercent: String(c.discountPercent),
+      minOrder: String(c.minOrder),
+      expiry: c.expiry,
+      usageLimit: String(c.usageLimit || ""),
+      active: c.active,
+      targetedOnly: c.targetedOnly,
+    });
+  };
+
+  const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
-    const r = await act<Coupon>("coupon.save", { ...f, limit: f.limit || null, minOrder: f.minOrder || 0 });
-    setBusy(false);
-    if (r.ok) {
-      toast({ kind: "ok", title: f.id ? `${r.result.code} updated` : `${r.result.code} created — it's ready in Billing.` });
-      setF(EMPTY);
+    const code = form.code.trim().toUpperCase();
+    const pct = Number(form.discountPercent);
+    if (!code) {
+      setError("Coupon code is required.");
+      return;
     }
-  };
-
-  const edit = (c: Coupon) => {
-    setF({ id: c.id, code: c.code, percent: String(c.percent), minOrder: c.minOrder ? String(c.minOrder) : "", expiresAt: c.expiresAt ?? "", limit: c.limit === null ? "" : String(c.limit), active: c.active });
-    // on a phone the form is above the list, so bring it into view
-    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
-  const remove = async (c: Coupon) => {
-    if (await confirm({ title: `Delete ${c.code}?`, body: "Past bills keep the coupon code on record.", ok: "Delete", danger: true })) {
-      const r = await act("coupon.delete", { id: c.id });
-      if (r.ok && f.id === c.id) setF(EMPTY);
+    if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+      setError("Discount % must be between 1 and 100.");
+      return;
     }
+    if (codeExists(code, editingId ?? undefined)) {
+      setError(`Code “${code}” already exists.`);
+      return;
+    }
+    const payload = {
+      code,
+      discountPercent: pct,
+      minOrder: Math.max(0, Number(form.minOrder) || 0),
+      expiry: form.expiry,
+      usageLimit: Math.max(0, Number(form.usageLimit) || 0),
+      active: form.active,
+      targetedOnly: form.targetedOnly,
+    };
+    if (editingId) updateCoupon(editingId, payload);
+    else addCoupon(payload);
+    resetForm();
   };
-
-  const list = s.coupons.filter((c) => !q || c.code.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <Page>
-      <PageHead
-        title="Coupon Management"
-        right={
-          <Btn icon="refresh" onClick={() => refresh()} className="h-10">
-            Refresh
-          </Btn>
-        }
-      />
+      <PageHead title="Coupons" sub="Discount applies to product subtotal only — not delivery charge or tax." bar />
 
-      <p className="mb-6 rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-[13px] font-semibold text-sky-700">
-        Coupon discount applies to the product subtotal only — not extra charges or GST. Guests can enter a code from their phone; staff can apply one in Billing.
-      </p>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* Form */}
+        <Card title={editingId ? "Edit coupon" : "New coupon"} right={editingId && <Btn kind="plain" size="sm" onClick={resetForm}>Cancel edit</Btn>}>
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <Field label="Coupon code *">
+              <div className="flex gap-2">
+                <input
+                  value={form.code}
+                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
+                  placeholder="E.G. SUMMER20"
+                  className={cx(inputCls, "font-bold uppercase tracking-wide")}
+                />
+                <Btn kind="red" icon="zap" onClick={() => setForm((f) => ({ ...f, code: randomCode() }))}>Generate</Btn>
+              </div>
+            </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Discount % *">
+                <input value={form.discountPercent} onChange={(e) => setForm((f) => ({ ...f, discountPercent: e.target.value }))} type="number" min="1" max="100" placeholder="e.g. 15" className={inputCls} />
+              </Field>
+              <Field label="Min order (KD)">
+                <input value={form.minOrder} onChange={(e) => setForm((f) => ({ ...f, minOrder: e.target.value }))} type="number" min="0" step="0.001" placeholder="e.g. 5" className={inputCls} />
+              </Field>
+              <Field label="Expiry date">
+                <input value={form.expiry} onChange={(e) => setForm((f) => ({ ...f, expiry: e.target.value }))} type="date" className={inputCls} />
+              </Field>
+              <Field label="Usage limit">
+                <input value={form.usageLimit} onChange={(e) => setForm((f) => ({ ...f, usageLimit: e.target.value }))} type="number" min="0" placeholder="0 = ∞" className={inputCls} />
+              </Field>
+            </div>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        {/* ---------- new / edit ---------- */}
-        <section className="scroll-mt-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_2px_12px_-4px_rgba(15,23,42,.1)] sm:p-8">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-[18px] font-bold text-slate-900">
-              {f.id ? (
-                <>
-                  <Icon name="edit" size={17} /> Edit {f.code || "coupon"}
-                </>
-              ) : (
-                <>
-                  <Icon name="plus" size={18} /> New Coupon
-                </>
-              )}
-            </h2>
-            {f.id && (
-              <button type="button" onClick={() => setF(EMPTY)} className="text-[12.5px] font-bold text-slate-500 hover:text-slate-900">
-                Cancel edit
-              </button>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} className="accent-red-600" /> Active
+            </label>
+
+            <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-slate-800">Only for customers it&apos;s sent to</p>
+                <p className="mt-0.5 text-xs text-slate-500">Works only for the mobile numbers you send it to from this page.</p>
+              </div>
+              <Switch on={form.targetedOnly} onChange={(v) => setForm((f) => ({ ...f, targetedOnly: v }))} />
+            </div>
+
+            {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{error}</p>}
+            <Btn
+              kind="red"
+              size="lg"
+              className="w-full"
+              onClick={() => {
+                const f = (document.activeElement as HTMLElement)?.closest("form") as HTMLFormElement | null;
+                f?.requestSubmit();
+              }}
+            >
+              {editingId ? "Save changes" : "Create coupon"}
+            </Btn>
+          </form>
+        </Card>
+
+        {/* List */}
+        <Card title={`All coupons (${coupons.length})`}>
+          <SearchBox value={search} onChange={setSearch} placeholder="Search coupons by code…" className="mb-4" />
+          <div className="adm-scroll flex max-h-[560px] flex-col gap-3 overflow-y-auto pr-1">
+            {sorted.length === 0 ? (
+              <Empty icon="coupon" title="No coupons found." />
+            ) : (
+              pager.items.map((c) => {
+                const expired = isExpired(c);
+                const rem = remainingUses(c);
+                return (
+                  <div key={c.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="font-black tracking-wide text-slate-900">{c.code}</p>
+                          {c.active ? <Badge tone="green">Active</Badge> : <Badge tone="slate">Inactive</Badge>}
+                          {c.targetedOnly && (
+                            <Badge tone="amber">
+                              Only {c.sentPhones.length} {c.sentPhones.length === 1 ? "phone" : "phones"}
+                            </Badge>
+                          )}
+                          {expired && <Badge tone="red">Expired</Badge>}
+                        </div>
+                        <p className="mt-1 text-sm font-bold text-emerald-600">
+                          {c.discountPercent}% off · min KD {c.minOrder.toFixed(3)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Used {c.usedCount} {c.usageLimit ? `of ${c.usageLimit}` : "times"}
+                          {c.expiry ? ` · expires ${new Date(c.expiry).toLocaleDateString()}` : " · no expiry"}
+                          {c.sentPhones.length > 0 ? ` · sent ${c.sentPhones.length}×` : ""}
+                          {rem !== null && rem <= 0 ? " · limit reached" : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Btn kind="green" size="sm" onClick={() => setSending(c)}>
+                        <WaIcon size={14} /> Send
+                      </Btn>
+                      <Btn kind={c.active ? "red" : "soft"} size="sm" onClick={() => updateCoupon(c.id, { active: !c.active })}>
+                        {c.active ? "Active" : "Inactive"}
+                      </Btn>
+                      <Btn kind="plain" size="sm" icon="edit" onClick={() => startEdit(c)} />
+                      <Btn
+                        kind="plain"
+                        size="sm"
+                        icon="trash"
+                        className="text-red-600"
+                        onClick={() => {
+                          if (editingId === c.id) resetForm();
+                          deleteCoupon(c.id);
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
-
-          <form ref={formRef} onSubmit={save} className="space-y-5">
-            <label className="block">
-              <span className={labelCls}>Coupon code *</span>
-              <span className="relative block">
-                <input
-                  className={cx(field, "pr-28 uppercase")}
-                  placeholder="E.G. SUMMER20"
-                  value={f.code}
-                  maxLength={24}
-                  onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
-                  required
-                />
-                <button type="button" onClick={() => setF({ ...f, code: gen() })} className="absolute right-2 top-1/2 h-8 -translate-y-1/2 rounded-lg bg-red-600 px-4 text-[12.5px] font-bold text-white hover:bg-red-700">
-                  Generate
-                </button>
-              </span>
-            </label>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <label className="block">
-                <span className={labelCls}>Discount % *</span>
-                <input className={field} type="number" min={1} max={100} step="0.5" placeholder="e.g. 15" value={f.percent} onChange={(e) => setF({ ...f, percent: e.target.value })} required />
-              </label>
-              <label className="block">
-                <span className={labelCls}>Min order (₹)</span>
-                <input className={field} type="number" min={0} placeholder="e.g. 1000" value={f.minOrder} onChange={(e) => setF({ ...f, minOrder: e.target.value })} />
-              </label>
-              <label className="block">
-                <span className={labelCls}>Expiry date</span>
-                <input className={field} type="date" value={f.expiresAt} onChange={(e) => setF({ ...f, expiresAt: e.target.value })} />
-              </label>
-              <label className="block">
-                <span className={labelCls}>Usage limit</span>
-                <input className={field} type="number" min={1} placeholder="e.g. 50" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value })} />
-              </label>
-            </div>
-            <button
-              type="submit"
-              disabled={busy}
-              className="h-12 w-full rounded-xl bg-red-600 text-[14px] font-extrabold uppercase tracking-wide text-white shadow-[0_8px_20px_-10px_rgba(215,38,61,.9)] transition hover:bg-red-700 active:scale-[.99] disabled:opacity-50"
-            >
-              {busy ? "Saving…" : f.id ? "Save changes" : "Create coupon"}
-            </button>
-          </form>
-        </section>
-
-        {/* ---------- list ---------- */}
-        <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-[0_2px_12px_-4px_rgba(15,23,42,.1)] sm:p-8">
-          <h2 className="mb-4 text-[18px] font-bold text-slate-900">All Coupons ({s.coupons.length})</h2>
-          <SearchBox value={q} onChange={setQ} placeholder="Search coupons by code…" className="mb-5 h-11 w-full rounded-xl" />
-          {!list.length ? (
-            <Empty icon="coupon" title={s.coupons.length ? "No coupons match" : "No coupons yet"}>
-              {s.coupons.length ? null : "Create one — guests and staff can use it straight away."}
-            </Empty>
-          ) : (
-            <ul className="adm-scroll -mr-2 max-h-[560px] space-y-4 overflow-y-auto pr-2">
-              {list.map((c) => {
-                const st = couponStatus(c);
-                return (
-                  <li key={c.id} className={cx("rounded-2xl border bg-slate-50/60 p-4 transition", f.id === c.id ? "border-slate-400" : "border-slate-100")}>
-                    <div className="flex items-start justify-between gap-3">
-                      <b className="min-w-0 truncate text-[15px] tracking-wide text-slate-900">{c.code}</b>
-                      <span className="flex shrink-0 gap-3 text-[11px] font-extrabold uppercase">
-                        <button type="button" className="text-slate-500 hover:text-slate-900" onClick={() => act("coupon.save", { ...c, active: !c.active })}>
-                          {c.active ? "Pause" : "Resume"}
-                        </button>
-                        <button type="button" className="text-sky-700 hover:underline" onClick={() => edit(c)}>
-                          Edit
-                        </button>
-                        <button type="button" className="text-red-600 hover:underline" onClick={() => remove(c)}>
-                          Del
-                        </button>
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[13px] font-semibold text-emerald-700">
-                      {c.percent}% off{c.minOrder ? ` · min ${rupee(c.minOrder)}` : ""}
-                    </p>
-                    <p className="mt-1 text-[11.5px] text-slate-500">
-                      {c.limit === null ? "Unlimited" : `${Math.max(0, c.limit - c.used)} remaining`} · used {c.used}× · {c.expiresAt ? `expires ${ddmmyyyy(c.expiresAt)}` : "no expiry"}
-                    </p>
-                    <p className={cx("mt-1 text-[11.5px] font-bold", STATUS[st][1])}>{STATUS[st][0]}</p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+          <Pagination p={pager} label="coupons" />
+        </Card>
       </div>
+
+      {sending && <SendModal coupon={sending} onClose={() => setSending(null)} />}
     </Page>
+  );
+}
+
+function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void }) {
+  const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
+  const [onlyThis, setOnlyThis] = useState(coupon.targetedOnly);
+  const [err, setErr] = useState<string | null>(null);
+  // No public site configured → we leave the link out rather than sending the
+  // customer a localhost URL that can never open.
+  const localOnly = publicLinkIsLocalOnly();
+
+  const send = async () => {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 8) {
+      setErr("Enter a valid WhatsApp number.");
+      return;
+    }
+    // Link the number to the coupon FIRST. If that can't be saved, a targeted
+    // coupon would reach the customer and then refuse to work — so we stop and
+    // say why instead of sending it.
+    const linked = await recordCouponSent(coupon.id, phone, onlyThis);
+    if (!linked.ok && onlyThis) {
+      setErr(linked.error ?? "Could not link that number to this coupon.");
+      return;
+    }
+    const validTill = coupon.expiry ? new Date(coupon.expiry).toLocaleDateString() : "";
+    // Built from NEXT_PUBLIC_SITE_URL, not window.location — a link sent from a
+    // laptop on localhost has to open on the customer's phone.
+    const link = localOnly ? "" : publicLink(`/coupon/${encodeURIComponent(coupon.code)}`);
+    const greet = name ? `Hi ${name}! \u{1F44B}` : "Hi! \u{1F44B}";
+    const lines = [
+      greet,
+      `Here's a *${coupon.discountPercent}% OFF* coupon from *${BRAND.name}*${validTill ? ` (valid till ${validTill})` : ""}.`,
+      "",
+      `Code: *${coupon.code}*`,
+      coupon.minOrder > 0 ? `Minimum order: KD ${coupon.minOrder.toFixed(3)}.` : "",
+      "Show it at billing, or enter it when you order from your phone.",
+      "",
+      link ? `Download your coupon: ${link}` : "",
+    ].filter(Boolean);
+    const msg = encodeURIComponent(lines.join("\n"));
+    const withCc = digits.length === 8 ? `965${digits}` : digits;
+    window.open(`https://wa.me/${withCc}?text=${msg}`, "_blank", "noopener,noreferrer");
+    onClose();
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Send coupon · ${coupon.code}`}>
+      <p className="text-sm text-slate-500">
+        The coupon goes to the customer&apos;s WhatsApp with its code and a link to order. It&apos;s recorded against their number here.
+      </p>
+
+      {localOnly && (
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+          No public site address is set, so the message will go out with the code only — no coupon link.
+          Set <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site to include one.
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-col gap-4">
+        <Field label="Customer phone (WhatsApp) *">
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter WhatsApp number" inputMode="tel" className={inputCls} />
+        </Field>
+        <Field label="Customer name">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" className={inputCls} />
+        </Field>
+
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-800">Only for this customer</p>
+            <p className="mt-0.5 text-xs text-slate-500">Restrict the coupon to the numbers it was sent to.</p>
+          </div>
+          <Switch on={onlyThis} onChange={setOnlyThis} />
+        </div>
+
+        {onlyThis && (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+            This coupon will only work for the phones it was sent to ({coupon.sentPhones.length} so far). Use a dedicated coupon for this.
+          </p>
+        )}
+
+        {err && <p className="text-sm font-semibold text-red-600">{err}</p>}
+
+        <div className="flex gap-2">
+          <Btn kind="plain" className="flex-1" onClick={onClose}>Cancel</Btn>
+          <Btn kind="green" className="flex-1" onClick={send}>
+            <WaIcon size={16} /> Send on WhatsApp
+          </Btn>
+        </div>
+      </div>
+    </Modal>
   );
 }

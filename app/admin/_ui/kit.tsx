@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { downloadXlsx, type XlsxSheet } from "../../lib/xlsx";
 
 /* Small admin UI kit — Tailwind classes, one place. */
 
@@ -577,49 +578,16 @@ export function downloadText(name: string, text: string, type = "text/csv;charse
 export const csv = (rows: (string | number)[][]) => rows.map((r) => r.map((c) => (/[",\n]/.test(String(c)) ? `"${String(c).replace(/"/g, '""')}"` : String(c))).join(",")).join("\n");
 
 /* ---------------- Excel export ----------------
-   A real Excel workbook, saved as .xls — SpreadsheetML 2003 XML, which every
-   modern Excel (Windows, Mac, mobile) and LibreOffice opens natively, with real
-   columns and number-typed cells. No library needed. Pass a single rows[][] for
-   one sheet, or [{name, rows}] for a multi-sheet workbook. */
-export type ExcelSheet = { name: string; rows: (string | number | null | undefined)[][] };
-
-const xmlEsc = (v: unknown) =>
-  String(v == null ? "" : v)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-const safeSheetName = (name: string, i: number) => (name || `Sheet${i + 1}`).replace(/[\\/?*[\]:]/g, "-").slice(0, 31);
-function excelCell(v: unknown) {
-  if (v == null || v === "") return `<Cell><Data ss:Type="String"></Data></Cell>`;
-  if (typeof v === "number" && Number.isFinite(v)) return `<Cell><Data ss:Type="Number">${v}</Data></Cell>`;
-  return `<Cell><Data ss:Type="String">${xmlEsc(v)}</Data></Cell>`;
-}
-
-export function excelWorkbook(sheets: ExcelSheet[]): string {
-  const parts: string[] = [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<?mso-application progid="Excel.Sheet"?>',
-    '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">',
-    '<Styles><Style ss:ID="h"><Font ss:Bold="1"/><Interior ss:Color="#F0F0F0" ss:Pattern="Solid"/></Style></Styles>',
-  ];
-  sheets.forEach((s, i) => {
-    parts.push(`<Worksheet ss:Name="${xmlEsc(safeSheetName(s.name, i))}"><Table>`);
-    s.rows.forEach((row, r) => {
-      const style = r === 0 ? ' ss:StyleID="h"' : "";
-      parts.push(`<Row${style}>${row.map(excelCell).join("")}</Row>`);
-    });
-    parts.push("</Table></Worksheet>");
-  });
-  parts.push("</Workbook>");
-  return parts.join("");
-}
+   A real .xlsx workbook, built in the browser with no dependency (see
+   app/lib/xlsx.ts). Pass a single rows[][] for one sheet, or [{name, rows}]
+   for a multi-sheet workbook; row 0 of each sheet is the frozen bold header. */
+export type ExcelSheet = XlsxSheet;
 
 export function downloadExcel(name: string, sheetsOrRows: ExcelSheet[] | (string | number | null | undefined)[][]) {
   const sheets: ExcelSheet[] = Array.isArray(sheetsOrRows[0]) && !("name" in (sheetsOrRows[0] as object))
     ? [{ name: "Sheet1", rows: sheetsOrRows as (string | number | null | undefined)[][] }]
     : (sheetsOrRows as ExcelSheet[]);
-  const xml = excelWorkbook(sheets);
-  const file = name.endsWith(".xls") || name.endsWith(".xlsx") ? name : `${name}.xls`;
-  downloadText(file, xml, "application/vnd.ms-excel;charset=utf-8");
+  // A real .xlsx (see app/lib/xlsx.ts) — Excel opens it without the "the file
+  // format doesn't match" warning the old SpreadsheetML .xls got.
+  downloadXlsx(name.replace(/\.xlsx?$/i, ""), sheets);
 }
