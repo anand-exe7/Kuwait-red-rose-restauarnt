@@ -96,6 +96,10 @@ export interface Order {
   mode?: OrderMode; // undefined on legacy orders → treated as 'table'
   discount?: number;   // coupon/manual discount applied (KD)
   couponCode?: string; // coupon used, if any
+  /** Delivery charge added on top of the goods (delivery mode only). Priced by
+   *  the server from the area's weight brackets, so it is on the order itself
+   *  and every screen — tab, bill, invoice, history — can show it. */
+  deliveryFee?: number;
   standingLabel?: string; // optional name/tag distinguishing walk-in parties (mode === 'standing')
   sessionId?: string;  // groups multiple orders into one dining session
   billed?: boolean;    // true after waiter closes the bill — only billed orders show in admin analytics
@@ -149,6 +153,7 @@ function fromRow(r: Record<string, unknown>): Order {
     mode,
     discount: r.discount == null ? undefined : Number(r.discount),
     couponCode: (r.coupon_code as string) ?? undefined,
+    deliveryFee: r.delivery_fee == null ? undefined : Number(r.delivery_fee),
     standingLabel: (r.standing_label as string) ?? undefined,
     sessionId: (r.session_id as string) ?? undefined,
     billed: (r.billed as boolean) ?? false,
@@ -173,6 +178,7 @@ function toRow(o: Order): Record<string, unknown> {
     mode: o.mode ?? 'table',
     discount: o.discount ?? null,
     coupon_code: o.couponCode ?? null,
+    delivery_fee: o.deliveryFee ?? 0,
     standing_label: o.standingLabel ?? null,
     session_id: o.sessionId ?? null,
     billed: o.billed ?? false,
@@ -384,6 +390,8 @@ export function addOrder(input: {
   mode?: OrderMode;
   discount?: number;
   couponCode?: string;
+  /** Delivery charge (delivery mode). The server re-prices it from the area. */
+  deliveryFee?: number;
   status?: OrderStatus;
   standingLabel?: string;
   sessionId?: string;
@@ -425,6 +433,7 @@ export function addOrder(input: {
     mode,
     discount: input.discount,
     couponCode: input.couponCode,
+    deliveryFee: input.deliveryFee,
     standingLabel: input.standingLabel,
     sessionId,
     customer: input.customer,
@@ -456,7 +465,7 @@ export function addOrder(input: {
 // migration applied yet, Supabase rejects the whole insert with "Unknown
 // column field ...". When we hit that, we retry once with those keys stripped
 // so the order still lands (minus the customer identity it couldn't persist).
-const OPTIONAL_ORDER_COLUMNS = ['user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address', 'note'] as const;
+const OPTIONAL_ORDER_COLUMNS = ['user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address', 'note', 'delivery_fee'] as const;
 let orderSchemaIsLegacy = false;
 
 async function insertOrderRow(row: Record<string, unknown>) {

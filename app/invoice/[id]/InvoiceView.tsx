@@ -21,17 +21,46 @@ import {
   subscribeToOrders,
   getOrdersSnapshot,
   getOrdersServerSnapshot,
-  orderLabel,
   type Order,
 } from "../../lib/orderStore";
-import { formatKWD } from "../../lib/currency";
-import OrderTracker from "./OrderTracker";
+
+/** What the bill was for, rebuilt from the session's own orders — used when
+ *  the bill row carries no payload, so the customer still sees their items
+ *  and their name instead of a blank invoice. */
+function fromSessionOrders(sessionId: string | null | undefined, orders: Order[]) {
+  if (!sessionId) return null;
+  const own = orders.filter((o) => o.sessionId === sessionId && o.status !== "cancelled");
+  if (own.length === 0) return null;
+  const lines = new Map<string, Bill["items"][number]>();
+  for (const o of own) {
+    for (const it of o.items) {
+      const key = `${it.id ?? it.name}@@${it.price}`;
+      const cur = lines.get(key);
+      if (cur) cur.qty += it.qty;
+      else lines.set(key, { productId: it.id ?? null, name: it.name, price: it.price, qty: it.qty, notes: it.notes ?? "" });
+    }
+  }
+  const items = [...lines.values()];
+  return {
+    items,
+    itemCount: items.reduce((a, i) => a + i.qty, 0),
+    customerName: own.map((o) => o.customer?.name).find(Boolean) || "",
+    customerPhone: own.map((o) => o.customer?.phone).find(Boolean) || "",
+    note: own.map((o) => o.note).find(Boolean) ?? "",
+    couponCode: own.map((o) => o.couponCode).find(Boolean) ?? null,
+    discount: own.reduce((a, o) => a + (o.discount ?? 0), 0),
+    // The delivery charge is on the order, so the customer's own invoice can
+    // show what they paid to have it brought round.
+    deliveryFee: own.reduce((a, o) => a + (o.deliveryFee ?? 0), 0),
+    mode: own[0]?.mode ?? "table",
+  };
+}
 
 /** Rebuild the admin Bill from a persisted billStore row. Prefers the rich
- *  payload the admin POS wrote; otherwise falls back to the thin columns
- *  (amounts only, no items). */
-function rehydrate(b: RrBill): Bill {
+ *  payload the admin POS wrote; otherwise rebuilds it from the orders. */
+function rehydrate(b: RrBill, orders: Order[] = []): Bill {
   const p = (b.payload ?? null) as Partial<Bill> | null;
+  const rebuilt = fromSessionOrders(b.sessionId, orders);
   const payment: Bill["payment"] =
     b.paidMethod === "cash" || b.paidMethod === "upi" || b.paidMethod === "card" || b.paidMethod === "split"
       ? b.paidMethod
@@ -42,6 +71,7 @@ function rehydrate(b: RrBill): Bill {
       id: b.id,
       invoiceNo,
       source: p.source ?? (b.sessionId ? "tab" : "counter"),
+      mode: p.mode ?? rebuilt?.mode ?? (b.sessionId ? "table" : "standing"),
       sessionId: b.sessionId ?? null,
       customerName: p.customerName ?? "",
       customerPhone: p.customerPhone ?? "",
@@ -56,6 +86,7 @@ function rehydrate(b: RrBill): Bill {
       manualValue: p.manualValue ?? 0,
       manualDiscount: p.manualDiscount ?? 0,
       discount: p.discount ?? b.discount ?? 0,
+      deliveryFee: p.deliveryFee ?? rebuilt?.deliveryFee ?? 0,
       total: p.total ?? b.total ?? 0,
       createdAt: b.createdAt,
       tax: p.tax ?? b.tax ?? 0,
@@ -79,20 +110,22 @@ function rehydrate(b: RrBill): Bill {
     id: b.id,
     invoiceNo,
     source: b.sessionId ? "tab" : "counter",
+    mode: rebuilt?.mode ?? (b.sessionId ? "table" : "standing"),
     sessionId: b.sessionId ?? null,
-    customerName: "",
-    customerPhone: "",
-    items: [],
-    itemCount: 0,
+    customerName: rebuilt?.customerName ?? "",
+    customerPhone: rebuilt?.customerPhone ?? "",
+    items: rebuilt?.items ?? [],
+    itemCount: rebuilt?.itemCount ?? 0,
     subtotal: b.subtotal ?? 0,
-    couponCode: b.couponCode ?? null,
+    couponCode: b.couponCode ?? rebuilt?.couponCode ?? null,
     couponPercent: 0,
-    couponDiscount: 0,
-    couponSource: null,
+    couponDiscount: (b.couponCode ?? rebuilt?.couponCode) ? (b.discount ?? rebuilt?.discount ?? 0) : 0,
+    couponSource: (b.couponCode ?? rebuilt?.couponCode) ? "guest" : null,
     manualType: "none",
     manualValue: 0,
-    manualDiscount: b.discount ?? 0,
-    discount: b.discount ?? 0,
+    manualDiscount: (b.couponCode ?? rebuilt?.couponCode) ? 0 : (b.discount ?? rebuilt?.discount ?? 0),
+    discount: b.discount ?? rebuilt?.discount ?? 0,
+    deliveryFee: rebuilt?.deliveryFee ?? 0,
     total: b.total ?? 0,
     createdAt: b.createdAt,
     tax: b.tax ?? 0,
@@ -109,7 +142,7 @@ function rehydrate(b: RrBill): Bill {
     received: b.total ?? 0,
     change: 0,
     extra: 0,
-    note: "",
+    note: rebuilt?.note ?? "",
   };
 }
 
@@ -172,20 +205,22 @@ export default function InvoiceView({ id }: { id: string }) {
     return () => clearTimeout(t);
   }, []);
 
+  // An order that exists but hasn't been billed yet has no invoice to show.
+  // We say so plainly rather than inventing a status page for it.
   if (!match && pending.length > 0) {
-    const first = pending[0];
-    const items = pending.flatMap((o) => o.items);
-    const total = pending.reduce((sum, o) => sum + o.total, 0);
     return (
-      <OrderTracker
-        orderNo={digits}
-        placedAt={first.createdAt}
-        status={worstStatus(pending)}
-        where={orderLabel(first)}
-        customerName={first.customer?.name ?? ""}
-        lines={items.map((i) => ({ name: i.name, qty: i.qty, amount: formatKWD(i.price * i.qty) }))}
-        total={formatKWD(total)}
-      />
+      <div className="rounded-3xl border border-[#c9a961]/30 bg-white px-6 py-10 text-center shadow-[0_18px_42px_-18px_rgba(74,21,21,0.3)]">
+        <p className="font-serif text-[22px] text-[#1a0f0a]">Order #{digits}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-[#6b5340]">
+          {BRAND.name} has your order. Your invoice appears here the moment the shop closes the bill.
+        </p>
+        <a
+          href="/menu"
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-full bg-[#b01e28] px-5 text-[12px] font-bold uppercase tracking-wide text-white"
+        >
+          Back to the menu
+        </a>
+      </div>
     );
   }
 
@@ -207,7 +242,7 @@ export default function InvoiceView({ id }: { id: string }) {
     );
   }
 
-  const bill = rehydrate(match);
+  const bill = rehydrate(match, orders);
 
   return (
     <div className="adm">
@@ -233,16 +268,3 @@ export default function InvoiceView({ id }: { id: string }) {
   );
 }
 
-/** The least-advanced status across a session's tickets — a session is only
- *  "ready" once every ticket on it is. */
-function worstStatus(list: Order[]): Order["status"] {
-  const rank: Record<Order["status"], number> = {
-    cancelled: -1,
-    awaiting_admin: 0,
-    pending: 1,
-    cooking: 2,
-    ready: 3,
-    served: 4,
-  };
-  return list.reduce((worst, o) => (rank[o.status] < rank[worst] ? o.status : worst), list[0].status);
-}

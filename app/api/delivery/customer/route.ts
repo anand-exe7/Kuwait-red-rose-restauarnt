@@ -38,13 +38,13 @@ async function checkout(sb: NonNullable<ReturnType<typeof getServerSupabase>>, c
   const method = body.paymentMethod === 'online' ? 'online' : 'cod';
 
   // Items and coupon are priced from the database, never from the browser.
-  const { items, subtotal } = await priceItems(sb, body.items, { admin: false });
+  const { items, subtotal, grams } = await priceItems(sb, body.items, { admin: false });
   const addrPhone = isObj(body.address) ? (body.address as Record<string, unknown>).phone : undefined;
   const coupon = await checkCoupon(sb, body.couponCode, subtotal, addrPhone);
   const discount = coupon?.discount ?? 0;
 
   // Area / distance, fee, hours, busy switch, minimum order: all decided here.
-  const { quote, settings, area } = await buildQuote(sb, target, subtotal);
+  const { quote, settings, area } = await buildQuote(sb, target, subtotal, grams);
   if (!quote.ok) throw bad(quote.reason ?? 'Delivery is not available');
   const address = cleanAddress(body.address, area?.name);
   const lat = target.lat ?? null;

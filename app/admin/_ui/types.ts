@@ -28,6 +28,9 @@ export interface Product {
   category: string;
   price: number;
   stock: number | null;
+  /** What one of these weighs, in grams — delivery is priced by basket weight.
+   *  null = not set, so it counts as 0 g. */
+  weightGrams: number | null;
   lowAt: number;
   description: string;
   image: string;
@@ -85,6 +88,11 @@ export interface Order {
   status: OrderStatus;
   source: OrderSource;
   subtotal: number;
+  /** Discount already applied to this ticket (a coupon the guest used). */
+  discount: number;
+  couponCode: string | null;
+  /** Delivery charge on this ticket — 0 for anything but a delivery. */
+  deliveryFee: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -96,6 +104,9 @@ export interface Bill {
   id: string;
   invoiceNo: string;
   source: BillSource;
+  /** How the food left the shop. Analytics splits income by this, so a bill
+   *  always carries it, rebuilt from the session's orders for older rows. */
+  mode: OrderMode;
   sessionId: string | null;
   customerName: string;
   customerPhone: string;
@@ -110,6 +121,8 @@ export interface Bill {
   manualValue: number;
   manualDiscount: number;
   discount: number;         // total discount applied (coupon + manual)
+  /** Delivery charge billed on top of the goods. */
+  deliveryFee: number;
   total: number;
   createdAt: number;
   tax: number;

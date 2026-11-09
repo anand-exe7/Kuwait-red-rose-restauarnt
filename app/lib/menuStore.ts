@@ -36,6 +36,9 @@ export interface MenuItem {
   lowStockThreshold?: number;
   sku?: string;
   cost?: number;
+  /** What ONE of these weighs, in grams. Delivery is priced by the weight of
+   *  the basket, so this is what decides the fee (see delivery weight tiers). */
+  weightGrams?: number;
   createdAt: number;
 }
 
@@ -57,6 +60,7 @@ function fromRow(r: Record<string, unknown>): MenuItem {
     lowStockThreshold: r.low_stock_threshold == null ? undefined : Number(r.low_stock_threshold),
     sku: (r.sku as string) ?? undefined,
     cost: r.cost == null ? undefined : Number(r.cost),
+    weightGrams: r.weight_grams == null ? undefined : Number(r.weight_grams),
     createdAt: Number(r.created_at),
   };
 }
@@ -79,6 +83,7 @@ function toRow(m: Partial<MenuItem>): Record<string, unknown> {
   if (m.lowStockThreshold !== undefined) row.low_stock_threshold = m.lowStockThreshold;
   if (m.sku !== undefined) row.sku = m.sku;
   if (m.cost !== undefined) row.cost = m.cost;
+  if (m.weightGrams !== undefined) row.weight_grams = m.weightGrams;
   if (m.createdAt !== undefined) row.created_at = m.createdAt;
   return row;
 }
@@ -95,6 +100,7 @@ function isMissingColumnError(msg: string): boolean {
 function stripNewMenuColumns(row: Record<string, unknown>): Record<string, unknown> {
   const clean = { ...row };
   delete clean.is_best_seller;
+  delete clean.weight_grams;
   return clean;
 }
 async function writeMenu(op: 'insert' | 'update' | 'delete', values: Record<string, unknown>, match?: Record<string, string>) {
@@ -102,7 +108,10 @@ async function writeMenu(op: 'insert' | 'update' | 'delete', values: Record<stri
   const res = await write({ table: 'menu_items', op, values: payload, match });
   if (res.error && isMissingColumnError(res.error.message || '')) {
     menuSchemaIsLegacy = true;
-    console.warn('[menu] is_best_seller column missing — apply supabase/best_seller.sql to enable Best Sellers. Saving without it for now.');
+    console.warn(
+      '[menu] a newer column is missing — apply supabase/best_seller.sql (best sellers) and ' +
+      'supabase/delivery_weight_tiers.sql (product weight). Saving without them for now.',
+    );
     return write({ table: 'menu_items', op, values: stripNewMenuColumns(values), match });
   }
   return res;

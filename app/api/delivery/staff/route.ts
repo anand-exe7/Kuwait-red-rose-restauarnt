@@ -4,7 +4,7 @@ import { getServerSupabase } from '../../../lib/supabaseServer';
 import { HttpError, bad, deny, int, isObj, num, optStr, readJson, respond, str, unauthorized } from '../../../lib/server/http';
 import { clearSettingsCache, loadAreas, loadSettings } from '../../../lib/delivery/server';
 import { getDeliveryRow, getOrderRow, hydrate, newId, type Row } from '../../../lib/delivery/service';
-import { DEFAULT_SETTINGS, rowToSettings, settingsToRow, type DeliverySettings } from '../../../lib/delivery/shared';
+import { DEFAULT_SETTINGS, parseTiers, rowToSettings, settingsToRow, type DeliverySettings } from '../../../lib/delivery/shared';
 import { hashPin } from '../../../lib/server/driverAuth';
 import { refundPayment } from '../../../lib/payments';
 
@@ -178,15 +178,38 @@ export async function POST(request: NextRequest) {
       const fee = num(body.fee, 0, 1000, 'fee');
       const minOrder = body.minOrder === null || body.minOrder === undefined || body.minOrder === ''
         ? null : num(body.minOrder, 0, 10000, 'minimum order');
-      const row = { name, fee, min_order: minOrder, active: body.active !== false, sort: int(body.sort ?? 0, 0, 100000, 'order') };
+      // Weight brackets are normalised here, not trusted: each one is
+      // {minG, maxG|null, fee}, sorted, with at most 20 per area.
+      const tiers = parseTiers(body.tiers).slice(0, 20);
+      const row: Record<string, unknown> = {
+        name,
+        fee,
+        min_order: minOrder,
+        active: body.active !== false,
+        sort: int(body.sort ?? 0, 0, 100000, 'order'),
+        tiers,
+      };
+      // `tiers` needs supabase/delivery_weight_tiers.sql. Until it is applied
+      // the area still saves — minus the brackets.
+      const withoutTiers = () => {
+        const { tiers: _drop, ...rest } = row;
+        return rest;
+      };
+      const missingTiers = (m: string) => /tiers|schema cache|could not find the .* column/i.test(m || '');
       if (typeof body.id === 'string' && body.id) {
-        const { error } = await sb.from('delivery_areas').update(row).eq('id', body.id);
-        if (error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
+        let res = await sb.from('delivery_areas').update(row).eq('id', body.id);
+        if (res.error && missingTiers(res.error.message)) {
+          res = await sb.from('delivery_areas').update(withoutTiers()).eq('id', body.id);
+        }
+        if (res.error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
         return { id: body.id };
       }
       const id = newId('AR');
-      const { error } = await sb.from('delivery_areas').insert({ id, ...row, created_at: Date.now() });
-      if (error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
+      let res = await sb.from('delivery_areas').insert({ id, ...row, created_at: Date.now() });
+      if (res.error && missingTiers(res.error.message)) {
+        res = await sb.from('delivery_areas').insert({ id, ...withoutTiers(), created_at: Date.now() });
+      }
+      if (res.error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
       return { id };
     }
 
