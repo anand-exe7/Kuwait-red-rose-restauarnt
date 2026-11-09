@@ -104,8 +104,8 @@ export default function MapPinPicker({ value, center, onChange }: Props) {
         <div ref={box} className="w-full h-64 rounded-2xl overflow-hidden border border-brand-gold/30 bg-brand-ink/5" />
       ) : (
         <div className="rounded-2xl border border-dashed border-brand-gold/40 bg-white p-4 text-sm text-brand-ink/70">
-          <p className="font-bold text-brand-ink mb-1">Map not configured</p>
-          <p className="mb-3">Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> to show the map. Until then, use your location or type coordinates.</p>
+          <p className="font-bold text-brand-ink mb-1">Pick your location</p>
+          <p className="mb-3">Use your current location, or type the coordinates below.</p>
           <div className="grid grid-cols-2 gap-2 mb-2">
             <input inputMode="decimal" placeholder="Latitude" value={manual.lat} onChange={(e) => setManual({ ...manual, lat: e.target.value })} className="px-3 py-2 rounded-xl border border-brand-gold/30" />
             <input inputMode="decimal" placeholder="Longitude" value={manual.lng} onChange={(e) => setManual({ ...manual, lng: e.target.value })} className="px-3 py-2 rounded-xl border border-brand-gold/30" />

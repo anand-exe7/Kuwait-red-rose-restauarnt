@@ -10,13 +10,17 @@ import { createRealtimeStore } from './createRealtimeStore';
 import { write } from './dbWrite';
 
 export interface HomeMedia {
-  gallery: string[];      // up to 10 photos
-  videos: string[];       // up to 4 videos
+  gallery: string[];      // up to 4 photos — one row on the homepage
+  videos: string[];       // up to 4 videos — one row on the homepage
   finest: string[];       // Kuwait's Finest Flavours — 4 photos
   celebrations: string;   // "Made for Celebrations" photo
+  /** Caption shown on a gallery photo ("Our counter", "Fresh from the oven").
+   *  Keyed by the photo's URL rather than its position, so reordering or
+   *  deleting one never moves somebody else's caption onto it. */
+  captions: Record<string, string>;
 }
 
-export const EMPTY_HOME_MEDIA: HomeMedia = { gallery: [], videos: [], finest: [], celebrations: '' };
+export const EMPTY_HOME_MEDIA: HomeMedia = { gallery: [], videos: [], finest: [], celebrations: '', captions: {} };
 
 export const HOME_MEDIA_LIMITS = { gallery: 4, videos: 4, finest: 4 } as const;
 
@@ -31,6 +35,13 @@ function fromRow(r: Record<string, unknown>): Row {
       videos: Array.isArray(v.videos) ? v.videos.filter(x => typeof x === 'string') : [],
       finest: Array.isArray(v.finest) ? v.finest.filter(x => typeof x === 'string') : [],
       celebrations: typeof v.celebrations === 'string' ? v.celebrations : '',
+      captions: v.captions && typeof v.captions === 'object'
+        ? Object.fromEntries(
+            Object.entries(v.captions as Record<string, unknown>)
+              .filter(([, t]) => typeof t === 'string')
+              .map(([k, t]) => [k, String(t)]),
+          )
+        : {},
     },
   };
 }

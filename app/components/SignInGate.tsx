@@ -54,7 +54,7 @@ export default function SignInGate({
     if (!ok) {
       setGoogleBusy(false);
       setGoogleError(
-        'Google sign-in is not available on this deploy. Check that NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set on Vercel, that Google is enabled in Supabase → Authentication → Providers, and that this origin is in the Redirect URLs list.'
+        'Google sign-in isn\u2019t available right now. Please try again in a moment.'
       );
       return;
     }
@@ -86,7 +86,7 @@ export default function SignInGate({
 
         {!configured ? (
           <p className="mt-6 rounded-xl border border-brand-red/30 bg-brand-red/5 px-3 py-3 font-body text-[12px] leading-relaxed text-brand-red">
-            Sign-in is not configured on this deploy. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to Vercel, and enable Google in Supabase → Authentication → Providers.
+            Sign-in isn&rsquo;t available right now. Please try again later.
           </p>
         ) : (
           <>

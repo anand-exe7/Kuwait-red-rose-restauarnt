@@ -106,10 +106,14 @@ function CouponCard({ coupon }: { coupon: Coupon }) {
     <div className="cpn-rise overflow-hidden rounded-[2rem] border border-brand-gold/35 bg-white shadow-[0_30px_70px_-34px_rgba(74,21,21,0.55)]">
       {/* The headline: what they actually get */}
       <div className="cpn-shine relative overflow-hidden bg-gradient-to-br from-[#b01e28] via-[#8d1420] to-[#5d0b14] px-6 pb-9 pt-8 text-center text-white">
-        <p className="font-body text-[10.5px] font-black uppercase tracking-[0.26em] text-white/75">
-          A gift from {BRAND.name}
+        {/* Whose coupon this is, on the coupon itself — a screenshot of the
+            red panel should still say the shop's name at the counter. */}
+        <p className="font-body text-[9.5px] font-black uppercase tracking-[0.3em] text-white/65">A gift from</p>
+        <p className="mt-1 font-wordmark text-[23px] uppercase leading-none tracking-[0.04em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.3)] sm:text-[26px]">
+          {BRAND.fullName}
         </p>
-        <p className="cpn-pop mt-3 font-display text-[88px] font-semibold leading-[0.82] tracking-tight drop-shadow-[0_6px_18px_rgba(0,0,0,.35)]">
+        <p className="mt-1.5 font-body text-[9.5px] font-bold uppercase tracking-[0.26em] text-white/60">{BRAND.area}</p>
+        <p className="cpn-pop mt-5 font-display text-[88px] font-semibold leading-[0.82] tracking-tight drop-shadow-[0_6px_18px_rgba(0,0,0,.35)]">
           {coupon.discountPercent}
           <span className="align-top text-[40px]">%</span>
         </p>

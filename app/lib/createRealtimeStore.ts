@@ -37,11 +37,21 @@ export interface RealtimeStore<T> {
   patchLocal(fn: (cur: T[]) => T[]): void;
 }
 
+/* Supabase caches channels by topic name, so two stores asking for the same
+   topic get back the SAME channel object. The second one then calls
+   .on('postgres_changes', …) on a channel that has already subscribed, which
+   throws "cannot add postgres_changes callbacks after subscribe()".
+   `app_settings` has four stores on it (tax, categories, expense categories,
+   homepage media), so that crash was certain the moment two of them were on
+   screen together. Every store instance gets its own topic. */
+let channelSeq = 0;
+
 export function createRealtimeStore<T extends { id: string | number }>(opts: {
   table: string;
   /** Map a raw DB row (snake_case) to the app type (camelCase). */
   fromRow: (row: Record<string, unknown>) => T;
 }): RealtimeStore<T> {
+  const topic = `rt:${opts.table}:${++channelSeq}`;
   const EMPTY: T[] = [];
   let cache: T[] = EMPTY;
   let hydrated = false;
@@ -160,7 +170,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
     const sb = getSupabase();
     if (!sb || channel) return;
     channel = sb
-      .channel(`rt:${opts.table}`)
+      .channel(topic)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: opts.table },
