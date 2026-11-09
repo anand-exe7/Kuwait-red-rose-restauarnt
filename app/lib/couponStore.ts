@@ -64,6 +64,13 @@ function toRow(c: Partial<Coupon>): Record<string, unknown> {
 const OPTIONAL_COUPON_COLUMNS = ['targeted_only', 'sent_phones'] as const;
 let couponSchemaIsLegacy = false;
 
+/** True once a write has told us the targeting columns aren't in the database.
+ *  The Coupons page shows this, so "only for this customer" never looks saved
+ *  when it couldn't be. */
+export function couponTargetingAvailable(): boolean {
+  return !couponSchemaIsLegacy;
+}
+
 function stripLegacy(row: Record<string, unknown>): Record<string, unknown> {
   const clean = { ...row };
   for (const k of OPTIONAL_COUPON_COLUMNS) delete clean[k];
@@ -148,14 +155,31 @@ export function deleteCoupon(id: string) {
 
 /** Record that this coupon was sent to a phone (dedup, normalised). Optionally
  *  flips the coupon to "only for customers it's sent to". */
-export function recordCouponSent(id: string, phone: string, makeTargeted = false) {
+export async function recordCouponSent(
+  id: string,
+  phone: string,
+  makeTargeted = false,
+): Promise<{ ok: boolean; error?: string }> {
   const n = normalizePhone(phone);
   const cur = store.get().find((c) => c.id === id);
-  if (!cur || !n) return;
+  if (!cur || !n) return { ok: false, error: 'That number does not look right.' };
   const sentPhones = cur.sentPhones.includes(n) ? cur.sentPhones : [...cur.sentPhones, n];
   const patch: Partial<Coupon> = { sentPhones };
   if (makeTargeted && !cur.targetedOnly) patch.targetedOnly = true;
-  updateCoupon(id, patch);
+  store.patchLocal((c) => c.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  const { error } = await writeCoupon('update', toRow(patch), { id });
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  if (couponSchemaIsLegacy) {
+    return {
+      ok: false,
+      error:
+        'The number could not be linked to this coupon: your database is missing the ' +
+        'targeting columns. Apply supabase/coupon_targeting.sql, then send it again.',
+    };
+  }
+  return { ok: true };
 }
 
 /** Record one more redemption of this coupon. Called at checkout, after the
@@ -202,6 +226,11 @@ export function validateCoupon(code: string, subtotal: number, phone?: string): 
   if (remaining !== null && remaining <= 0) return { ok: false, reason: 'This coupon has reached its usage limit' };
   if (subtotal < c.minOrder) return { ok: false, reason: `Minimum order of KD ${c.minOrder.toFixed(3)} required` };
   if (c.targetedOnly) {
+    if (c.sentPhones.length === 0) {
+      // Targeted, but linked to nobody — it can never be claimed. Say so
+      // plainly instead of blaming the customer's number.
+      return { ok: false, reason: 'This coupon isn’t linked to a number yet. Ask the shop to send it again.' };
+    }
     const n = phone ? normalizePhone(phone) : '';
     if (!n) {
       // Valid coupon, just no number yet — let the UI ask for it (claim flow).

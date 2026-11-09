@@ -10,6 +10,9 @@
 
 import type { Order, OrderItem, DeliveryAddress, CustomerInfo } from './orderStore';
 import { formatKWD } from './currency';
+import { publicLink, publicLinkIsLocalOnly } from './publicUrl';
+import { shopName } from './shop';
+import { invoicePath, resolveOrderNo } from './invoice';
 
 export function shopWhatsAppNumber(): string | null {
   const raw = process.env.NEXT_PUBLIC_SHOP_WHATSAPP;
@@ -56,17 +59,26 @@ export interface WhatsAppOrderInput {
   deliveryFee?: number;
   /** Customer's preferred pick-up time (takeaway mode only), "HH:MM". */
   pickupTime?: string;
+  /** The customer's remark for the whole order. */
+  note?: string;
 }
 
-export function buildOrderMessage({ order, mode, customer, address, deliveryFee = 0, pickupTime }: WhatsAppOrderInput): string {
+export function buildOrderMessage({ order, mode, customer, address, deliveryFee = 0, pickupTime, note }: WhatsAppOrderInput): string {
   const header =
     mode === 'delivery'
-      ? '🌹 New DELIVERY order — Red Rose'
-      : '🌹 New TAKEAWAY order — Red Rose';
+      ? `🌹 New DELIVERY order — ${shopName()}`
+      : `🌹 New TAKEAWAY order — ${shopName()}`;
+
+  // Not an invoice yet. The shop still has to accept this order and the
+  // kitchen still has to cook it, so the customer gets an ORDER number — the
+  // same 5 digits that become the tail of their INV-YYYY-##### once the bill
+  // is settled and the real invoice is sent.
+  const orderNo = resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt });
 
   const lines: string[] = [
     header,
-    `Order #${order.id}`,
+    `Order no. ${orderNo}`,
+    `Ticket ${order.id}`,
     '',
     '— Items —',
     formatItems(order.items),
@@ -96,11 +108,24 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
     lines.push('', '— Delivery address —', formatAddress(address));
   }
 
-  // Tap-to-view invoice on our own site (no PDF attachment — wa.me can't send files).
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const ref = order.sessionId || order.id;
-  if (origin && ref) {
-    lines.push('', `🧾 View your invoice: ${origin}/receipt/${ref}`);
+  const remark = (note ?? order.note ?? '').trim();
+  if (remark) {
+    lines.push('', '— Remark —', remark);
+  }
+
+  lines.push(
+    '',
+    'We will confirm this order shortly. Your invoice is sent once it is ready and billed.',
+  );
+
+  // Tap-to-track link on our own site (no PDF attachment — wa.me can't send
+  // files). The path is the order number, not the internal session id, so the
+  // customer sees the same 5 digits in the message and in the URL. The origin
+  // comes from NEXT_PUBLIC_SITE_URL so the link works on the customer's phone
+  // even when the order was placed from a laptop on localhost.
+  const path = invoicePath({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt });
+  if (path && !publicLinkIsLocalOnly()) {
+    lines.push('', `📦 Track your order: ${publicLink(path)}`);
   }
 
   return lines.join('\n');
