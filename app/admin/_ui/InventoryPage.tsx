@@ -67,36 +67,6 @@ function ProductSummaryList({ products, empty, showStock, showStatus }: { produc
   );
 }
 
-/* Per-product contribution to total stock value, biggest first — explains what
-   makes up the Stock Value KPI. */
-function StockValueBreakdown({ products }: { products: Product[] }) {
-  const rows = products
-    .filter((p) => p.stock !== null && p.stock > 0)
-    .map((p) => ({ p, value: p.price * (p.stock ?? 0) }))
-    .sort((a, b) => b.value - a.value);
-  if (!rows.length) return <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-[13px] text-slate-500">Nothing is tracked yet — turn on stock tracking on a product to see its value here.</p>;
-  const total = rows.reduce((a, r) => a + r.value, 0) || 1;
-  return (
-    <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-100">
-      {rows.map(({ p, value }) => (
-        <li key={p.id} className="bg-white px-3 py-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <span className="min-w-0 truncate font-semibold text-slate-900">{p.name}</span>
-            <b className="adm-num shrink-0 text-slate-900">{rupee(value)}</b>
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-[11.5px] text-slate-500">
-            <span className="shrink-0">{p.stock}× {rupee(p.price)}</span>
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div className="adm-fill h-full rounded-full bg-sky-500" style={{ width: `${(value / total) * 100}%` }} />
-            </div>
-            <span className="shrink-0 text-slate-400">{Math.round((value / total) * 100)}%</span>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /* Image chooser: one photo per product. Takes a file (up to 4 MB) and stores it
    as a base64 data URL on the product, or accepts a pasted link. The × button
    clears it. Everything stays on `form.image`, which both the form preview and
@@ -219,12 +189,13 @@ export default function InventoryPage() {
   const [manageCats, setManageCats] = useState(false);
   const [renameOf, setRenameOf] = useState<string | null>(null);
   const [renaming, setRenaming] = useState("");
-  const [move, setMove] = useState<{ p: Product; dir: "added" | "removed"; qty: string; note: string } | null>(null);
+  const [newCatName, setNewCatName] = useState("");
 
   const cats = useMemo(() => Array.from(new Set(s.products.map((p) => p.category))), [s.products]);
   const low = s.products.filter((p) => p.stock !== null && p.stock > 0 && p.stock <= p.lowAt);
   const out = s.products.filter((p) => p.stock !== null && p.stock <= 0);
-  const value = s.products.reduce((a, p) => a + (p.stock && p.stock > 0 ? p.stock * p.price : 0), 0);
+  const bestsellerCount = s.products.filter((p) => p.tags.includes("bestseller") && p.id !== form?.id).length;
+  const BESTSELLER_CAP = 4;
 
   const list = s.products.filter((p) => {
     if (cat !== "All" && p.category !== cat) return false;
@@ -279,18 +250,14 @@ export default function InventoryPage() {
     }
   };
 
-  const moveQty = Math.floor(Number(move?.qty) || 0);
-  const moveBad = !move || moveQty <= 0 || (move.dir === "removed" && moveQty > (move.p.stock ?? 0));
-  /* The modal closes and the number changes at once; if the server refuses, the form
-     comes back with what was typed. */
-  const saveMove = async () => {
-    if (!move || moveBad) return;
-    const m = move;
-    const delta = m.dir === "added" ? moveQty : -moveQty;
-    setMove(null);
-    const r = await act("product.stock", { id: m.p.id, delta, move: m.dir, note: m.note }, stepBy(m.p.id, delta));
-    if (r.ok) toast({ kind: "ok", title: `${m.dir === "added" ? "Added" : "Removed"} ${Math.abs(delta)} ${m.dir === "added" ? "to" : "from"} ${m.p.name}` });
-    else setMove(m);
+  const createCategory = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    setNewCatName("");
+    setManageCats(false);
+    openForm();
+    setForm((f) => (f ? { ...f, category: name } : f));
+    toast({ kind: "ok", title: `Category "${name}" is ready — assign it to a product.` });
   };
 
   const save = async () => {
@@ -311,8 +278,8 @@ export default function InventoryPage() {
         sub="Only products that are on the menu show up on the guest menu."
         right={
           <span className="flex flex-wrap gap-2">
-            <Btn icon="edit" onClick={() => setManageCats(true)}>
-              Manage categories
+            <Btn icon="plus" onClick={() => setManageCats(true)}>
+              Create category
             </Btn>
             <Btn kind="red" icon="plus" onClick={() => open()}>
               Add product
@@ -321,7 +288,7 @@ export default function InventoryPage() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-3">
         <Kpi
           label="On the menu"
           value={`${s.products.filter((p) => p.active).length} / ${s.products.length}`}
@@ -345,14 +312,6 @@ export default function InventoryPage() {
           icon="x"
           tone={out.length ? "red" : "slate"}
           details={<ProductSummaryList products={out} empty="Nothing is sold out right now." showStock />}
-        />
-        <Kpi
-          label="Stock value"
-          value={rupee(value)}
-          hint="Tracked stock at menu price"
-          icon="rupee"
-          tone="sky"
-          details={<StockValueBreakdown products={s.products} />}
         />
       </div>
 
@@ -435,11 +394,6 @@ export default function InventoryPage() {
                   </td>
                   <td className={cx(td, "text-right")}>
                     <span className="inline-flex gap-1">
-                      {p.stock !== null && (
-                        <Btn size="sm" kind="plain" icon="box" onClick={() => setMove({ p, dir: "added", qty: "", note: "" })}>
-                          Stock in/out
-                        </Btn>
-                      )}
                       <Btn size="sm" kind="plain" icon="edit" onClick={() => open(p)}>
                         Edit
                       </Btn>
@@ -469,48 +423,17 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <Modal
-        open={!!move}
-        onClose={() => setMove(null)}
-        title={move ? `Stock in / out · ${move.p.name}` : ""}
-        footer={
-          <>
-            <Btn onClick={() => setMove(null)}>Cancel</Btn>
-            <Btn kind="red" disabled={moveBad} onClick={saveMove}>
-              {move?.dir === "removed" ? "Remove stock" : "Add stock"}
+      <Modal open={manageCats} onClose={() => (setManageCats(false), setNewCatName(""))} title="Manage categories" footer={<Btn onClick={() => (setManageCats(false), setNewCatName(""))}>Done</Btn>}>
+        <div className="mb-4 rounded-xl border border-dashed border-slate-200 p-3">
+          <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Create category</span>
+          <div className="flex gap-2">
+            <input className={inputCls} value={newCatName} maxLength={40} onChange={(e) => setNewCatName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createCategory()} placeholder="e.g. Cold drinks" />
+            <Btn kind="red" disabled={!newCatName.trim()} onClick={createCategory}>
+              Create
             </Btn>
-          </>
-        }
-      >
-        {move && (
-          <div className="space-y-4">
-            <p className="text-[13px] text-slate-500">
-              In stock now: <b className="text-slate-900">{move.p.stock}</b> · every change is written to the Stock movement timeline.
-            </p>
-            <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-              {(
-                [
-                  ["added", "Add stock"],
-                  ["removed", "Remove stock"],
-                ] as const
-              ).map(([d, t]) => (
-                <button key={d} type="button" onClick={() => setMove({ ...move, dir: d })} className={cx("h-9 flex-1 rounded-lg text-[13px] font-bold transition", move.dir === d ? "bg-white text-slate-900 shadow" : "text-slate-500")}>
-                  {t}
-                </button>
-              ))}
-            </div>
-            <Field label="Quantity">
-              <input className={inputCls} type="number" min={1} autoFocus inputMode="numeric" value={move.qty} onChange={(e) => setMove({ ...move, qty: e.target.value })} placeholder="e.g. 24" />
-            </Field>
-            {move.dir === "removed" && moveQty > (move.p.stock ?? 0) && <p className="text-[12.5px] font-semibold text-red-600">Only {move.p.stock} in stock.</p>}
-            <Field label={move.dir === "added" ? "Note (supplier, invoice…)" : "Reason (wastage, damaged, own use…)"}>
-              <input className={inputCls} maxLength={120} value={move.note} onChange={(e) => setMove({ ...move, note: e.target.value })} placeholder={move.dir === "added" ? "Fresh batch from bakery" : "Dropped / expired"} />
-            </Field>
           </div>
-        )}
-      </Modal>
-
-      <Modal open={manageCats} onClose={() => setManageCats(false)} title="Manage categories" footer={<Btn onClick={() => setManageCats(false)}>Done</Btn>}>
+          <p className="mt-2 text-[11.5px] text-slate-500">Categories are saved by assigning them to a product. Create one here, then add or edit any product in that category.</p>
+        </div>
         <ul className="grid gap-2">
           {cats.map((c) => (
             <li key={c} className="flex items-center gap-3 rounded-xl border border-slate-100 px-4 py-2.5">
@@ -631,20 +554,31 @@ export default function InventoryPage() {
                 Show on menu
                 <Switch on={form.active} onChange={(v) => setForm({ ...form, active: v })} label="Show on menu" />
               </label>
-              <div className="flex flex-wrap gap-2">
-                {TAGS.map(([t, label]) => {
-                  const on = form.tags.includes(t);
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setForm({ ...form, tags: on ? form.tags.filter((x) => x !== t) : [...form.tags, t] })}
-                      className={cx("h-8 rounded-full px-3 text-[12px] font-bold transition", on ? "bg-amber-400 text-amber-950" : "bg-slate-100 text-slate-500")}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-2">
+                  {TAGS.map(([t, label]) => {
+                    const on = form.tags.includes(t);
+                    const atCap = t === "bestseller" && !on && bestsellerCount >= BESTSELLER_CAP;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        disabled={atCap}
+                        onClick={() => {
+                          if (atCap) {
+                            toast({ kind: "err", title: `Only ${BESTSELLER_CAP} bestsellers can show on the landing page.`, body: "Remove the bestseller tag from one of the current four first." });
+                            return;
+                          }
+                          setForm({ ...form, tags: on ? form.tags.filter((x) => x !== t) : [...form.tags, t] });
+                        }}
+                        className={cx("h-8 rounded-full px-3 text-[12px] font-bold transition", on ? "bg-amber-400 text-amber-950" : atCap ? "bg-slate-100 text-slate-300" : "bg-slate-100 text-slate-500")}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-500">Bestseller shows on the landing page — only {BESTSELLER_CAP} items, {Math.max(0, BESTSELLER_CAP - bestsellerCount)} slots left.</p>
               </div>
             </div>
           </div>

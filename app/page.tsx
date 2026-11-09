@@ -186,7 +186,7 @@ const REVIEW_SEED: Review[] = [
   {
     name: 'Fahad M.',
     rating: 4,
-    text: 'The kunafa is the closest to my mother’s that I have found in Salmiya. Only note is that it sells out early on Fridays.',
+    text: 'The kunafa is the closest to my mother’s that I have found nearby. Only note is that it sells out early on Fridays.',
   },
   {
     name: 'Noura B.',
@@ -599,7 +599,7 @@ export default async function Home() {
               </div>
               <div className="rise flex max-w-sm flex-col items-center gap-5 lg:items-start lg:pb-2">
                 <p className="lede text-brand-ink/65">
-                  What Salmiya keeps ordering — baked each morning, boxed by hand,
+                  What {BRAND.area} keeps ordering — baked each morning, boxed by hand,
                   and usually gone by evening.
                 </p>
                 <Link href="/menu" className="text-link text-brand-red hover:text-brand-red-dark">
@@ -1014,14 +1014,14 @@ export default async function Home() {
                 Find Our <em className="text-brand-red">Shop</em>
               </h2>
               <p className="lede rise mx-auto mt-5 max-w-md text-brand-ink/65">
-                One kitchen, one counter, in Salmiya.
+                One kitchen, one counter, in {BRAND.area}.
               </p>
             </div>
 
             <div className="mt-12 grid overflow-hidden rounded-[28px] border border-brand-gold/25 bg-white shadow-[0_34px_70px_-40px_rgba(74,21,21,0.5)] sm:mt-16 lg:grid-cols-5">
               <div className="relative h-72 sm:h-96 lg:col-span-3 lg:h-auto lg:min-h-[480px]">
                 <iframe
-                  title="Red Rose Sweets — Salmiya, Kuwait"
+                  title={`${BRAND.fullName} — ${BRAND.area}, ${BRAND.city}`}
                   src="https://www.google.com/maps?q=29.3339,48.0777&z=16&output=embed"
                   className="absolute inset-0 h-full w-full border-0 [filter:grayscale(0.4)_sepia(0.18)_contrast(1.03)]"
                   loading="lazy"
@@ -1034,11 +1034,11 @@ export default async function Home() {
 
               <div className="flex flex-col justify-center px-7 py-10 sm:px-11 sm:py-12 lg:col-span-2">
                 <p className="eyebrow text-brand-gold-dark">The shop</p>
-                <h3 className="mt-4 font-display text-[42px] font-medium leading-none text-brand-wine">Salmiya</h3>
+                <h3 className="mt-4 font-display text-[42px] font-medium leading-none text-brand-wine">{BRAND.area}</h3>
 
                 <dl className="mt-8 divide-y divide-brand-gold/20 border-y border-brand-gold/20">
                   <InfoRow icon={MapPin} label="Address">
-                    179 Street, Salmiya 123
+                    {BRAND.address}
                     <br />
                     Kuwait City
                   </InfoRow>
@@ -1054,7 +1054,7 @@ export default async function Home() {
 
                 <div className="mt-9 flex flex-wrap gap-3">
                   <a
-                    href="https://www.google.com/maps?q=Salmiya+Kuwait"
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${BRAND.fullName}, ${BRAND.address}`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn btn-red px-7"
@@ -1126,7 +1126,7 @@ export default async function Home() {
               <FooterHeading>Visit</FooterHeading>
               <address className="mt-5 flex flex-col gap-3 font-body text-[14px] font-light not-italic leading-relaxed text-white/70">
                 <span>
-                  179 Street, Salmiya 123
+                  {BRAND.address}
                   <br />
                   Kuwait City
                 </span>

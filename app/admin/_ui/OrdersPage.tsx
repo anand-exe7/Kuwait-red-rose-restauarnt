@@ -258,7 +258,7 @@ export default function OrdersPage() {
                   <WaIcon size={16} /> WhatsApp
                 </a>
               )}
-              <a href={`/invoice/${bill.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+              <a href={`/invoice/${encodeURIComponent(bill.invoiceNo)}`} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
                 View invoice
               </a>
               <Btn kind="dark" icon="print" onClick={() => setPrintFor(bill)}>

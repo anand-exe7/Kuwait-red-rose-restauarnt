@@ -6,7 +6,6 @@ import { rupee } from "./money";
 import { completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, splitGst, startOfWeek, paymentStats, summary, weekly, type Period } from "./analytics";
 import Link from "next/link";
 import { useAdmin } from "./Store";
-import { useLedger } from "./ledger";
 import { Badge, Btn, Card, DateRange, Empty, Kpi, Page, PageHead, Pills, SearchBox, Switch, Tabs, cx, downloadExcel, fmtDate, fmtTime, type ExcelSheet } from "./kit";
 import { BRAND } from "../../lib/brand";
 
@@ -279,8 +278,6 @@ export default function AnalyticsPage() {
     });
     downloadExcel(`gst-invoices-${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "GST invoices", rows: [head, ...body] }]);
   };
-  const { data: ledger } = useLedger({ from: range?.from, to: range?.to, size: 1 });
-  const stock = ledger?.stats ?? { added: 0, sold: 0, removed: 0, returned: 0, adjusted: 0, net: 0 };
   const lowCount = s.products.filter((p) => p.stock !== null && p.stock <= p.lowAt).length;
   const customers = useMemo(() => customerStats(inPeriod), [inPeriod]);
   const repeat = customers.filter((c) => c.visits > 1).length;
@@ -358,7 +355,8 @@ export default function AnalyticsPage() {
         ],
       },
     ];
-    downloadExcel(`chef-loving-analytics-${periodLabel}-${new Date().toISOString().slice(0, 10)}`, sheets);
+    const slug = BRAND.name.toLowerCase().replace(/\s+/g, "-");
+    downloadExcel(`${slug}-analytics-${periodLabel}-${new Date().toISOString().slice(0, 10)}`, sheets);
   };
 
   return (
@@ -551,16 +549,6 @@ export default function AnalyticsPage() {
                 <div className="flex justify-between"><dt className="text-slate-500">Cash</dt><dd className="font-bold text-slate-900">{rupee(pay.cash)}</dd></div>
                 <div className="flex justify-between"><dt className="text-slate-500">Card</dt><dd className="font-bold text-slate-900">{rupee(pay.card)}</dd></div>
                 <div className="flex justify-between"><dt className="text-slate-500">UPI</dt><dd className="font-bold text-slate-900">{rupee(pay.upi)}</dd></div>
-              </dl>
-            </Card>
-            <Card title="Stock movement" right={<Link href="/admin/inventory/movements" className="text-[12px] font-bold text-red-600 hover:underline">Open</Link>}>
-              <dl className="space-y-2 text-[13px]">
-                <div className="flex justify-between"><dt className="text-slate-500">Stock added</dt><dd className="font-bold text-emerald-600">+{stock.added}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Units sold</dt><dd className="font-bold text-slate-900">{stock.sold}</dd></div>
-                {stock.removed > 0 && <div className="flex justify-between"><dt className="text-slate-500">Removed (waste / own use)</dt><dd className="font-bold text-slate-900">{stock.removed}</dd></div>}
-                <div className="flex justify-between"><dt className="text-slate-500">Returned (cancel / void)</dt><dd className="font-bold text-slate-900">+{stock.returned}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Adjustments</dt><dd className="font-bold text-slate-900">{stock.adjusted > 0 ? "+" : ""}{stock.adjusted}</dd></div>
-                <div className="flex justify-between border-t border-dashed border-slate-200 pt-2"><dt className="text-slate-500">Low / sold-out items</dt><dd className={cx("font-bold", lowCount ? "text-amber-600" : "text-slate-900")}>{lowCount}</dd></div>
               </dl>
             </Card>
           </div>

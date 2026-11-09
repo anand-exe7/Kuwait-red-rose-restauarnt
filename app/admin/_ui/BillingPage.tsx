@@ -7,6 +7,7 @@ import { useAdmin, whoIs, type FloorTab } from "./Store";
 import Catalog from "./Catalog";
 import PrintModal, { PrintFormats } from "./PrintModal";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
+import { publicLinkIsLocalOnly } from "../../lib/publicUrl";
 import { Badge, Btn, Icon, Modal, WaIcon, cx, fmtTime, ago } from "./kit";
 
 type Line = { key: number; productId: string | null; name: string; price: string; qty: number };
@@ -14,16 +15,16 @@ type Line = { key: number; productId: string | null; name: string; price: string
 const box = "rounded-[18px] border border-slate-100 bg-white p-4 shadow-[0_2px_12px_-4px_rgba(15,23,42,.1)] sm:p-5";
 const lbl = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700";
 const big = "h-10 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100";
-/* Mobiles are stored and sent as a bare 10-digit number — the country code is
-   added at the wa.me link, so anything longer here is a prefix to drop, not
-   part of the number. Kept in the change handler rather than maxLength so a
-   pasted "+91 98765 43210" loses the prefix instead of its last two digits. */
-const tenDigits = (v: string) => {
+/* Kuwait numbers are 8 digits; a pasted "+965…" has that prefix stripped so
+   the stored number stays bare. The country code is reattached at the wa.me
+   link in `toKuwaitWa`. Accept up to 15 digits (ITU E.164 max) so visitors
+   with a non-Kuwait number still fit. */
+const kuwaitDigits = (v: string) => {
   const d = v.replace(/\D/g, "");
-  const bare = d.length === 12 && d.startsWith("91") ? d.slice(2) : d.length === 11 && d.startsWith("0") ? d.slice(1) : d;
-  return bare.slice(0, 10);
+  const bare = d.startsWith("965") && d.length > 8 ? d.slice(3) : d;
+  return bare.slice(0, 15);
 };
-const okPhone = (p: string) => /^[6-9]\d{9}$/.test(p);
+const okPhone = (p: string) => /^\d{8,15}$/.test(p);
 const sigOf = (f: FloorTab) => f.orders.map((o) => o.id + o.status).join("|");
 
 const DEFAULT_GST = "18";
@@ -42,7 +43,15 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
      Either one on → the "Customer tab" mode and its tab picker drop out. */
   const counterOnly = s.settings.walkInsOnly || !s.settings.orderingEnabled;
 
-  const openTabs = counterOnly ? [] : floor;
+  /* Cooked takeaway/delivery orders first — somebody is standing at the
+     counter or a driver is waiting on the invoice. Then tabs that asked for
+     the bill, then the rest, oldest first. */
+  const openTabs = counterOnly
+    ? []
+    : [...floor].sort((a, b) => {
+        const rank = (x: FloorTab) => (x.home && x.readyToBill ? 0 : x.billRequested ? 1 : 2);
+        return rank(a) - rank(b) || a.session.openedAt - b.session.openedAt;
+      });
   const start = !counterOnly && sessionId ? floor.find((f) => f.session.id === sessionId) : undefined;
 
   /* Default to Counter (walk-in). A direct link that names a tab still opens
@@ -50,8 +59,11 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const [mode, setMode] = useState<"tab" | "counter">(counterOnly ? "counter" : start ? "tab" : "counter");
   const [sel, setSel] = useState<string | null>(start?.session.id ?? null);
   const [lines, setLines] = useState<Line[]>(() => (start ? linesOf(start) : [blank()]));
-  const [name, setName] = useState(start?.session.customerName ?? "");
-  const [phone, setPhone] = useState(start?.session.customerPhone ?? "");
+  // Opened straight from a tab ("Bill & send invoice"): fill in everything we
+  // already know, falling back to whoever placed the first order — a home
+  // order's session often predates us stamping the customer on it.
+  const [name, setName] = useState(start?.session.customerName || start?.orders[0]?.customerName || "");
+  const [phone, setPhone] = useState(start?.session.customerPhone || start?.orders[0]?.customerPhone || "");
   const [sig, setSig] = useState(start ? sigOf(start) : "");
   const [coupon, setCoupon] = useState(start?.session.couponCode ?? "");
   const [newCp, setNewCp] = useState<{ code: string; percent: string; minOrder: string } | null>(null);
@@ -98,8 +110,10 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const pickTab = (x: FloorTab) => {
     setSel(x.session.id);
     setLines(linesOf(x));
-    setName(x.session.customerName);
-    setPhone(x.session.customerPhone);
+    // Older home orders opened their session before we stamped the customer on
+    // it, so fall back to whoever placed the first order on the tab.
+    setName(x.session.customerName || x.orders[0]?.customerName || "");
+    setPhone(x.session.customerPhone || x.orders[0]?.customerPhone || "");
     setCoupon(x.session.couponCode ?? "");
     setSig(sigOf(x));
   };
@@ -141,7 +155,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   if (pay === "cash" && recv > 0 && recv < calc.total) problems.push("Amount received is less than the total.");
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
   else if (pay === "split" && splitOff !== 0) problems.push(`Split payment: cash + card should equal ${rupee(calc.total)}.`);
-  if (phone && !okPhone(phone)) problems.push("Mobile should be a 10-digit number.");
+  if (phone && !okPhone(phone)) problems.push("Enter the mobile number (8 digits for Kuwait, or with country code).");
   const ready = !problems.length && !busy;
 
   const complete = async (via: "wa" | "print" | "none", fmt?: PrintFormat) => {
@@ -151,6 +165,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     const r = await act<Bill>("bill.create", {
       source: mode,
       sessionId: f?.session.id,
+      note: f?.note ?? "",
       customerName: name,
       customerPhone: phone,
       items,
@@ -238,17 +253,36 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                       type="button"
                       onClick={() => pickTab(x)}
                       className={cx(
-                        "relative rounded-2xl border p-3 text-left transition",
-                        sel === x.session.id ? "border-slate-700 bg-slate-50 ring-4 ring-slate-100" : "border-slate-200 hover:border-slate-400",
+                        "relative rounded-2xl border-2 p-3 text-left transition",
+                        sel === x.session.id
+                          ? "border-slate-700 bg-slate-50 ring-4 ring-slate-100"
+                          : x.home && x.readyToBill
+                            ? "border-emerald-400 bg-emerald-50/60 hover:border-emerald-500"
+                            : "border-slate-200 hover:border-slate-400",
                       )}
                     >
-                      <span className="flex items-center justify-between">
-                        <b className="block truncate text-[16px] font-extrabold text-slate-900">{x.session.customerName || "Guest"}</b>
-                        {x.billRequested && <span className="adm-pulse h-2.5 w-2.5 rounded-full bg-amber-400 text-amber-400" title="Asked for the bill" />}
+                      <span className="flex items-center justify-between gap-1">
+                        <b className="block truncate text-[16px] font-extrabold text-slate-900">
+                          {x.mode === "table" && x.session.tableNumber != null
+                            ? `Table ${x.session.tableNumber}`
+                            : x.session.customerName || x.orders[0]?.customerName || "Guest"}
+                        </b>
+                        {x.billRequested && <span className="adm-pulse h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400 text-amber-400" title="Asked for the bill" />}
                       </span>
+                      {x.home && (
+                        <span
+                          className={cx(
+                            "mt-0.5 inline-flex rounded-full px-2 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide",
+                            x.readyToBill ? "bg-emerald-100 text-emerald-800" : x.mode === "delivery" ? "bg-violet-100 text-violet-800" : "bg-sky-100 text-sky-800",
+                          )}
+                        >
+                          {x.mode === "delivery" ? "Delivery" : "Takeaway"}
+                          {x.readyToBill ? " · ready" : ""}
+                        </span>
+                      )}
                       <span className="adm-num block text-[15px] font-bold text-red-600">{rupee(x.total)}</span>
                       <span className="adm-num block truncate text-[11.5px] text-slate-500">
-                        {x.session.customerPhone} · {ago(x.session.openedAt, now)}
+                        {x.session.customerPhone || x.orders[0]?.customerPhone || "No number"} · {ago(x.session.openedAt, now)}
                       </span>
                     </button>
                   ))}
@@ -288,9 +322,15 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               </label>
               <label>
                 <span className={lbl}>Mobile number (WhatsApp)</span>
-                <input className={cx(big, phone && !okPhone(phone) && "border-amber-500")} value={phone} onChange={(e) => setPhone(tenDigits(e.target.value))} placeholder="Enter 10-digit number" inputMode="numeric" autoComplete="tel-national" />
+                <input className={cx(big, phone && !okPhone(phone) && "border-amber-500")} value={phone} onChange={(e) => setPhone(kuwaitDigits(e.target.value))} placeholder="Enter mobile number (Kuwait: 8 digits)" inputMode="numeric" autoComplete="tel-national" />
               </label>
             </div>
+            {f?.note && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <b className="block text-[10.5px] font-black uppercase tracking-wide text-amber-700">Customer&rsquo;s remark</b>
+                <p className="text-[13px] leading-snug text-amber-900">{f.note}</p>
+              </div>
+            )}
           </section>
 
           <section className={box}>
@@ -559,9 +599,27 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
             {problems.length > 0 && (items.length > 0 || mode === "tab") && <p className="rounded-xl bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">{problems[0]}</p>}
 
             <div className="space-y-2">
-              <Btn size="lg" kind="red" disabled={!ready} onClick={() => (setPrinting(false), setSaveOpen(true))} className="w-full uppercase">
+              <button
+                type="button"
+                disabled={!ready || !okPhone(phone)}
+                onClick={() => complete("wa")}
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-[#22c55e] px-4 text-[14px] font-extrabold uppercase tracking-wide text-white transition hover:bg-[#16a34a] disabled:opacity-45"
+              >
+                <WaIcon size={20} /> Save &amp; Send on WhatsApp
+              </button>
+              <Btn size="lg" kind="dark" icon="print" disabled={!ready} onClick={() => (setPrinting(true), setSaveOpen(true))} className="w-full uppercase">
+                Public Print
+              </Btn>
+              <Btn size="lg" kind="red" disabled={!ready} onClick={() => complete("none")} className="w-full uppercase">
                 Save order
               </Btn>
+              {!okPhone(phone) && phone && <p className="text-center text-[11.5px] text-slate-400">WhatsApp needs a valid mobile number.</p>}
+              {publicLinkIsLocalOnly(s.settings.publicUrl) && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] font-semibold text-amber-700">
+                  Heads up: no public site address is set, so the invoice link in the WhatsApp message will point at this
+                  computer and won&apos;t open on the customer&apos;s phone. Set <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site.
+                </p>
+              )}
               {mode === "tab" && f && <p className="pt-1 text-center text-[11.5px] text-slate-400">Completing closes {whoIs(f.session)}&apos;s tab — their next order starts a fresh one.</p>}
             </div>
           </div>
@@ -604,34 +662,14 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
         }}
       />
 
-      <Modal open={saveOpen} onClose={() => setSaveOpen(false)} title={printing ? "Print — choose printer & paper" : "Save order"}>
-        {printing ? (
-          <div className="space-y-4">
-            <PrintFormats onPick={(fmt) => complete("print", fmt)} />
-            <Btn kind="plain" size="sm" onClick={() => setPrinting(false)}>
-              ← Back
-            </Btn>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="mb-1 text-[13px] text-slate-500">{rupee(calc.total)} · how do you want to finish this bill?</p>
-            <button
-              type="button"
-              disabled={!okPhone(phone) || busy}
-              onClick={() => complete("wa")}
-              className="flex h-12 w-full items-center gap-3 rounded-xl bg-[#22c55e] px-4 text-[14px] font-extrabold text-white transition hover:bg-[#16a34a] disabled:opacity-45"
-            >
-              <WaIcon size={20} /> Send to WhatsApp
-              {!okPhone(phone) && <span className="ml-auto text-[11px] font-semibold opacity-90">needs a 10-digit mobile</span>}
-            </button>
-            <Btn size="lg" kind="dark" icon="print" disabled={busy} onClick={() => setPrinting(true)} className="w-full justify-start">
-              Print
-            </Btn>
-            <Btn size="lg" disabled={busy} onClick={() => complete("none")} className="w-full justify-start">
-              Save bill
-            </Btn>
-          </div>
-        )}
+      <Modal open={saveOpen} onClose={() => (setSaveOpen(false), setPrinting(false))} title="Public Print — choose printer &amp; paper">
+        <div className="space-y-4">
+          <p className="text-[13px] text-slate-500">{rupee(calc.total)} · pick the printer, the bill is saved and sent to that printer at the same resolution.</p>
+          <PrintFormats onPick={(fmt) => complete("print", fmt)} />
+          <Btn kind="plain" size="sm" onClick={() => (setSaveOpen(false), setPrinting(false))}>
+            Cancel
+          </Btn>
+        </div>
       </Modal>
       <PrintModal bill={printFor} onClose={() => setPrintFor(null)} />
       <Modal
