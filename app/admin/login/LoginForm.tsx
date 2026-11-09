@@ -7,6 +7,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Btn, Field, Icon, cx, inputCls } from "../_ui/kit";
+import { BRAND } from "../../lib/brand";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -42,7 +43,7 @@ export default function LoginForm() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/finallogo.jpeg" alt="Red Rose" className="h-14 w-14 rounded-2xl object-cover shadow" />
         <h1 className="adm-title mt-4 text-[28px] leading-none text-slate-900 sm:text-[32px]">Sign in</h1>
-        <p className="mt-1 text-[14px] text-slate-500">Red Rose Sweets · Admin</p>
+        <p className="mt-1 text-[14px] text-slate-500">{BRAND.fullName} · Admin</p>
         <div className="mt-6 space-y-4">
           <Field label="Password">
             <div className="relative">

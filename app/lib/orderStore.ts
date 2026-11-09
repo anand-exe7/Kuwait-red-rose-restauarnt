@@ -19,14 +19,33 @@ import {
   closeSession,
   settleSessionId,
 } from './sessionStore';
-import { createBill } from './billStore';
+import { createBill, getIssuedInvoiceNumbers } from './billStore';
+import { issueInvoiceNumber } from './invoice';
 
-// Order lifecycle:
-//   awaiting_admin → pending (chef sees it) → cooking → ready → served
-// Every customer order starts at 'awaiting_admin'; the admin approves it from
-// the Incoming Orders queue, which flips it to 'pending'. Chef dashboards
-// filter out 'awaiting_admin' so unapproved tickets never reach the kitchen.
-export type OrderStatus = 'awaiting_admin' | 'pending' | 'cooking' | 'ready' | 'served';
+// Order lifecycle — the same five steps for everybody, with ONE fork at the
+// start depending on where the food is going:
+//
+//   dine-in / walk-in   pending → cooking → ready → served
+//                       The guest is sitting in the shop, so their order goes
+//                       straight to the chef. No approval, no waiting.
+//
+//   takeaway / delivery awaiting_admin → pending → cooking → ready → served
+//                       Nobody is in the shop, so the admin accepts it first;
+//                       only then does the chef see it. After it is cooked the
+//                       ADMIN bills it, and only then can the waiter hand it
+//                       over — which is what 'served' means for a home order.
+//
+//   cancelled           the admin declined or killed it. It never reaches the
+//                       chef, and the customer sees it as cancelled.
+//
+// Chef dashboards filter out 'awaiting_admin' and 'cancelled', so an unapproved
+// or dead ticket can never reach the kitchen.
+export type OrderStatus = 'awaiting_admin' | 'pending' | 'cooking' | 'ready' | 'served' | 'cancelled';
+
+/** Takeaway and delivery — nobody is sitting in the shop. */
+export function isHomeMode(mode: OrderMode | undefined): boolean {
+  return mode === 'takeaway' || mode === 'delivery';
+}
 
 export interface OrderItem {
   id: string;
@@ -73,7 +92,7 @@ export interface Order {
   tax: number;
   total: number;
   createdAt: number;
-  source: 'customer' | 'waiter';
+  source: 'customer' | 'waiter' | 'admin';
   mode?: OrderMode; // undefined on legacy orders → treated as 'table'
   discount?: number;   // coupon/manual discount applied (KD)
   couponCode?: string; // coupon used, if any
@@ -82,6 +101,8 @@ export interface Order {
   billed?: boolean;    // true after waiter closes the bill — only billed orders show in admin analytics
   customer?: CustomerInfo;        // signed-in customer / contact details
   deliveryAddress?: DeliveryAddress; // present when mode === 'delivery'
+  note?: string;       // the customer's remark typed at checkout
+  handedOverAt?: number; // takeaway handed to the customer / delivery given to the driver
 }
 
 /** Human label for where an order goes — used by every role's UI. */
@@ -106,18 +127,26 @@ function fromRow(r: Record<string, unknown>): Order {
     r.delivery_address && typeof r.delivery_address === 'object'
       ? (r.delivery_address as DeliveryAddress)
       : undefined;
+  const mode = (r.mode as OrderMode) ?? 'table';
+  // Dine-in and walk-in orders go straight to the chef. Rows written before
+  // that rule existed are sitting in 'awaiting_admin' with nobody to approve
+  // them — no screen lists them, so they would hang for ever. Read them as
+  // what they are: tickets for the kitchen.
+  const rawStatus = (r.status as OrderStatus) ?? 'pending';
+  const status: OrderStatus =
+    rawStatus === 'awaiting_admin' && !isHomeMode(mode) ? 'pending' : rawStatus;
   return {
     id: r.id as string,
     table: Number(r.table_number ?? 0),
     items: Array.isArray(r.items) ? (r.items as OrderItem[]) : [],
-    status: (r.status as OrderStatus) ?? 'pending',
+    status,
     priority: (r.priority as Order['priority']) ?? 'normal',
     subtotal: Number(r.subtotal),
     tax: Number(r.tax),
     total: Number(r.total),
     createdAt: Number(r.created_at),
     source: (r.source as Order['source']) ?? 'customer',
-    mode: (r.mode as OrderMode) ?? 'table',
+    mode,
     discount: r.discount == null ? undefined : Number(r.discount),
     couponCode: (r.coupon_code as string) ?? undefined,
     standingLabel: (r.standing_label as string) ?? undefined,
@@ -125,6 +154,8 @@ function fromRow(r: Record<string, unknown>): Order {
     billed: (r.billed as boolean) ?? false,
     customer,
     deliveryAddress,
+    note: (r.note as string) || undefined,
+    handedOverAt: r.handed_over_at == null ? undefined : Number(r.handed_over_at),
   };
 }
 
@@ -150,6 +181,7 @@ function toRow(o: Order): Record<string, unknown> {
     customer_phone: o.customer?.phone ?? null,
     customer_email: o.customer?.email ?? null,
     delivery_address: o.deliveryAddress ?? null,
+    note: o.note ?? null,
     created_at: o.createdAt,
   };
 }
@@ -284,8 +316,16 @@ export function billSession(sessionId: string, paidMethod?: string) {
     if (error) console.error('[orders] bill failed', error.message);
   });
 
-  // Record the bill and close the guest tab.
-  const bill = createBill({ sessionId, ...totals, couponCode, paidMethod: paidMethod ?? null });
+  // Record the bill and close the guest tab. The invoice number is derived
+  // from the SESSION, not the new bill id, so it matches the number the
+  // customer was already shown as their order number before we settled.
+  const bill = createBill({
+    sessionId,
+    ...totals,
+    couponCode,
+    paidMethod: paidMethod ?? null,
+    invoiceNo: issueInvoiceNumber(sessionId, getIssuedInvoiceNumbers()),
+  });
   closeSession(sessionId, bill.id);
 }
 
@@ -304,12 +344,17 @@ function resolveSessionId(input: {
     return (getOpenStandingSession(label)?.id
       ?? openSession({ tableNumber: null, mode: 'standing', standingLabel: label }).id);
   }
-  if (input.mode === 'takeaway') {
-    return openSession({ tableNumber: null, mode: 'takeaway' }).id;
-  }
-  if (input.mode === 'delivery') {
-    // Delivery orders never reuse a session — one order, one bill.
-    return openSession({ tableNumber: null, mode: 'takeaway' }).id;
+  if (input.mode === 'takeaway' || input.mode === 'delivery') {
+    // One home order, one session, one bill — never reused. The session keeps
+    // the order's own mode so the admin and waiter boards can tell a takeaway
+    // apart from a delivery (they used to both be filed as 'takeaway', which
+    // is why deliveries went missing from the delivery board).
+    return openSession({
+      tableNumber: null,
+      mode: input.mode,
+      customerName: input.customerName ?? undefined,
+      customerPhone: input.customerPhone ?? undefined,
+    }).id;
   }
   // dine-in — stamp the opener's name/phone on the new tab so staff see who's seated.
   return (getOpenSessionForTable(input.table)?.id
@@ -335,7 +380,7 @@ export function addOrder(input: {
   subtotal: number;
   tax: number;
   total: number;
-  source: 'customer' | 'waiter';
+  source: 'customer' | 'waiter' | 'admin';
   mode?: OrderMode;
   discount?: number;
   couponCode?: string;
@@ -348,6 +393,8 @@ export function addOrder(input: {
   paidMethod?: string;
   customer?: CustomerInfo;
   deliveryAddress?: DeliveryAddress;
+  /** The customer's remark ("no sugar", "call before you come"). */
+  note?: string;
 }): Order {
   const mode = input.mode ?? 'table';
   const sessionId = resolveSessionId({
@@ -358,9 +405,12 @@ export function addOrder(input: {
     customerName: input.customer?.name,
     customerPhone: input.customer?.phone,
   });
-  // Customer-placed orders queue for admin approval; waiter-placed orders are
-  // staff and skip the queue.
-  const defaultStatus: OrderStatus = input.source === 'waiter' ? 'pending' : 'awaiting_admin';
+  // Where it goes decides whether anybody has to approve it. A guest sitting
+  // at a table (or standing at the counter) is already in the shop, so their
+  // order goes straight to the chef. A takeaway or delivery waits for the
+  // admin to accept it. Staff-placed orders never queue.
+  const defaultStatus: OrderStatus =
+    input.source === 'waiter' || !isHomeMode(mode) ? 'pending' : 'awaiting_admin';
   const newOrder: Order = {
     id: newOrderId(),
     table: input.table,
@@ -379,6 +429,7 @@ export function addOrder(input: {
     sessionId,
     customer: input.customer,
     deliveryAddress: input.deliveryAddress,
+    note: input.note?.trim() || undefined,
   };
   store.patchLocal((cur) => [newOrder, ...cur]);
   void settleSessionId(sessionId).then((finalId) => {
@@ -405,18 +456,19 @@ export function addOrder(input: {
 // migration applied yet, Supabase rejects the whole insert with "Unknown
 // column field ...". When we hit that, we retry once with those keys stripped
 // so the order still lands (minus the customer identity it couldn't persist).
-const OPTIONAL_ORDER_COLUMNS = ['user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'] as const;
+const OPTIONAL_ORDER_COLUMNS = ['user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address', 'note'] as const;
 let orderSchemaIsLegacy = false;
 
 async function insertOrderRow(row: Record<string, unknown>) {
   const payload = orderSchemaIsLegacy ? stripLegacyColumns(row) : row;
   const result = await write({ table: 'orders', op: 'insert', values: payload });
-  if (result.error && /unknown column|column .*? does not exist/i.test(result.error.message || '')) {
+  if (result.error && /unknown column|column .*? does not exist|could not find the .* column|schema cache/i.test(result.error.message || '')) {
     orderSchemaIsLegacy = true;
     console.warn(
-      '[orders] your Supabase orders table is missing the newer customer columns. ' +
-      'Apply supabase/add_customer_columns.sql in the Supabase SQL editor to keep ' +
-      'customer identity and delivery addresses with each order.'
+      '[orders] your Supabase orders table is missing the newer columns. Apply ' +
+      'supabase/add_customer_columns.sql and supabase/order_notes_handover.sql in the ' +
+      'Supabase SQL editor to keep customer identity, delivery addresses and remarks ' +
+      'with each order.'
     );
     return write({ table: 'orders', op: 'insert', values: stripLegacyColumns(row) });
   }
@@ -430,13 +482,10 @@ function stripLegacyColumns(row: Record<string, unknown>): Record<string, unknow
 }
 
 export function updateOrderStatus(id: string, status: OrderStatus) {
-  const order = store.get().find((o) => o.id === id);
-  // Takeaway has no table tab to settle later: once it is handed over it is
-  // paid, so serve = bill + close the session.
-  if (status === 'served' && order?.mode === 'takeaway' && order.sessionId && !order.billed) {
-    billSession(order.sessionId);
-    return;
-  }
+  // Takeaway and delivery used to self-bill the moment they were marked
+  // served, which minted an invoice behind the admin's back. They now follow
+  // the same path as a table: the admin settles them in Billing, and that is
+  // what mints the invoice number and sends it to the customer.
   store.patchLocal((cur) => cur.map((o) => (o.id === id ? { ...o, status } : o)));
   void write({ table: 'orders', op: 'update', values: { status }, match: { id } }).then(({ error }) => {
     if (error) console.error('[orders] status update failed', error.message);
@@ -448,10 +497,11 @@ export function approveOrder(id: string) {
   updateOrderStatus(id, 'pending');
 }
 
-/** Admin rejects an order → removed from the queue (status='served' hides it
- *  from active views while leaving the row for audit). */
+/** Admin declines or kills an order. It is marked cancelled — not quietly
+ *  "served" — so the customer sees the truth in their order history and the
+ *  stock it reserved goes back on the shelf. */
 export function rejectOrder(id: string) {
-  updateOrderStatus(id, 'served');
+  updateOrderStatus(id, 'cancelled');
 }
 
 /** Replace the items on an open order (admin-side edit of a dine-in ticket).
@@ -474,6 +524,72 @@ export function updateOrderItems(id: string, items: OrderItem[]) {
     match: { id },
   }).then(({ error }) => {
     if (error) console.error('[orders] items update failed', error);
+  });
+}
+
+/**
+ * Flip every order on a session to billed + served, without writing a bill.
+ *
+ * The admin POS mints its own (much richer) bill row, so it must not go through
+ * billSession — but it still has to close the orders out, or the ticket stays
+ * "un-billed" forever and keeps showing up on the online-orders queue, the open
+ * tabs and the waiter's board. That was the bug.
+ */
+export function markSessionBilled(sessionId: string) {
+  if (!sessionId) return;
+  // Billing does NOT mean the food reached anybody. The status stays where the
+  // kitchen left it, so 'served' keeps its one meaning: the guest has it. For
+  // a takeaway or delivery that is the hand-over, which happens after this.
+  store.patchLocal((cur) => cur.map((o) => (o.sessionId === sessionId ? { ...o, billed: true } : o)));
+  void write({
+    table: 'orders',
+    op: 'update',
+    values: { billed: true },
+    match: { session_id: sessionId },
+  }).then(({ error }) => {
+    if (error) console.error('[orders] mark billed failed', error.message);
+  });
+}
+
+/** Kill every live ticket on a session — the admin cancelling the whole tab.
+ *  Already-billed tickets are left alone: that money was taken. */
+export function cancelSession(sessionId: string) {
+  if (!sessionId) return;
+  const live = store.get().filter((o) => o.sessionId === sessionId && !o.billed && o.status !== 'cancelled');
+  if (live.length === 0) return;
+  store.patchLocal((cur) =>
+    cur.map((o) => (live.some((x) => x.id === o.id) ? { ...o, status: 'cancelled' as OrderStatus } : o)),
+  );
+  for (const o of live) {
+    void write({ table: 'orders', op: 'update', values: { status: 'cancelled' }, match: { id: o.id } }).then(({ error }) => {
+      if (error) console.error('[orders] cancel failed', error.message);
+    });
+  }
+}
+
+/** Waiter handed the takeaway to the customer / gave the delivery to the driver. */
+export function markHandedOver(sessionId: string) {
+  if (!sessionId) return;
+  const at = Date.now();
+  store.patchLocal((cur) =>
+    cur.map((o) => (o.sessionId === sessionId ? { ...o, handedOverAt: at, status: 'served' as OrderStatus } : o)),
+  );
+  void write({
+    table: 'orders',
+    op: 'update',
+    values: { handed_over_at: at, status: 'served' },
+    match: { session_id: sessionId },
+  }).then(({ error }) => {
+    if (!error) return;
+    if (/handed_over_at|schema cache|does not exist|unknown/i.test(error.message)) {
+      console.warn(
+        '[orders] no handed_over_at column yet — apply supabase/order_notes_handover.sql so a ' +
+          'handed-over order stops showing on the waiter board.',
+      );
+      void write({ table: 'orders', op: 'update', values: { status: 'served' }, match: { session_id: sessionId } });
+      return;
+    }
+    console.error('[orders] handover failed', error.message);
   });
 }
 

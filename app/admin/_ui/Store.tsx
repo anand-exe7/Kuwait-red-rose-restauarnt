@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import type {
   AdminState,
   Bill,
+  OrderMode,
   Coupon,
   Order,
   OrderItem,
@@ -47,6 +48,11 @@ import {
   getOrdersSnapshot,
   getOrdersServerSnapshot,
   updateOrderStatus as rrUpdateOrderStatus,
+  approveOrder as rrApproveOrder,
+  rejectOrder as rrRejectOrder,
+  addOrder as rrAddOrder,
+  markSessionBilled as rrMarkSessionBilled,
+  cancelSession as rrCancelSession,
   type Order as RrOrder,
   type OrderStatus as RrOrderStatus,
 } from "../../lib/orderStore";
@@ -54,14 +60,19 @@ import {
   subscribeToSessions,
   getSessionsSnapshot,
   getSessionsServerSnapshot,
+  closeSession as rrCloseSession,
+  voidSession as rrVoidSession,
   type Session as RrSession,
 } from "../../lib/sessionStore";
 import {
   subscribeToBills,
   getBillsSnapshot,
   getBillsServerSnapshot,
+  createBill as rrCreateBill,
   type Bill as RrBill,
 } from "../../lib/billStore";
+import { invoiceNumber, issueInvoiceNumber, resolveInvoiceNo } from "../../lib/invoice";
+import { recordStockChange } from "../../lib/stockStore";
 import {
   subscribeToCoupons,
   getCouponsSnapshot,
@@ -85,12 +96,24 @@ export type ActOpts = { optimistic?: (s: AdminState) => AdminState };
 
 export interface FloorTab {
   session: Session;
+  /** Resolved mode — the order's, falling back to the session's. */
+  mode: OrderMode;
   orders: Order[];
   total: number;
   items: number;
   fresh: number;
   cooking: number;
   billRequested: boolean;
+  /** Takeaway / delivery — a home order, not a seated tab. Items can never be
+   *  added to one: the customer ordered exactly what they ordered. */
+  home: boolean;
+  /** A home order still waiting for the admin to accept it. */
+  awaitingApproval: boolean;
+  /** Every ticket is cooked. For a home order this is the moment the admin is
+   *  meant to bill it and send the invoice. */
+  readyToBill: boolean;
+  /** The remark the customer typed at checkout, if any. */
+  note: string;
 }
 
 interface Ctx {
@@ -154,6 +177,7 @@ const ORDER_STATUS_MAP: Record<RrOrderStatus, OrderStatus> = {
   cooking: "preparing",
   ready: "ready",
   served: "served",
+  cancelled: "cancelled",
 };
 
 function toOrderItem(it: RrOrder["items"][number]): OrderItem {
@@ -162,6 +186,7 @@ function toOrderItem(it: RrOrder["items"][number]): OrderItem {
     name: it.name,
     price: it.price,
     qty: it.qty,
+    notes: it.notes ?? "",
   };
 }
 
@@ -170,12 +195,22 @@ function toOrder(o: RrOrder, index: number): Order {
     id: o.id,
     no: index + 1,
     sessionId: o.sessionId ?? "",
+    mode: o.mode ?? "table",
+    live: o.status,
+    total: o.total,
+    billed: o.billed ?? false,
+    customerEmail: o.customer?.email ?? "",
+    deliveryAddress: o.deliveryAddress,
     items: o.items.map(toOrderItem),
-    note: "",
+    note: o.note ?? "",
     customerName: o.customer?.name ?? "",
     customerPhone: o.customer?.phone ?? "",
     status: ORDER_STATUS_MAP[o.status] ?? "new",
-    source: o.source === "customer" ? "customer" : o.source === "waiter" ? "waiter" : "counter",
+    source:
+      o.source === "customer" ? "customer"
+      : o.source === "admin" ? "admin"
+      : o.source === "waiter" ? "waiter"
+      : "counter",
     subtotal: o.subtotal,
     createdAt: o.createdAt,
     updatedAt: o.createdAt,
@@ -190,6 +225,9 @@ function toSession(sess: RrSession): Session {
   return {
     id: sess.id,
     status,
+    mode: sess.mode ?? "table",
+    tableNumber: sess.tableNumber ?? null,
+    standingLabel: sess.standingLabel ?? "",
     openedAt: sess.openedAt,
     closedAt: sess.closedAt ?? null,
     customerName: sess.customerName ?? "",
@@ -201,13 +239,56 @@ function toSession(sess: RrSession): Session {
 }
 
 function toBill(b: RrBill): Bill {
+  // The admin POS writes the full invoice payload to Supabase. When it's
+  // there, trust it; otherwise reconstruct a thin bill from the row and
+  // derive a human-readable INV number from the bill id.
+  const p = (b.payload ?? null) as Partial<Bill> | null;
   const payment: Bill["payment"] =
     b.paidMethod === "cash" || b.paidMethod === "upi" || b.paidMethod === "card" || b.paidMethod === "split"
       ? b.paidMethod
-      : "cash";
+      : (p?.payment ?? "cash");
+  const invoiceNo = resolveInvoiceNo({ invoiceNo: b.invoiceNo || p?.invoiceNo, sessionId: b.sessionId, id: b.id, createdAt: b.createdAt });
+  if (p) {
+    return {
+      id: b.id,
+      invoiceNo,
+      source: p.source ?? (b.sessionId ? "tab" : "counter"),
+      sessionId: b.sessionId ?? null,
+      customerName: p.customerName ?? "",
+      customerPhone: p.customerPhone ?? "",
+      items: p.items ?? [],
+      itemCount: p.itemCount ?? 0,
+      subtotal: p.subtotal ?? b.subtotal ?? 0,
+      couponCode: p.couponCode ?? b.couponCode ?? null,
+      couponPercent: p.couponPercent ?? 0,
+      couponDiscount: p.couponDiscount ?? 0,
+      couponSource: p.couponSource ?? null,
+      manualType: p.manualType ?? "none",
+      manualValue: p.manualValue ?? 0,
+      manualDiscount: p.manualDiscount ?? 0,
+      discount: p.discount ?? b.discount ?? 0,
+      total: p.total ?? b.total ?? 0,
+      createdAt: b.createdAt,
+      tax: p.tax ?? b.tax ?? 0,
+      taxRate: p.taxRate ?? 0,
+      status: p.status ?? "completed",
+      isGst: p.isGst ?? false,
+      gstAmount: p.gstAmount ?? 0,
+      gstPercent: p.gstPercent ?? 0,
+      taxableAmount: p.taxableAmount ?? 0,
+      cashAmount: p.cashAmount ?? 0,
+      upiAmount: p.upiAmount ?? 0,
+      cardAmount: p.cardAmount ?? 0,
+      payment,
+      received: p.received ?? (b.total ?? 0),
+      change: p.change ?? 0,
+      extra: p.extra ?? 0,
+      note: p.note ?? "",
+    };
+  }
   return {
     id: b.id,
-    invoiceNo: b.id,
+    invoiceNo,
     source: b.sessionId ? "tab" : "counter",
     sessionId: b.sessionId ?? null,
     customerName: "",
@@ -300,25 +381,36 @@ export function AdminProvider({
   const rrBills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
   const rrCoupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
 
+  /* Bills the admin has just completed in this session. Red Rose's `bills`
+     table stores the thin, session-settling record; the admin's billing panel
+     builds a richer Bill (items, GST split, discount, payment method, etc.)
+     so we keep those extras here and merge them with what Supabase sends down
+     for Orders, print and WhatsApp. They survive until the tab is refreshed. */
+  const [extraBills, setExtraBills] = useState<Bill[]>([]);
+
   // Build the AdminState snapshot from Red Rose data
-  const s: AdminState = useMemo(
-    () => ({
+  const s: AdminState = useMemo(() => {
+    const serverBills = rrBills.map(toBill);
+    const serverIds = new Set(serverBills.map((b) => b.id));
+    const localOnly = extraBills.filter((b) => !serverIds.has(b.id));
+    return {
       ...initial,
       products: menu.map(toProduct),
       orders: rrOrders.map(toOrder),
       sessions: rrSessions.map(toSession),
-      bills: rrBills.map(toBill),
+      bills: [...localOnly, ...serverBills].sort((a, b) => b.createdAt - a.createdAt),
       coupons: rrCoupons.map(toCoupon),
-    }),
-    [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons]
-  );
+    };
+  }, [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons, extraBills]);
 
   // Floor tabs — the open sessions, with their orders aggregated
   const floor: FloorTab[] = useMemo(() => {
     return s.sessions
       .filter((sess) => sess.status === "open")
       .map((sess) => {
-        const sessOrders = s.orders.filter((o) => o.sessionId === sess.id);
+        // A cancelled ticket is not on the tab: it must not add items, money or
+        // a "new order" badge to what the admin or the waiter sees.
+        const sessOrders = s.orders.filter((o) => o.sessionId === sess.id && o.status !== "cancelled");
         const items = sessOrders.reduce(
           (sum, o) => sum + o.items.reduce((is, it) => is + it.qty, 0),
           0
@@ -326,14 +418,24 @@ export function AdminProvider({
         const total = sessOrders.reduce((sum, o) => sum + o.subtotal, 0);
         const fresh = sessOrders.filter((o) => o.status === "new").length;
         const cooking = sessOrders.filter((o) => o.status === "preparing").length;
+        // The order's mode wins over the session's (older delivery sessions
+        // were all written as 'takeaway').
+        const mode = sessOrders[0]?.mode ?? sess.mode;
+        const home = mode === "takeaway" || mode === "delivery";
+        const live = sessOrders.filter((o) => !o.billed);
         return {
           session: sess,
+          mode: mode ?? "table",
           orders: sessOrders,
           total,
           items,
           fresh,
           cooking,
           billRequested: sess.billRequestedAt !== null,
+          home,
+          awaitingApproval: live.some((o) => o.live === "awaiting_admin"),
+          readyToBill: items > 0 && live.length > 0 && live.every((o) => o.live === "ready" || o.live === "served"),
+          note: sessOrders.map((o) => o.note).find(Boolean) ?? "",
         };
       });
   }, [s.sessions, s.orders]);
@@ -417,6 +519,16 @@ export function AdminProvider({
             rrUpdateOrderStatus(id, inverse[status] ?? "pending");
             return { ok: true, result: undefined as T };
           }
+          case "order.approve": {
+            // Admin accepted a customer's takeaway / delivery / dine-in order:
+            // it leaves the queue and becomes a kitchen ticket.
+            rrApproveOrder(args.id as string);
+            return { ok: true, result: undefined as T };
+          }
+          case "order.reject": {
+            rrRejectOrder(args.id as string);
+            return { ok: true, result: undefined as T };
+          }
           case "product.toggle": {
             const id = args.id as string;
             const item = menu.find((m) => m.id === id);
@@ -425,9 +537,22 @@ export function AdminProvider({
             return { ok: true, result: undefined as T };
           }
           case "product.stock": {
+            // Every stock change goes through /api/stock so it lands in the
+            // ledger as well as on the product. (This used to read args.stock,
+            // which the Inventory +/- buttons never send — so the buttons
+            // silently did nothing.)
             const id = args.id as string;
-            const stock = args.stock as number | null;
-            rrUpdateMenuItem(id, { stock: stock ?? undefined });
+            const delta = args.delta == null ? undefined : Number(args.delta);
+            const set = args.set == null ? undefined : Number(args.set);
+            const r = await recordStockChange({
+              productId: id,
+              kind: set !== undefined ? "adjust" : delta !== undefined && delta > 0 ? "restock" : "waste",
+              delta,
+              set,
+              reason: set !== undefined ? "Stock count in Inventory" : "Inventory +/-",
+            });
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not change the stock." };
+            rrUpdateMenuItem(id, { stock: r.stock ?? undefined }, { localOnly: true });
             return { ok: true, result: undefined as T };
           }
           case "product.delete": {
@@ -437,18 +562,45 @@ export function AdminProvider({
           }
           case "product.save": {
             const p = args as Partial<Product> & { id?: string };
+            const wantStock = p.stock === null || p.stock === undefined ? null : Number(p.stock);
             const payload: Partial<MenuItem> = {
               name: p.name,
               category: p.category ?? "Other",
               price: p.price ?? 0,
               description: p.description ?? "",
               image: p.image ?? "",
-              stock: p.stock ?? undefined,
               lowStockThreshold: p.lowAt ?? undefined,
               status: p.active === false ? "inactive" : "active",
             };
-            if (p.id) rrUpdateMenuItem(p.id, payload);
-            else rrAddMenuItem(payload as MenuItem);
+            if (p.id) {
+              const before = menu.find((m) => m.id === p.id)?.stock ?? null;
+              // Switching tracking off (or on) is a product change; a changed
+              // count is a stock movement and goes through /api/stock so the
+              // ledger records who corrected it and by how much.
+              if (wantStock === null) payload.stock = undefined;
+              rrUpdateMenuItem(p.id, payload);
+              if (wantStock !== null && wantStock !== before) {
+                const r = await recordStockChange({
+                  productId: p.id,
+                  kind: "adjust",
+                  set: wantStock,
+                  reason: "Stock count in Inventory",
+                });
+                if (!r.ok) return { ok: false, error: r.error ?? "Saved, but the stock count didn't change." };
+              }
+            } else {
+              // New products start empty and the opening count is booked in as
+              // a movement, so the ledger balances from day one.
+              const created = rrAddMenuItem({ ...(payload as MenuItem), stock: 0 });
+              if (wantStock !== null && wantStock > 0) {
+                await recordStockChange({
+                  productId: created.id,
+                  kind: "restock",
+                  set: wantStock,
+                  reason: "Opening stock",
+                });
+              }
+            }
             return { ok: true, result: undefined as T };
           }
           case "coupon.save": {
@@ -470,6 +622,179 @@ export function AdminProvider({
             rrDeleteCoupon(id);
             return { ok: true, result: undefined as T };
           }
+          case "bill.create": {
+            const items = (args.items as OrderItem[]) ?? [];
+            const subtotal = items.reduce((a, i) => a + i.price * i.qty, 0);
+            const couponCode = (args.couponCode as string | null) || null;
+            const cp = couponCode ? rrCoupons.find((c) => c.code === couponCode) : null;
+            const couponDiscount = cp ? Math.round((subtotal * cp.discountPercent) / 100 * 1000) / 1000 : 0;
+            const manualType = (args.manualType as "amount" | "percent" | "none") ?? "none";
+            const manualValue = Number(args.manualValue ?? 0);
+            const manualDiscount =
+              manualType === "percent" ? Math.round((subtotal * manualValue) / 100 * 1000) / 1000
+              : manualType === "amount" ? Math.round(manualValue * 1000) / 1000
+              : 0;
+            const discount = Math.round((couponDiscount + manualDiscount) * 1000) / 1000;
+            const extra = Number(args.extra ?? 0) || 0;
+            const isGst = Boolean(args.isGst);
+            const gstPercent = Number(args.gstPercent ?? 0);
+            const base = Math.max(0, subtotal - discount);
+            const taxable = isGst ? Math.round((base / (1 + gstPercent / 100)) * 1000) / 1000 : base;
+            const gstAmount = isGst ? Math.round((base - taxable) * 1000) / 1000 : 0;
+            const total = Math.round((base + extra) * 1000) / 1000;
+            const payment = (args.payment as Bill["payment"]) ?? "cash";
+            const received = Number(args.received ?? total);
+            const cashAmount = payment === "split" ? Number(args.cashAmount ?? 0) : payment === "cash" ? total : 0;
+            const cardAmount = payment === "split" ? Number(args.cardAmount ?? 0) : payment === "card" ? total : 0;
+            const upiAmount = payment === "upi" ? total : 0;
+            const change = payment === "cash" && received > total ? Math.round((received - total) * 1000) / 1000 : 0;
+            const sessionId = (args.sessionId as string | undefined) ?? null;
+            // Alphanumeric tail matching the API id regex (BL-… + alphanum).
+            // 0/O and 1/I/L are left out so a printed id is unambiguous when
+            // read back over the phone.
+            const alpha = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+            let tail = "";
+            for (let i = 0; i < 5; i++) tail += alpha[Math.floor(Math.random() * alpha.length)];
+            const id = `BL-${Date.now().toString(36).toUpperCase()}${tail}`;
+            // Session-keyed when the bill settles a tab, so the number matches
+            // the one the guest already saw as their order number,
+            // and probed forward if those digits are already in use.
+            const invoiceNo = issueInvoiceNumber(
+              sessionId ?? id,
+              rrBills.map((x) => x.invoiceNo || "").filter(Boolean) as string[],
+            );
+            const bill: Bill = {
+              id,
+              invoiceNo,
+              source: sessionId ? "tab" : "counter",
+              sessionId,
+              customerName: (args.customerName as string) || "",
+              customerPhone: (args.customerPhone as string) || "",
+              items,
+              itemCount: items.reduce((a, i) => a + i.qty, 0),
+              subtotal,
+              couponCode,
+              couponPercent: cp?.discountPercent ?? 0,
+              couponDiscount,
+              couponSource: null,
+              manualType,
+              manualValue,
+              manualDiscount,
+              discount,
+              total,
+              createdAt: Date.now(),
+              tax: gstAmount,
+              taxRate: gstPercent,
+              status: "completed",
+              isGst,
+              gstAmount,
+              gstPercent,
+              taxableAmount: taxable,
+              cashAmount,
+              upiAmount,
+              cardAmount,
+              payment,
+              received,
+              change,
+              extra,
+              note: typeof args.note === "string" ? args.note : "",
+            };
+            setExtraBills((cur) => [bill, ...cur.filter((b) => b.id !== id)]);
+            // Serialise the rich bill into a Supabase-safe payload. Numbers,
+            // strings and plain objects only — the admin uses this on the
+            // public /invoice/INV-… page to re-render the same bill without
+            // any URL blob.
+            const payloadJson: Record<string, unknown> = JSON.parse(JSON.stringify(bill));
+            if (sessionId) {
+              try {
+                // The in-house billSession writes its own bill row with the
+                // thin fields; we want the rich bill persisted instead, with
+                // the same id so the DB has one row per bill.
+                rrCreateBill({
+                  id,
+                  sessionId,
+                  subtotal,
+                  tax: gstAmount,
+                  discount,
+                  total,
+                  couponCode,
+                  paidMethod: payment,
+                  invoiceNo,
+                  payload: payloadJson,
+                });
+                // Close the tickets out too. Without this the orders stay
+                // billed=false, so a settled order kept showing up as
+                // "ready to bill" on the online queue, the open tabs and the
+                // waiter's board for ever.
+                rrMarkSessionBilled(sessionId);
+                rrCloseSession(sessionId, id);
+              } catch (e) {
+                console.warn("[bill] failed to close session", e);
+              }
+            } else {
+              // Counter walk-in bills had no DB row until now. Persist the
+              // rich payload so the short /invoice/… link works cross-device.
+              rrCreateBill({
+                id,
+                sessionId: null,
+                subtotal,
+                tax: gstAmount,
+                discount,
+                total,
+                couponCode,
+                paidMethod: payment,
+                invoiceNo,
+                payload: payloadJson,
+              });
+            }
+            return { ok: true, result: bill as unknown as T };
+          }
+          case "settings.update": {
+            // Admin settings are locally-controlled defaults in Red Rose; a
+            // write just no-ops so the UI can still save without erroring.
+            return { ok: true, result: undefined as T };
+          }
+          case "session.addItems": {
+            const sessionId = args.sessionId as string;
+            const items = (args.items as OrderItem[]) ?? [];
+            if (!items.length) return { ok: false, error: "No items to add." };
+            const sess = rrSessions.find((x) => x.id === sessionId);
+            if (!sess) return { ok: false, error: "That tab is no longer open." };
+            const subtotal = items.reduce((a, i) => a + i.price * i.qty, 0);
+            const rrItems = items.map((i, idx) => ({
+              id: `oi-${Date.now().toString(36)}-${idx}`,
+              name: i.name,
+              price: i.price,
+              qty: i.qty,
+            }));
+            rrAddOrder({
+              table: sess.tableNumber ?? 0,
+              standingLabel: sess.standingLabel ?? undefined,
+              mode: sess.mode,
+              items: rrItems,
+              priority: "normal",
+              subtotal,
+              tax: 0,
+              total: subtotal,
+              source: "admin",
+              status: "pending",
+              sessionId,
+              customer: {
+                name: sess.customerName ?? "",
+                phone: sess.customerPhone ?? "",
+              },
+            });
+            return { ok: true, result: undefined as T };
+          }
+          case "session.cancel": {
+            const sessionId = args.sessionId as string;
+            // Cancel the tickets too, or they stay "live" for ever: the kitchen
+            // keeps cooking them, the waiter keeps showing them, and the
+            // customer's own order history never says what happened.
+            rrCancelSession(sessionId);
+            rrVoidSession(sessionId);
+            return { ok: true, result: undefined as T };
+          }
           default:
             return { ok: false, error: `This panel is read-only on Red Rose — "${op}" isn't wired up.` };
         }
@@ -477,7 +802,7 @@ export function AdminProvider({
         return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
       }
     },
-    [menu]
+    [menu, rrCoupons, rrSessions]
   );
 
   const refresh = useCallback(async () => {

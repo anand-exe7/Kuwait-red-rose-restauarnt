@@ -213,7 +213,7 @@ export default function HeroNav() {
               <ArrowRight size={14} strokeWidth={1.8} />
             </Link>
             <p className="text-center font-body text-[11px] font-light tracking-[0.12em] text-white/60">
-              Salmiya · Open daily 8:00 – 23:00 ·{' '}
+              {BRAND.area} · Open daily 8:00 – 23:00 ·{' '}
               <a href="tel:+96522000000" tabIndex={open ? 0 : -1} className="text-white/85 underline-offset-4 hover:underline">
                 +965 2200 0000
               </a>

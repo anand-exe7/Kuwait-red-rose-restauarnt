@@ -1,7 +1,8 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from 'react';
 import { ChefHat, CheckCircle, Clock, Flame, AlertTriangle, CircleDashed, Sparkles, PackageCheck, Volume2, VolumeX } from 'lucide-react';
-import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel } from '../lib/orderStore';
+import { getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, updateOrderStatus, orderLabel, type Order } from '../lib/orderStore';
+import { resolveOrderNo } from '../lib/invoice';
 import { formatKWD } from '../lib/currency';
 import { Pagination, usePagination } from '../components/Pagination';
 import { landingFonts } from '../fonts';
@@ -71,6 +72,15 @@ export default function ChefDashboard() {
   const historyPager = usePagination(servedOrders, 15);
 
   const waitMinutes = (createdAt: number) => Math.max(0, Math.floor((now - createdAt) / 60000));
+  /* A home order looks different on the pass, because it IS different: nobody
+     is sitting at a table waiting for it, it gets packed, and a delivery has a
+     driver to catch. Violet = delivery, blue = takeaway, cream = eat-in. */
+  const modeSkin = (mode: Order['mode']) =>
+    mode === 'delivery'
+      ? { card: 'bg-[#f0e8fb] border-[#a78bda]', ribbon: 'bg-[#6d44b8]', label: 'Delivery' }
+      : mode === 'takeaway'
+        ? { card: 'bg-[#e6f1fb] border-[#7fb0dd]', ribbon: 'bg-[#1c6ca8]', label: 'Takeaway' }
+        : { card: 'bg-brand-cream border-brand-gold/40', ribbon: '', label: '' };
   const waitColor = (mins: number) => (mins >= 20 ? 'text-brand-red' : mins >= 10 ? 'text-brand-gold-dark' : 'text-brand-ink/55');
 
   return (
@@ -222,15 +232,23 @@ export default function ChefDashboard() {
             {activeOrders.map(order => {
               const mins = waitMinutes(order.createdAt);
               return (
-              <div key={order.id} className={`relative flex flex-col overflow-hidden rounded-[1.5rem] border bg-brand-cream p-4 text-brand-ink shadow-[0_28px_56px_-30px_rgba(30,0,4,0.75)] transition-all sm:rounded-[1.75rem] sm:p-5 md:p-5 xl:rounded-[2rem] xl:p-6 ${order.status === 'cooking' ? 'border-brand-gold ring-1 ring-brand-gold/70' : 'border-brand-gold/40'}`}>
+              <div key={order.id} className={`relative flex flex-col overflow-hidden rounded-[1.5rem] border-2 p-4 text-brand-ink shadow-[0_28px_56px_-30px_rgba(30,0,4,0.75)] transition-all sm:rounded-[1.75rem] sm:p-5 md:p-5 xl:rounded-[2rem] xl:p-6 ${modeSkin(order.mode).card} ${order.status === 'cooking' ? 'ring-2 ring-brand-gold/70' : ''}`}>
+
+                {/* Home orders get a coloured band across the top so the pass can
+                    sort eat-in from pack-up at a glance across the kitchen. */}
+                {modeSkin(order.mode).ribbon && (
+                  <div className={`absolute left-0 top-0 flex h-6 w-full items-center justify-center font-body text-[9.5px] font-bold uppercase tracking-[0.24em] text-white ${modeSkin(order.mode).ribbon}`}>
+                    {modeSkin(order.mode).label} · pack it up
+                  </div>
+                )}
 
                 {/* Priority Indicator */}
                 {order.priority === 'high' && (
-                  <div className="absolute left-0 top-0 h-1.5 w-full bg-gradient-to-r from-brand-red via-brand-gold to-brand-red" />
+                  <div className={`absolute left-0 h-1.5 w-full bg-gradient-to-r from-brand-red via-brand-gold to-brand-red ${modeSkin(order.mode).ribbon ? 'top-6' : 'top-0'}`} />
                 )}
 
                 {/* Top Row: Table and Meta */}
-                <div className="mb-4 flex items-start justify-between sm:mb-5">
+                <div className={`mb-4 flex items-start justify-between sm:mb-5 ${modeSkin(order.mode).ribbon ? 'mt-5' : ''}`}>
                   <div className="flex items-center gap-3 sm:gap-4">
                     <div className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-full px-1 text-center leading-none ring-1 ring-brand-gold/60 sm:h-16 sm:w-16 md:h-[64px] md:w-[64px] xl:h-[72px] xl:w-[72px] ${order.status === 'cooking' ? 'bg-brand-red text-white' : 'bg-brand-wine text-brand-gold-light'}`}>
                       {order.mode === 'standing' ? (
@@ -249,6 +267,11 @@ export default function ChefDashboard() {
                     <div className="min-w-0 flex-1">
                       <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-xl font-semibold leading-none text-brand-wine sm:text-2xl">
                         Ticket #{order.id.split('-')[1]}
+                        {(order.mode === 'takeaway' || order.mode === 'delivery') && (
+                          <span className="rounded-full bg-brand-wine px-2.5 py-1 font-body text-[11px] font-bold tracking-[0.1em] text-brand-gold-light">
+                            Order #{resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })}
+                          </span>
+                        )}
                         {order.source === 'customer' && (
                           <span className="rounded-full bg-brand-plum/10 px-2 py-0.5 font-body text-[9px] font-medium uppercase tracking-[0.18em] text-brand-plum sm:px-2.5 sm:py-1">Self-order</span>
                         )}
@@ -285,6 +308,18 @@ export default function ChefDashboard() {
                     </div>
                   </div>
                 </div>
+
+                {/* The customer's remark for the whole order — the one thing a
+                    chef must read before they start. */}
+                {order.note && (
+                  <div className="mb-3 flex items-start gap-2 rounded-[1.25rem] border-2 border-brand-red/50 bg-brand-red/5 p-3 sm:mb-4 sm:p-4">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-brand-red" />
+                    <div className="min-w-0">
+                      <p className="font-body text-[9px] font-bold uppercase tracking-[0.2em] text-brand-red">Customer&rsquo;s remark</p>
+                      <p className="break-words font-body text-sm font-semibold leading-snug text-brand-wine sm:text-base">{order.note}</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Items List */}
                 <div className="mb-4 flex-1 space-y-2.5 rounded-[1.25rem] border border-brand-gold/25 bg-white p-3 sm:mb-5 sm:space-y-3 sm:rounded-[1.5rem] sm:p-4 md:p-5">

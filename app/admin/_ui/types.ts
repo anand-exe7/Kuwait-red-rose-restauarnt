@@ -1,3 +1,13 @@
+import { shopName } from "../../lib/shop";
+import type { DeliveryAddress, OrderMode, OrderStatus as LiveOrderStatus } from "../../lib/orderStore";
+
+export type { DeliveryAddress, OrderMode };
+/** The real order lifecycle, as the kitchen and the customer see it. The
+ *  admin's own `OrderStatus` below is a coarser, display-only roll-up kept for
+ *  the ported pages; anything that has to act on an order (approve, send to
+ *  the chef, bill it) reads `Order.live` instead. */
+export type LiveStatus = LiveOrderStatus;
+
 // Type surface the Red Rose admin pages import through `./types`.
 // Everything here is the shape the pages EXPECT; the Store in this folder
 // adapts Red Rose's live Supabase data to this shape.
@@ -6,7 +16,7 @@ export type Role = "admin" | "staff";
 
 export type SessionStatus = "open" | "bill_requested" | "closed";
 export type OrderStatus = "new" | "preparing" | "ready" | "served" | "cancelled";
-export type OrderSource = "customer" | "waiter" | "counter";
+export type OrderSource = "customer" | "waiter" | "admin" | "counter";
 export type BillSource = "tab" | "counter";
 export type DiscountType = "percent" | "amount" | "none";
 export type CouponSource = "customer" | "admin" | "guest";
@@ -30,6 +40,12 @@ export interface Product {
 export interface Session {
   id: string;
   status: SessionStatus;
+  /** Where this visit happens — a table, a walk-in, a takeaway or a delivery.
+   *  Home orders (takeaway/delivery) are billed like a tab but can never have
+   *  items added to them, so every surface needs to be able to tell them apart. */
+  mode: OrderMode;
+  tableNumber: number | null;
+  standingLabel: string;
   openedAt: number;
   closedAt: number | null;
   customerName: string;
@@ -44,12 +60,24 @@ export interface OrderItem {
   name: string;
   price: number;
   qty: number;
+  /** Per-line remark the customer typed ("less sweet"). */
+  notes?: string;
 }
 
 export interface Order {
   id: string;
   no: number;
   sessionId: string;
+  /** Where the order goes. */
+  mode: OrderMode;
+  /** The true lifecycle position — `status` collapses awaiting_admin and
+   *  pending into "new", which is exactly the distinction the online-orders
+   *  queue is about. */
+  live: LiveStatus;
+  total: number;
+  billed: boolean;
+  customerEmail: string;
+  deliveryAddress?: DeliveryAddress;
   items: OrderItem[];
   note: string;
   customerName: string;
@@ -174,7 +202,7 @@ export function emptyAdminState(): AdminState {
     version: 0,
     seq: { order: 0 },
     settings: {
-      shopName: "Red Rose",
+      shopName: shopName(),
       publicUrl: "",
       walkInsOnly: false,
       kotEnabled: true,

@@ -4,6 +4,7 @@ import { SESSION_COOKIE, verifySessionToken, type Role } from '../../lib/session
 import { getServerSupabase } from '../../lib/supabaseServer';
 import { HttpError, bad, deny, throttle, isObj, str, int, money, round3, clientIp } from '../../lib/server/http';
 import { priceItems, checkCoupon, consumeCoupon, TAX_RATE } from '../../lib/server/pricing';
+import { applySaleForOrder, reverseSaleForOrder } from '../../lib/server/stock';
 
 // Single guarded door for every database WRITE made by the browser.
 //
@@ -33,14 +34,57 @@ const COLUMNS: Record<string, string[]> = {
     'opened_at', 'closed_at', 'bill_requested_at', 'bill_id', 'created_at'],
   orders: ['id', 'table_number', 'items', 'status', 'priority', 'subtotal', 'tax', 'total', 'source', 'mode',
     'discount', 'coupon_code', 'standing_label', 'session_id', 'billed', 'created_at',
+    // Customer remark + hand-over stamp — see supabase/order_notes_handover.sql.
+    'note', 'handed_over_at',
     // Customer identity + delivery address — see supabase/add_customer_columns.sql.
     'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
-  bills: ['id', 'session_id', 'subtotal', 'tax', 'discount', 'total', 'coupon_code', 'paid_method', 'created_at'],
+  // `invoice_no` + `payload` carry the admin POS's rich bill so the short
+  // `/invoice/INV-…` link can rebuild it without a URL blob. See
+  // supabase/add_bill_payload.sql for the migration.
+  bills: ['id', 'session_id', 'subtotal', 'tax', 'discount', 'total', 'coupon_code', 'paid_method', 'created_at', 'invoice_no', 'payload'],
   waiter_calls: ['id', 'table_number', 'resolved', 'created_at'],
 };
 
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
 const isFloor = (r: Role | null) => r === 'admin' || r === 'waiter'; // may bill / serve
+
+// Columns that newer migrations added. When one of them hasn't been applied
+// yet, PostgREST answers "Could not find the 'note' column of 'orders' in the
+// schema cache" and refuses the whole row — so a customer typing a remark
+// could not order at all. We drop the column it names and try again, which
+// keeps the shop taking orders while the migration is still pending. Only
+// these columns may be dropped: a missing core column is a real error.
+const DROPPABLE: Record<string, string[]> = {
+  orders: ['note', 'handed_over_at', 'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
+  bills: ['invoice_no', 'payload'],
+  coupons: ['targeted_only', 'sent_phones'],
+  menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold'],
+};
+
+/** The column name out of a PostgREST "missing column" error, if that's what it is. */
+function missingColumn(message: string): string | null {
+  const m = /could not find the '([^']+)' column|column "?([\w.]+)"? does not exist/i.exec(message || '');
+  if (!m) return null;
+  const name = m[1] ?? m[2] ?? '';
+  return name.includes('.') ? name.split('.').pop()! : name || null;
+}
+
+async function insertTolerant(sb: SupabaseClient, table: string, row: Values) {
+  const droppable = DROPPABLE[table] ?? [];
+  const payload: Values = { ...row };
+  for (let attempt = 0; attempt <= droppable.length; attempt++) {
+    const res = await sb.from(table).insert(payload);
+    if (!res.error) return res;
+    const col = missingColumn(res.error.message);
+    if (!col || !droppable.includes(col) || !(col in payload)) return res;
+    delete payload[col];
+    console.warn(
+      `[api/db] ${table}.${col} is missing from the database — saving without it. ` +
+        'Apply the migrations in supabase/ (see docs/GO-LIVE.md) to stop losing this field.',
+    );
+  }
+  return sb.from(table).insert(payload);
+}
 
 function assertKeys(obj: Values | undefined, allowed: string[], what: string) {
   for (const k of Object.keys(obj ?? {})) if (!allowed.includes(k)) throw bad(`Unknown ${what} field "${k}"`);
@@ -62,7 +106,10 @@ async function sessionsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   if (op === 'delete') throw deny();
   if (op === 'insert') {
     throttle(`s:${ctx.ip}`);
-    const mode = v.mode === 'standing' || v.mode === 'takeaway' ? v.mode : 'table';
+    // 'delivery' used to fall through to 'table' here, which saved every
+    // delivery as a dine-in with no table number and failed the insert.
+    const mode =
+      v.mode === 'standing' || v.mode === 'takeaway' || v.mode === 'delivery' ? v.mode : 'table';
     const id = str(v.id, 60, 'id');
     if (!/^SN-[0-9]+-[0-9]+$/.test(id)) throw bad('Invalid id');
     let tableNumber: number | null = null;
@@ -112,15 +159,42 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
 
   if (op === 'update') {
     const keys = Object.keys(v);
-    assertKeys(v, ['status', 'billed', 'priority'], 'order');
+    assertKeys(v, ['status', 'billed', 'priority', 'handed_over_at', 'note'], 'order');
     if (keys.length === 0) throw bad('Nothing to update');
     const mk = Object.keys(match);
     if (mk.length !== 1 || (mk[0] !== 'id' && mk[0] !== 'session_id')) throw bad('match must be { id } or { session_id }');
     if (!isStaff(role)) throw deny('Staff only');
-    if (v.status !== undefined && !['pending', 'cooking', 'ready', 'served'].includes(String(v.status))) throw bad('Invalid status');
-    if ((v.billed !== undefined || mk[0] === 'session_id' || v.status === 'served') && !isFloor(role)) throw deny('Waiter or admin only');
+    if (v.status !== undefined && !['pending', 'cooking', 'ready', 'served', 'cancelled'].includes(String(v.status))) throw bad('Invalid status');
+    if ((v.billed !== undefined || mk[0] === 'session_id' || v.status === 'served' || v.status === 'cancelled') && !isFloor(role)) throw deny('Waiter or admin only');
     if (v.billed !== undefined && typeof v.billed !== 'boolean') throw bad('Invalid billed');
-    return sb.from('orders').update(v).match(match);
+    if (v.handed_over_at !== undefined) {
+      if (!isFloor(role)) throw deny('Waiter or admin only');
+      if (v.handed_over_at !== null && typeof v.handed_over_at !== 'number') throw bad('Invalid handed_over_at');
+    }
+    if (v.note !== undefined && v.note !== null) {
+      if (typeof v.note !== 'string') throw bad('Invalid note');
+      v.note = v.note.slice(0, 300);
+    }
+
+    // Stock follows the order: it comes off the shelf when the ticket reaches
+    // the kitchen, and goes back on if that ticket is then cancelled. We read
+    // the rows as they are NOW, so a repeated approve can't count twice
+    // (applySaleForOrder is idempotent anyway).
+    const goingToKitchen = v.status === 'pending';
+    const cancelling = v.status === 'cancelled';
+    const affected = goingToKitchen || cancelling
+      ? (await sb.from('orders').select('id,items,session_id,source,status').match(match)).data ?? []
+      : [];
+
+    const res = await sb.from('orders').update(v).match(match);
+    if (!res.error) {
+      for (const o of affected) {
+        if (goingToKitchen && o.status === 'awaiting_admin') await applySaleForOrder(sb, o);
+        // Declined before the kitchen ever saw it → no stock ever moved.
+        if (cancelling && o.status !== 'awaiting_admin') await reverseSaleForOrder(sb, o, 'Order cancelled');
+      }
+    }
+    return res;
   }
 
   // insert
@@ -139,11 +213,14 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     if (!data) throw bad('Unknown table');
   }
 
-  // Customer-placed orders start in the admin approval queue; staff orders
-  // skip it. Admin POS may create one that is already further along.
-  let status = source === 'customer' ? 'awaiting_admin' : 'pending';
+  // Who has to see it first depends on where the food is going. A guest in the
+  // shop (dine-in or walk-in) goes straight to the chef — nobody should have to
+  // approve an order from somebody sitting at a table. A takeaway or delivery
+  // waits in the admin's queue. Staff orders never queue.
+  const isHome = mode === 'takeaway' || mode === 'delivery';
+  let status = source === 'customer' && isHome ? 'awaiting_admin' : 'pending';
   let billed = false;
-  const allowedStatuses = ['awaiting_admin', 'pending', 'cooking', 'ready', 'served'];
+  const allowedStatuses = ['awaiting_admin', 'pending', 'cooking', 'ready', 'served', 'cancelled'];
   if (role === 'admin') {
     if (v.status !== undefined) {
       if (!allowedStatuses.includes(String(v.status))) throw bad('Invalid status');
@@ -151,8 +228,9 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     }
     billed = v.billed === true;
   } else if (source === 'customer' && v.status !== undefined) {
-    // A customer can only send 'awaiting_admin'; any other hint is ignored.
-    if (String(v.status) === 'awaiting_admin') status = 'awaiting_admin';
+    // A customer can only ask to queue, and only for a home order; any other
+    // hint is ignored. Their dine-in order always goes straight to the chef.
+    if (String(v.status) === 'awaiting_admin' && isHome) status = 'awaiting_admin';
   }
   const priority = staff && v.priority === 'high' ? 'high' : 'normal';
 
@@ -195,14 +273,21 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     coupon_code: coupon?.code ?? null,
     standing_label: typeof v.standing_label === 'string' ? v.standing_label.slice(0, 40) : null,
     session_id: sessionId, billed, created_at: Date.now(),
+    // The customer's remark typed at checkout; staff screens all show it.
+    note: typeof v.note === 'string' && v.note.trim() ? v.note.trim().slice(0, 300) : null,
     user_id: userId,
     customer_name: customerName,
     customer_phone: customerPhone,
     customer_email: customerEmail,
     delivery_address: deliveryAddress,
   };
-  const res = await sb.from('orders').insert(row);
+  const res = await insertTolerant(sb, 'orders', row);
   if (!res.error && coupon) await consumeCoupon(sb, coupon);
+  // Staff orders skip the approval queue, so they hit the kitchen immediately
+  // and the stock comes off now. A customer order waits for the admin.
+  if (!res.error && status !== 'awaiting_admin') {
+    await applySaleForOrder(sb, { id, items: row.items, session_id: sessionId, source });
+  }
   return res;
 }
 
@@ -211,18 +296,38 @@ async function billsWrite(ctx: Ctx, op: Op, v: Values) {
   if (!isFloor(ctx.role)) throw deny('Waiter or admin only');
   const id = str(v.id, 40, 'id');
   if (!/^BL-[A-Za-z0-9]+$/.test(id)) throw bad('Invalid id');
-  const sessionId = str(v.session_id, 60, 'session');
+  const invoiceNo = typeof v.invoice_no === 'string' ? v.invoice_no.slice(0, 40) : null;
+  const payload = v.payload && typeof v.payload === 'object' ? v.payload : null;
+  const sessionIdRaw = v.session_id;
+  // Counter walk-in bills have no session — trust the payload for amounts.
+  if (sessionIdRaw === null || sessionIdRaw === undefined || sessionIdRaw === '') {
+    return insertTolerant(ctx.sb, 'bills', {
+      id, session_id: null,
+      subtotal: money(v.subtotal ?? 0, 'subtotal'),
+      tax: money(v.tax ?? 0, 'tax'),
+      discount: money(v.discount ?? 0, 'discount'),
+      total: money(v.total ?? 0, 'total'),
+      coupon_code: typeof v.coupon_code === 'string' ? v.coupon_code.slice(0, 40) : null,
+      paid_method: typeof v.paid_method === 'string' ? v.paid_method.slice(0, 20) : null,
+      invoice_no: invoiceNo,
+      payload,
+      created_at: Date.now(),
+    });
+  }
+  const sessionId = str(sessionIdRaw, 60, 'session');
   // Amounts come from the session's real orders, not from the client.
   const { data: orders, error } = await ctx.sb
     .from('orders').select('subtotal,tax,discount,total,coupon_code').eq('session_id', sessionId);
   if (error) throw new HttpError(500, 'Order lookup failed');
   if (!orders || orders.length === 0) throw bad('Nothing to bill for this session');
   const sum = (k: 'subtotal' | 'tax' | 'discount' | 'total') => round3(orders.reduce((s, o) => s + (Number(o[k]) || 0), 0));
-  return ctx.sb.from('bills').insert({
+  return insertTolerant(ctx.sb, 'bills', {
     id, session_id: sessionId,
     subtotal: sum('subtotal'), tax: sum('tax'), discount: sum('discount'), total: sum('total'),
     coupon_code: orders.find((o) => o.coupon_code)?.coupon_code ?? null,
     paid_method: typeof v.paid_method === 'string' ? v.paid_method.slice(0, 20) : null,
+    invoice_no: invoiceNo,
+    payload,
     created_at: Date.now(),
   });
 }

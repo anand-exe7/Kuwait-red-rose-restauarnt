@@ -241,8 +241,15 @@ export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem
   return item;
 }
 
-export function updateMenuItem(id: string, patch: Partial<Omit<MenuItem, 'id' | 'createdAt'>>) {
+export function updateMenuItem(
+  id: string,
+  patch: Partial<Omit<MenuItem, 'id' | 'createdAt'>>,
+  opts?: { localOnly?: boolean },
+) {
   store.patchLocal((cur) => cur.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  // localOnly: the server already made this change (e.g. /api/stock wrote the
+  // new stock count), so we only refresh what this device shows.
+  if (opts?.localOnly) return;
   void writeMenu('update', toRow(patch), { id: id }).then(({ error }) => {
     if (error) console.error('[menu] update failed', error.message);
   });
