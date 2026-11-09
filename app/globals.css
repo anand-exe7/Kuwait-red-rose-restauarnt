@@ -374,7 +374,17 @@ html:has(.landing) { scroll-behavior: smooth; }
   pointer-events: none;
   z-index: 1;
 }
-.anim-coupon-applied > * { position: relative; z-index: 2; }
+/* Lift the real content above the sweep overlay.
+   This lives in @layer components on purpose. Unlayered CSS beats EVERY layered
+   rule no matter how specific, so as a plain rule this was overriding Tailwind's
+   own `absolute` utility: an icon sitting inside an input with
+   `absolute left-3 top-1/2` lost its positioning, dropped back into the flow and
+   rendered above the box instead of inside it. That is what happened to the
+   phone icon on the personal-coupon field. In `components` the utility wins, and
+   the z-index still applies because nothing else sets one. */
+@layer components {
+  .anim-coupon-applied > * { position: relative; z-index: 2; }
+}
 
 /* Shine sweep across the Review Order pill. */
 .pill-shine {
@@ -392,7 +402,11 @@ html:has(.landing) { scroll-behavior: smooth; }
   pointer-events: none;
   z-index: 1;
 }
-.pill-shine > * { position: relative; z-index: 2; }
+/* Layered for the same reason as .anim-coupon-applied above: it must never
+   beat a child that has positioned itself. */
+@layer components {
+  .pill-shine > * { position: relative; z-index: 2; }
+}
 
 .anim-cake-drop { animation: cake-drop 1.15s cubic-bezier(0.3, 0.7, 0.2, 1) 0.15s both; }
 .burst-fly      { display: block; animation: burst-out 1.2s cubic-bezier(0.15, 0.85, 0.3, 1.1) calc(0.72s + var(--d, 0ms)) both; }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { Bill, Coupon, DiscountType, OrderItem, PayMethod } from "./types";
+import { useEffect, useRef, useState } from "react";
+import type { Bill, DiscountType, OrderItem, PayMethod } from "./types";
 import { checkCoupon, computeBill, couponStatus, mergeItems, rupee } from "./money";
 import { useAdmin, whoIs, type FloorTab } from "./Store";
 import Catalog from "./Catalog";
@@ -66,7 +66,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const [phone, setPhone] = useState(start?.session.customerPhone || start?.orders[0]?.customerPhone || "");
   const [sig, setSig] = useState(start ? sigOf(start) : "");
   const [coupon, setCoupon] = useState(start?.session.couponCode ?? "");
-  const [newCp, setNewCp] = useState<{ code: string; percent: string; minOrder: string } | null>(null);
+  const [delivery, setDelivery] = useState(start?.deliveryFee ? String(start.deliveryFee) : "");
   const [mType, setMType] = useState<DiscountType>("amount");
   const [mVal, setMVal] = useState("");
   const [extra, setExtra] = useState("");
@@ -95,6 +95,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     setPhone("");
     setSig("");
     setCoupon("");
+    setDelivery("");
     setMType("amount");
     setMVal("");
     setExtra("");
@@ -108,26 +109,37 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   };
 
   const pickTab = (x: FloorTab) => {
+    setMode("tab");
     setSel(x.session.id);
     setLines(linesOf(x));
     // Older home orders opened their session before we stamped the customer on
     // it, so fall back to whoever placed the first order on the tab.
     setName(x.session.customerName || x.orders[0]?.customerName || "");
     setPhone(x.session.customerPhone || x.orders[0]?.customerPhone || "");
-    setCoupon(x.session.couponCode ?? "");
+    // The coupon the guest already used, and the delivery they were quoted.
+    // Both live on their orders — the admin bills exactly what the customer
+    // was shown, instead of the full price with no discount.
+    setCoupon(x.couponCode ?? x.session.couponCode ?? "");
+    setDelivery(x.deliveryFee > 0 ? String(x.deliveryFee) : "");
     setSig(sigOf(x));
   };
 
-  const createCoupon = async () => {
-    if (!newCp) return;
-    setBusy(true);
-    const r = await act<Coupon>("coupon.save", { code: newCp.code, percent: newCp.percent, minOrder: newCp.minOrder || 0, active: true });
-    setBusy(false);
-    if (r.ok) {
-      setCoupon(r.result.code);
-      setNewCp(null);
-    }
-  };
+  /* Arriving from "Complete in Billing" / "Bill & send invoice".
+     The tab can't be picked in the initial state: the realtime stores are
+     still empty on the first render, so `floor` is empty and `start` is
+     undefined. We wait for the tab to appear and then open it — which is why
+     this page used to come up as a blank counter sale. */
+  const openedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (counterOnly || !sessionId || openedFor.current === sessionId) return;
+    const tab = floor.find((x) => x.session.id === sessionId);
+    if (!tab) return;
+    openedFor.current = sessionId;
+    // Syncing from an external store (the realtime floor) once it has the tab
+    // this URL names. The ref guard means it happens exactly once per tab.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+    pickTab(tab);
+  }, [floor, sessionId, counterOnly]);
 
   const setLine = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
 
@@ -136,7 +148,10 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     .filter((l) => l.name.trim() || Number(l.price) > 0)
     .map((l) => ({ productId: l.productId, name: l.name.trim(), price: Math.max(0, Number(l.price) || 0), qty: l.qty }));
   const cp = s.coupons.find((c) => c.code === coupon) ?? null;
-  const calc = computeBill({ items, coupon: cp, manualType: mType, manualValue: Number(mVal) || 0, extra: Number(extra) || 0, gst: isGst, gstPercent: Number(gstPct) || 0 });
+  /** The coupon the guest applied themselves, if any. */
+  const guestCoupon = f?.couponCode ?? f?.session.couponCode ?? null;
+  const deliveryFee = Math.max(0, Number(delivery) || 0);
+  const calc = computeBill({ items, coupon: cp, manualType: mType, manualValue: Number(mVal) || 0, deliveryFee, extra: Number(extra) || 0, gst: isGst, gstPercent: Number(gstPct) || 0 });
   const recv = Number(received) || 0;
   const change = pay === "cash" && recv > 0 ? recv - calc.total : 0;
 
@@ -165,6 +180,8 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     const r = await act<Bill>("bill.create", {
       source: mode,
       sessionId: f?.session.id,
+      mode: f?.mode ?? "standing",
+      deliveryFee,
       note: f?.note ?? "",
       customerName: name,
       customerPhone: phone,
@@ -245,6 +262,16 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               <h2 className="mb-3 flex items-center gap-2.5 text-[16px] font-bold text-slate-900">
                 <Icon name="tables" size={18} className="text-red-600" /> Select Open Tab
               </h2>
+              {f?.billRequested && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3">
+                  <span className="adm-pulse grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-500 text-white">
+                    <Icon name="bell" size={16} />
+                  </span>
+                  <p className="text-[13px] font-bold text-amber-900">
+                    {whoIs(f.session)} asked for the bill{f.billRequestedAt ? ` ${ago(f.billRequestedAt, now)} ago` : ""}. Nothing can be added to this tab any more — take the payment and send the invoice.
+                  </p>
+                </div>
+              )}
               {openTabs.length ? (
                 <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 2xl:grid-cols-4">
                   {openTabs.map((x) => (
@@ -256,9 +283,11 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                         "relative rounded-2xl border-2 p-3 text-left transition",
                         sel === x.session.id
                           ? "border-slate-700 bg-slate-50 ring-4 ring-slate-100"
-                          : x.home && x.readyToBill
-                            ? "border-emerald-400 bg-emerald-50/60 hover:border-emerald-500"
-                            : "border-slate-200 hover:border-slate-400",
+                          : x.billRequested
+                            ? "border-amber-400 bg-amber-50/70 hover:border-amber-500"
+                            : x.home && x.readyToBill
+                              ? "border-emerald-400 bg-emerald-50/60 hover:border-emerald-500"
+                              : "border-slate-200 hover:border-slate-400",
                       )}
                     >
                       <span className="flex items-center justify-between gap-1">
@@ -267,8 +296,13 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                             ? `Table ${x.session.tableNumber}`
                             : x.session.customerName || x.orders[0]?.customerName || "Guest"}
                         </b>
-                        {x.billRequested && <span className="adm-pulse h-2.5 w-2.5 shrink-0 rounded-full bg-amber-400 text-amber-400" title="Asked for the bill" />}
+                        {x.billRequested && <span className="adm-pulse h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500 text-amber-500" title="Asked for the bill" />}
                       </span>
+                      {x.billRequested && (
+                        <span className="mt-0.5 mr-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[9.5px] font-extrabold uppercase tracking-wide text-amber-800">
+                          Bill requested
+                        </span>
+                      )}
                       {x.home && (
                         <span
                           className={cx(
@@ -451,11 +485,17 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
             <div className="border-t border-dashed border-slate-200 pt-4">
               <div className="mb-2 flex items-center justify-between">
                 <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700">Apply coupon</span>
-                <button type="button" className="text-[12px] font-extrabold text-red-600 hover:underline" onClick={() => setNewCp({ code: "", percent: "", minOrder: "" })}>
-                  + New coupon
-                </button>
               </div>
-              {f?.session.couponCode && f.session.couponCode === coupon && <p className="mb-2 text-[12px] font-semibold text-sky-600">Applied by the guest from their phone.</p>}
+              {guestCoupon && guestCoupon === coupon && (
+                <p className="mb-2 rounded-lg bg-sky-50 px-2.5 py-1.5 text-[12px] font-semibold text-sky-700">
+                  The guest already used this coupon on their phone — it is on this bill.
+                </p>
+              )}
+              {guestCoupon && guestCoupon !== coupon && (
+                <p className="mb-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[12px] font-semibold text-amber-800">
+                  The guest used <b>{guestCoupon}</b> when they ordered. Taking it off here means charging them more than they were shown.
+                </p>
+              )}
               <select className="h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-[14px] font-semibold text-slate-800 outline-none focus:border-slate-400" value={coupon} onChange={(e) => setCoupon(e.target.value)}>
                 <option value="">No Coupon</option>
                 {couponOptions.map((c) => {
@@ -502,6 +542,25 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                   <dd className="font-semibold">-{rupee(calc.manualDiscount)}</dd>
                 </div>
               )}
+              <div className="flex items-center justify-between">
+                <dt className="text-slate-600">
+                  Delivery charge
+                  {f?.mode === "delivery" && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">quoted to the guest</span>}
+                </dt>
+                <dd>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.25"
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-10 w-24 rounded-lg border border-slate-300 px-3 text-right text-[14px] outline-none focus:border-slate-400"
+                    value={delivery}
+                    onChange={(e) => setDelivery(e.target.value)}
+                    aria-label="Delivery charge"
+                  />
+                </dd>
+              </div>
               <div className="flex items-center justify-between">
                 <dt className="text-slate-600">Extra charges</dt>
                 <dd>
@@ -705,36 +764,6 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               {done.source === "tab" ? `${whoIs(done)}'s tab is closed.` : "Counter sale recorded."}
               {done.change > 0 && ` Give back ${rupee(done.change)} change.`}
             </p>
-          </div>
-        )}
-      </Modal>
-      <Modal
-        open={!!newCp}
-        onClose={() => setNewCp(null)}
-        title="New coupon"
-        footer={
-          <>
-            <Btn onClick={() => setNewCp(null)}>Cancel</Btn>
-            <Btn kind="red" onClick={createCoupon} disabled={busy || !newCp?.code || !newCp?.percent}>
-              Create &amp; apply
-            </Btn>
-          </>
-        }
-      >
-        {newCp && (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className="sm:col-span-1">
-              <span className={lbl}>Code</span>
-              <input className={cx(big, "uppercase")} value={newCp.code} maxLength={24} placeholder="SUMMER20" onChange={(e) => setNewCp({ ...newCp, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} />
-            </label>
-            <label>
-              <span className={lbl}>Discount %</span>
-              <input className={big} type="number" min={1} max={100} value={newCp.percent} onChange={(e) => setNewCp({ ...newCp, percent: e.target.value })} />
-            </label>
-            <label>
-              <span className={lbl}>Min order ₹</span>
-              <input className={big} type="number" min={0} value={newCp.minOrder} onChange={(e) => setNewCp({ ...newCp, minOrder: e.target.value })} />
-            </label>
           </div>
         )}
       </Modal>

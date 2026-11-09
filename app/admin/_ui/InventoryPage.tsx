@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminState, Product } from "./types";
 import { rupee } from "./money";
 import { useAdmin } from "./Store";
@@ -21,6 +21,7 @@ type Form = {
   name: string;
   category: string;
   price: string;
+  weightGrams: string;
   track: boolean;
   stock: string;
   lowAt: string;
@@ -30,7 +31,7 @@ type Form = {
   active: boolean;
 };
 
-const EMPTY: Form = { name: "", category: "", price: "", track: true, stock: "10", lowAt: "4", description: "", image: "", tags: [], active: true };
+const EMPTY: Form = { name: "", category: "", price: "", weightGrams: "", track: true, stock: "10", lowAt: "4", description: "", image: "", tags: [], active: true };
 const TAGS = [
   ["bestseller", "★ Bestseller"],
   ["new", "New"],
@@ -190,10 +191,27 @@ export default function InventoryPage() {
   const [renameOf, setRenameOf] = useState<string | null>(null);
   const [renaming, setRenaming] = useState("");
   const [newCatName, setNewCatName] = useState("");
+  const [alertOpen, setAlertOpen] = useState(false);
 
   const cats = useMemo(() => Array.from(new Set(s.products.map((p) => p.category))), [s.products]);
   const low = s.products.filter((p) => p.stock !== null && p.stock > 0 && p.stock <= p.lowAt);
   const out = s.products.filter((p) => p.stock !== null && p.stock <= 0);
+
+  /* Opening Inventory with something sold out or running low puts it in front
+     of you once, rather than leaving it to a small number in the corner. The
+     stores hydrate a tick after mount, so this waits for real data and then
+     fires exactly once per visit. */
+  const alerted = useRef(false);
+  const lowCount = low.length;
+  const outCount = out.length;
+  useEffect(() => {
+    if (alerted.current || s.products.length === 0) return;
+    alerted.current = true;
+    // Opening once off freshly-hydrated store data is the whole point here,
+    // and the ref guard stops it cascading.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (lowCount + outCount > 0) setAlertOpen(true);
+  }, [s.products.length, lowCount, outCount]);
   const bestsellerCount = s.products.filter((p) => p.tags.includes("bestseller") && p.id !== form?.id).length;
   const BESTSELLER_CAP = 4;
 
@@ -219,6 +237,7 @@ export default function InventoryPage() {
             name: p.name,
             category: p.category,
             price: String(p.price),
+            weightGrams: p.weightGrams == null ? "" : String(p.weightGrams),
             track: p.stock !== null,
             stock: p.stock === null ? "10" : String(p.stock),
             lowAt: String(p.lowAt),
@@ -263,7 +282,11 @@ export default function InventoryPage() {
   const save = async () => {
     if (!form) return;
     setBusy(true);
-    const r = await act<Product>("product.save", { ...form, stock: form.track ? form.stock : null });
+    const r = await act<Product>("product.save", {
+      ...form,
+      stock: form.track ? form.stock : null,
+      weightGrams: form.weightGrams.trim() === "" ? null : Number(form.weightGrams),
+    });
     setBusy(false);
     if (r.ok) {
       toast({ kind: "ok", title: form.id ? `${r.result.name} saved` : `${r.result.name} added${r.result.active ? " to the menu" : ""}` });
@@ -423,6 +446,46 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      <Modal
+        open={alertOpen}
+        onClose={() => setAlertOpen(false)}
+        title={out.length ? "Some products are sold out" : "Some products are running low"}
+        footer={
+          <>
+            <Btn onClick={() => setAlertOpen(false)}>Close</Btn>
+            <Btn
+              kind="red"
+              onClick={() => {
+                setFilter(out.length ? "out" : "low");
+                setCat("All");
+                setAlertOpen(false);
+              }}
+            >
+              Show me {out.length ? "what's sold out" : "what's low"}
+            </Btn>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {out.length > 0 && (
+            <div>
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-red-600">
+                Sold out · {out.length} — guests can&rsquo;t order these
+              </p>
+              <ProductSummaryList products={out} empty="" showStock />
+            </div>
+          )}
+          {low.length > 0 && (
+            <div>
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-amber-600">
+                Running low · {low.length}
+              </p>
+              <ProductSummaryList products={low} empty="" showStock />
+            </div>
+          )}
+        </div>
+      </Modal>
+
       <Modal open={manageCats} onClose={() => (setManageCats(false), setNewCatName(""))} title="Manage categories" footer={<Btn onClick={() => (setManageCats(false), setNewCatName(""))}>Done</Btn>}>
         <div className="mb-4 rounded-xl border border-dashed border-slate-200 p-3">
           <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Create category</span>
@@ -517,8 +580,19 @@ export default function InventoryPage() {
                   </div>
                 )}
               </Field>
-              <Field label="Price (₹) *">
-                <input className={inputCls} type="number" min={0} step="0.5" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="140" />
+              <Field label="Price (KD) *">
+                <input className={inputCls} type="number" min={0} step="0.5" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="1.500" />
+              </Field>
+              <Field label="Weight (grams)" hint="What one of these weighs. Delivery is charged by the weight of the basket.">
+                <input
+                  className={inputCls}
+                  type="number"
+                  min={0}
+                  step="10"
+                  value={form.weightGrams}
+                  onChange={(e) => setForm({ ...form, weightGrams: e.target.value })}
+                  placeholder="500"
+                />
               </Field>
               <div className="rounded-2xl border border-slate-100 p-4 sm:col-span-2">
                 <div className="flex items-center justify-between gap-3">

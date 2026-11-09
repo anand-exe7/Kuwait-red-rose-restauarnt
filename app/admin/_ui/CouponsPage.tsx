@@ -17,27 +17,13 @@ import {
 } from "../../lib/couponStore";
 import { publicLink, publicLinkIsLocalOnly } from "../../lib/publicUrl";
 import { BRAND } from "../../lib/brand";
-import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, WaIcon, inputCls, cx } from "./kit";
+import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, Switch, WaIcon, inputCls, cx } from "./kit";
 
 function randomCode(len = 7) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
   for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
-}
-
-function Switch({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-      className={cx("relative h-6 w-11 shrink-0 rounded-full transition-colors", on ? "bg-emerald-500" : "bg-slate-300")}
-    >
-      <span className={cx("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform", on ? "translate-x-5" : "translate-x-0.5")} />
-    </button>
-  );
 }
 
 const blankForm = { code: "", discountPercent: "", minOrder: "", expiry: "", usageLimit: "", active: true, targetedOnly: false };
@@ -150,7 +136,7 @@ export default function CouponsPage() {
                 <p className="text-sm font-bold text-slate-800">Only for customers it&apos;s sent to</p>
                 <p className="mt-0.5 text-xs text-slate-500">Works only for the mobile numbers you send it to from this page.</p>
               </div>
-              <Switch on={form.targetedOnly} onChange={(v) => setForm((f) => ({ ...f, targetedOnly: v }))} />
+              <Switch on={form.targetedOnly} onChange={(v) => setForm((f) => ({ ...f, targetedOnly: v }))} label="Only for customers it is sent to" />
             </div>
 
             {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">{error}</p>}
@@ -260,19 +246,20 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
       return;
     }
     const validTill = coupon.expiry ? new Date(coupon.expiry).toLocaleDateString() : "";
-    // Built from NEXT_PUBLIC_SITE_URL, not window.location — a link sent from a
-    // laptop on localhost has to open on the customer's phone.
-    const link = localOnly ? "" : publicLink(`/coupon/${encodeURIComponent(coupon.code)}`);
+    // Built from NEXT_PUBLIC_SITE_URL (or Settings → public URL) rather than
+    // window.location, so a coupon sent from a laptop still opens on the
+    // customer's phone. The link always goes in the message — a missing link
+    // is worse than one the shop has to fix by setting their site address.
+    const link = publicLink(`/coupon/${encodeURIComponent(coupon.code)}`);
     const greet = name ? `Hi ${name}! \u{1F44B}` : "Hi! \u{1F44B}";
     const lines = [
       greet,
-      `Here's a *${coupon.discountPercent}% OFF* coupon from *${BRAND.name}*${validTill ? ` (valid till ${validTill})` : ""}.`,
+      `You've got a *${coupon.discountPercent}% OFF* coupon from *${BRAND.name}* \u{1F339}${validTill ? ` — valid till ${validTill}` : ""}.`,
       "",
-      `Code: *${coupon.code}*`,
+      `Your code: *${coupon.code}*`,
       coupon.minOrder > 0 ? `Minimum order: KD ${coupon.minOrder.toFixed(3)}.` : "",
-      "Show it at billing, or enter it when you order from your phone.",
       "",
-      link ? `Download your coupon: ${link}` : "",
+      `\u{1F381} Open your coupon and order: ${link}`,
     ].filter(Boolean);
     const msg = encodeURIComponent(lines.join("\n"));
     const withCc = digits.length === 8 ? `965${digits}` : digits;
@@ -288,8 +275,8 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
 
       {localOnly && (
         <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-          No public site address is set, so the message will go out with the code only — no coupon link.
-          Set <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site to include one.
+          The coupon link will point at this computer, so it won&apos;t open on the customer&apos;s phone. Set{" "}
+          <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site address and it will.
         </p>
       )}
 
@@ -306,7 +293,7 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
             <p className="text-sm font-bold text-slate-800">Only for this customer</p>
             <p className="mt-0.5 text-xs text-slate-500">Restrict the coupon to the numbers it was sent to.</p>
           </div>
-          <Switch on={onlyThis} onChange={setOnlyThis} />
+          <Switch on={onlyThis} onChange={setOnlyThis} label="Only for this customer" />
         </div>
 
         {onlyThis && (
@@ -317,9 +304,11 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
 
         {err && <p className="text-sm font-semibold text-red-600">{err}</p>}
 
-        <div className="flex gap-2">
-          <Btn kind="plain" className="flex-1" onClick={onClose}>Cancel</Btn>
-          <Btn kind="green" className="flex-1" onClick={send}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Btn kind="plain" size="lg" className="sm:flex-1" onClick={onClose}>
+            Cancel
+          </Btn>
+          <Btn kind="green" size="lg" className="w-full sm:flex-[2]" onClick={send}>
             <WaIcon size={16} /> Send on WhatsApp
           </Btn>
         </div>

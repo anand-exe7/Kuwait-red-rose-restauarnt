@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Bill } from "./types";
 import { rupee } from "./money";
-import { completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, splitGst, startOfWeek, paymentStats, summary, weekly, type Period } from "./analytics";
+import { CHANNEL_LABEL, channelOf, completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, splitGst, startOfWeek, paymentStats, summary, weekly, type Channel, type Period } from "./analytics";
 import Link from "next/link";
 import { useAdmin } from "./Store";
 import { Badge, Btn, Card, DateRange, Empty, Kpi, Page, PageHead, Pills, SearchBox, Switch, Tabs, cx, downloadExcel, fmtDate, fmtTime, type ExcelSheet } from "./kit";
@@ -52,25 +52,41 @@ function Columns({ data, height = 200, empty }: { data: { label: string; full: s
   );
 }
 
-function SourceSplit({ tab, counter }: { tab: number; counter: number }) {
-  const max = Math.max(tab, counter, 1);
+/** Income the three ways the shop sells: dine-in, takeaway, delivery. This is
+ *  what the owner asks for — not "tab vs counter", which is a till detail. */
+function ChannelSplit({ by, money = true }: { by: Record<Channel, { revenue: number; count: number; items: number }>; money?: boolean }) {
   const rows = [
-    { label: "Customer tabs (QR)", n: tab, text: "text-red-600", bar: "bg-red-600" },
-    { label: "Counter", n: counter, text: "text-emerald-600", bar: "bg-emerald-500" },
+    { key: "dinein" as const, label: CHANNEL_LABEL.dinein, text: "text-slate-700", bar: "bg-slate-800" },
+    { key: "takeaway" as const, label: CHANNEL_LABEL.takeaway, text: "text-sky-700", bar: "bg-sky-500" },
+    { key: "delivery" as const, label: CHANNEL_LABEL.delivery, text: "text-violet-700", bar: "bg-violet-500" },
   ];
+  const max = Math.max(...rows.map((r) => (money ? by[r.key].revenue : by[r.key].count)), 1);
+  const total = rows.reduce((a, r) => a + by[r.key].revenue, 0);
+  if (total === 0 && rows.every((r) => by[r.key].count === 0)) {
+    return <p className="py-8 text-center text-[13px] text-slate-400">No sales in this period yet.</p>;
+  }
   return (
     <div className="space-y-5">
-      {rows.map((r) => (
-        <div key={r.label}>
-          <div className="mb-2 flex items-center justify-between">
-            <span className={cx("text-[11px] font-bold uppercase tracking-[0.14em]", r.text)}>{r.label}</span>
-            <b className="adm-num text-[15px] text-slate-900">{r.n}</b>
+      {rows.map((r) => {
+        const v = by[r.key];
+        const w = (money ? v.revenue : v.count) / max;
+        return (
+          <div key={r.key}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className={cx("text-[11px] font-bold uppercase tracking-[0.14em]", r.text)}>{r.label}</span>
+              <span className="text-right leading-tight">
+                <b className="adm-num block text-[15px] text-slate-900">{rupee(v.revenue)}</b>
+                <small className="text-[10.5px] text-slate-400">
+                  {v.count} bill{v.count === 1 ? "" : "s"} · {total > 0 ? Math.round((v.revenue / total) * 100) : 0}%
+                </small>
+              </span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+              {w > 0 && <div className={cx("adm-fill h-full rounded-full", r.bar)} style={{ width: `${w * 100}%` }} />}
+            </div>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-            {r.n > 0 && <div className={cx("adm-fill h-full rounded-full", r.bar)} style={{ width: `${(r.n / max) * 100}%` }} />}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -301,10 +317,13 @@ export default function AnalyticsPage() {
           ["GST collected", sum.gst],
           ["Net earnings", net],
           ["Completed bills", sum.count],
-          ["Tab bills", sum.tabN],
-          ["Counter bills", sum.counterN],
-          ["Tab revenue", sum.tabRev],
-          ["Counter revenue", sum.counterRev],
+          [],
+          ["Channel", "Revenue", "Bills", "Items"],
+          ["Dine-in", sum.byChannel.dinein.revenue, sum.byChannel.dinein.count, sum.byChannel.dinein.items],
+          ["Takeaway", sum.byChannel.takeaway.revenue, sum.byChannel.takeaway.count, sum.byChannel.takeaway.items],
+          ["Delivery", sum.byChannel.delivery.revenue, sum.byChannel.delivery.count, sum.byChannel.delivery.items],
+          ["Delivery charges collected", sum.delivery],
+          [],
           ["Items sold", sum.items],
           ["Avg order value", Math.round(sum.aov)],
           ["Discounts given", sum.discount],
@@ -320,11 +339,11 @@ export default function AnalyticsPage() {
       {
         name: "Bills",
         rows: [
-          ["Invoice", "Date", "Time", "Source", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Extra", "GST %", "Taxable", "GST amount", "Total", "Payment", "Status"],
+          ["Invoice", "Date", "Time", "Channel", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Delivery", "Extra", "GST %", "Taxable", "GST amount", "Total", "Payment", "Status"],
           ...inPeriod
             .slice()
             .sort((a, b) => b.createdAt - a.createdAt)
-            .map((b) => [b.invoiceNo, fmtDate(b.createdAt), fmtTime(b.createdAt), b.source, b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.discount, b.couponCode ?? "", b.extra, b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.status]),
+            .map((b) => [b.invoiceNo, fmtDate(b.createdAt), fmtTime(b.createdAt), CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.discount, b.couponCode ?? "", b.deliveryFee, b.extra, b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.status]),
         ],
       },
       {
@@ -343,6 +362,18 @@ export default function AnalyticsPage() {
         rows: [
           ["Customer", "Phone", "Visits", "Revenue", "Avg / visit"],
           ...customers.map((c) => [c.name || "Guest", c.phone, c.visits, c.spent, Math.round(c.spent / c.visits)]),
+        ],
+      },
+      {
+        name: "Expenses",
+        rows: [
+          ["Date", "Title", "Category", "Amount", "Notes"],
+          ...expensesIn(s.expenses, range)
+            .slice()
+            .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate))
+            .map((e) => [e.expenseDate, e.title, e.category, e.amount, e.notes]),
+          [],
+          ["Total", "", "", expensesTotal, ""],
         ],
       },
       {
@@ -457,7 +488,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Net earnings" value={rupee(net)} hint={sum.gst > 0 ? "Revenue − GST − expenses" : "Revenue − expenses"} icon="rupee" tone={net >= 0 ? "emerald" : "red"} />
             <Kpi label="Total revenue" value={rupee(sum.revenue)} hint={sum.gst > 0 ? `Includes ${rupee(sum.gst)} GST collected` : "Customer tabs + counter combined"} icon="rupee" tone="emerald" />
-            <Kpi label="Total expenses" value={rupee(expensesTotal)} hint="From the Expenses tab" icon="bag" tone="rose" />
+            <Kpi label="Total expenses" value={rupee(expensesTotal)} hint="Recorded on the Expenses page" icon="bag" tone="rose" />
             <Kpi label="Discounts given" value={rupee(sum.discount)} hint={`${sum.discounted} discounted bills`} icon="coupon" tone="violet" />
           </div>
           <p className="rounded-xl border border-slate-100 bg-white px-4 py-2.5 text-center text-[12.5px] font-semibold text-slate-500">
@@ -469,17 +500,19 @@ export default function AnalyticsPage() {
             )}{" "}
             − <b className="text-slate-800">Expenses {rupee(expensesTotal)}</b> = <b className={net >= 0 ? "text-emerald-600" : "text-red-600"}>{rupee(net)}</b>
           </p>
+          {/* The three ways the shop sells. This is the split the owner runs
+              the business on, so it leads — "tab vs counter" was a till
+              detail nobody was asking for. */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Completed bills" value={sum.count} hint="Tab + counter bills" icon="billing" tone="amber" />
-            <Kpi label="Tab revenue" value={rupee(sum.tabRev)} hint="Guests who ordered from their phone" icon="utensils" tone="sky" />
-            <Kpi label="Counter revenue" value={rupee(sum.counterRev)} hint="Walk-in counter sales" icon="bag" tone="violet" />
-            <Kpi label="GST collected" value={rupee(sum.gst)} hint={`${sum.gstN} GST invoice${sum.gstN === 1 ? "" : "s"} of ${sum.count}`} icon="percent" tone="amber" />
+            <Kpi label="Dine-in income" value={rupee(sum.byChannel.dinein.revenue)} hint={`${sum.byChannel.dinein.count} bill${sum.byChannel.dinein.count === 1 ? "" : "s"} eaten in`} icon="utensils" tone="rose" />
+            <Kpi label="Takeaway income" value={rupee(sum.byChannel.takeaway.revenue)} hint={`${sum.byChannel.takeaway.count} bill${sum.byChannel.takeaway.count === 1 ? "" : "s"} collected`} icon="bag" tone="sky" />
+            <Kpi label="Delivery income" value={rupee(sum.byChannel.delivery.revenue)} hint={sum.delivery > 0 ? `includes ${rupee(sum.delivery)} delivery charges` : `${sum.byChannel.delivery.count} bill${sum.byChannel.delivery.count === 1 ? "" : "s"} sent out`} icon="cart" tone="violet" />
+            <Kpi label="Completed bills" value={sum.count} hint="Every settled bill in the period" icon="billing" tone="amber" />
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-            <Kpi label="Tab bills" value={sum.tabN} hint="Customer tabs settled" icon="tables" tone="rose" />
-            <Kpi label="Counter bills" value={sum.counterN} hint="Walk-in bills" icon="bag" tone="sky" />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Total items sold" value={sum.items} hint="From completed bills" icon="box" tone="violet" />
             <Kpi label="Avg order value" value={rupee(Math.round(sum.aov))} hint="Per completed bill" icon="zap" tone="orange" />
+            <Kpi label="Delivery charges" value={rupee(sum.delivery)} hint="Collected on top of the goods" icon="cart" tone="sky" />
             <Kpi label="Top product" value={sum.top} hint="Most sold item" icon="star" tone="amber" small />
           </div>
 
@@ -541,8 +574,8 @@ export default function AnalyticsPage() {
                 <p className="text-[13px] text-slate-400">No bills in this period.</p>
               )}
             </Card>
-            <Card title="Order Source">
-              <SourceSplit tab={sum.tabN} counter={sum.counterN} />
+            <Card title="Income by channel" right={<span className="text-[12px] text-slate-500">dine-in · takeaway · delivery</span>}>
+              <ChannelSplit by={sum.byChannel} />
             </Card>
             <Card title="Payment mode" right={pay.splitN ? <span className="text-[12px] text-slate-500">{pay.splitN} split bill{pay.splitN === 1 ? "" : "s"}</span> : undefined}>
               <dl className="space-y-2 text-[13px]">
@@ -574,6 +607,11 @@ export default function AnalyticsPage() {
             />
             <Kpi label="Today's avg order value" value={rupee(Math.round(tsum.aov))} hint="Per invoice today" icon="zap" tone="orange" />
           </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Kpi label="Dine-in today" value={rupee(tsum.byChannel.dinein.revenue)} hint={`${tsum.byChannel.dinein.count} bill${tsum.byChannel.dinein.count === 1 ? "" : "s"}`} icon="utensils" tone="rose" />
+            <Kpi label="Takeaway today" value={rupee(tsum.byChannel.takeaway.revenue)} hint={`${tsum.byChannel.takeaway.count} bill${tsum.byChannel.takeaway.count === 1 ? "" : "s"}`} icon="bag" tone="sky" />
+            <Kpi label="Delivery today" value={rupee(tsum.byChannel.delivery.revenue)} hint={`${tsum.byChannel.delivery.count} bill${tsum.byChannel.delivery.count === 1 ? "" : "s"}`} icon="cart" tone="violet" />
+          </div>
           <div className="grid gap-5 xl:grid-cols-3">
             <Card
               className="xl:col-span-2"
@@ -585,7 +623,7 @@ export default function AnalyticsPage() {
                   <thead className="bg-slate-50">
                     <tr>
                       <th className={th}>Invoice ID</th>
-                      <th className={th}>Customer no</th>
+                      <th className={th}>Customer</th>
                       <th className={th}>Source</th>
                       <th className={th}>Items</th>
                       <th className={cx(th, "text-right")}>Grand total</th>
@@ -602,8 +640,14 @@ export default function AnalyticsPage() {
                             {b.invoiceNo}
                             <span className="block text-[11px] font-normal text-slate-400">{fmtTime(b.createdAt)}</span>
                           </td>
-                          <td className={cx(td, "text-slate-700")}>{b.customerPhone || "—"}</td>
-                          <td className={td}>{b.source === "tab" ? <Badge tone="red">{b.customerName || b.customerPhone || "Tab"}</Badge> : <Badge tone="green">Counter</Badge>}</td>
+                          <td className={cx(td, "text-slate-700")}>
+                            <b className="block text-slate-900">{b.customerName || "Guest"}</b>
+                            <span className="adm-num text-[11.5px] text-slate-500">{b.customerPhone || "No number"}</span>
+                          </td>
+                          {/* Where the sale came from, in the shop's own words. */}
+                          <td className={td}>
+                            <Badge tone={channelOf(b) === "delivery" ? "violet" : channelOf(b) === "takeaway" ? "sky" : "red"}>{CHANNEL_LABEL[channelOf(b)]}</Badge>
+                          </td>
                           <td className={cx(td, "text-slate-700")}>{b.itemCount}</td>
                           <td className={cx(td, "text-right font-bold text-slate-900")}>{rupee(b.total)}</td>
                         </tr>
@@ -627,7 +671,7 @@ export default function AnalyticsPage() {
                 </div>
               </Card>
               <Card title={<span className="text-[14px] uppercase tracking-[0.14em] text-slate-900">Today&apos;s channel split</span>}>
-                {today.length ? <SourceSplit tab={tsum.tabN} counter={tsum.counterN} /> : <p className="py-8 text-center text-[14px] text-slate-600">No sales today.</p>}
+                {today.length ? <ChannelSplit by={tsum.byChannel} /> : <p className="py-8 text-center text-[14px] text-slate-600">No sales today.</p>}
               </Card>
               <Card title={<span className="text-[14px] uppercase tracking-[0.14em] text-slate-900">Today&apos;s top items</span>}>
                 <TopItems bills={today} empty="No items sold today." />

@@ -62,10 +62,31 @@ export function itemStats(bills: Bill[]): ItemStat[] {
   return [...m.values()].sort((a, b) => b.revenue - a.revenue);
 }
 
+/** The three ways a sale reaches a customer, as the owner thinks about them.
+ *  A walk-in at the counter is a dine-in sale for this purpose. */
+export type Channel = "dinein" | "takeaway" | "delivery";
+export const CHANNEL_LABEL: Record<Channel, string> = {
+  dinein: "Dine-in",
+  takeaway: "Takeaway",
+  delivery: "Delivery",
+};
+export const channelOf = (b: Bill): Channel =>
+  b.mode === "delivery" ? "delivery" : b.mode === "takeaway" ? "takeaway" : "dinein";
+
 export function summary(bills: Bill[]) {
   let revenue = 0, tabRev = 0, counterRev = 0, tabN = 0, counterN = 0, items = 0, discount = 0, discounted = 0;
-  let gst = 0, gstN = 0, gstRev = 0, taxable = 0, nonGstRev = 0;
+  let gst = 0, gstN = 0, gstRev = 0, taxable = 0, nonGstRev = 0, delivery = 0;
+  const byChannel: Record<Channel, { revenue: number; count: number; items: number }> = {
+    dinein: { revenue: 0, count: 0, items: 0 },
+    takeaway: { revenue: 0, count: 0, items: 0 },
+    delivery: { revenue: 0, count: 0, items: 0 },
+  };
   for (const b of bills) {
+    const ch = channelOf(b);
+    byChannel[ch].revenue += b.total;
+    byChannel[ch].count++;
+    byChannel[ch].items += b.itemCount;
+    delivery += b.deliveryFee ?? 0;
     revenue += b.total;
     items += b.itemCount;
     discount += b.discount;
@@ -89,6 +110,9 @@ export function summary(bills: Bill[]) {
   const byQty = itemStats(bills).sort((a, b) => b.qty - a.qty);
   return {
     revenue,
+    byChannel,
+    /** Delivery charges collected — part of revenue, not of the goods. */
+    delivery,
     count: bills.length,
     tabRev,
     counterRev,
