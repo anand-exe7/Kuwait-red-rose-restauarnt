@@ -31,6 +31,15 @@ export function billText(b: Bill, shop: string, publicUrl = "") {
     `Thanks for choosing *${shop}* 🌹`,
     "",
     `🧾 Invoice *${b.invoiceNo}*`,
+    `Items (${b.itemCount}): ${rupee(b.subtotal)}`,
+  ];
+  // Say what came off and what went on, so the total on the message and the
+  // total on the invoice can never look like two different numbers.
+  if (b.couponDiscount > 0) L.push(`Coupon ${b.couponCode ?? ""}: -${rupee(b.couponDiscount)}`.replace("  ", " "));
+  if (b.manualDiscount > 0) L.push(`Discount: -${rupee(b.manualDiscount)}`);
+  if (b.deliveryFee > 0) L.push(`Delivery: ${rupee(b.deliveryFee)}`);
+  if (b.extra > 0) L.push(`Extra: ${rupee(b.extra)}`);
+  L.push(
     `💰 Total: *${rupee(b.total)}*`,
     `💳 Paid by ${PAY[b.payment]}`,
     "",
@@ -38,7 +47,7 @@ export function billText(b: Bill, shop: string, publicUrl = "") {
     invoiceUrl(b, publicUrl),
     "",
     `See you again soon! ✨`,
-  ];
+  );
   return L.join("\n");
 }
 
@@ -150,6 +159,9 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
         {b.manualDiscount > 0 && (
           <div><dt>Discount</dt><dd>-{rupee(b.manualDiscount)}</dd></div>
         )}
+        {b.deliveryFee > 0 && (
+          <div><dt>Delivery charge</dt><dd>{rupee(b.deliveryFee)}</dd></div>
+        )}
         {b.extra > 0 && (
           <div><dt>Extra charges</dt><dd>{rupee(b.extra)}</dd></div>
         )}
@@ -242,6 +254,9 @@ function Thermal({ b, shop, roll }: { b: Bill; shop: string; roll: 2 | 3 }) {
         )}
         {b.manualDiscount > 0 && (
           <div className="row"><span>Discount</span><span>-{rupee(b.manualDiscount)}</span></div>
+        )}
+        {b.deliveryFee > 0 && (
+          <div className="row"><span>Delivery</span><span>{rupee(b.deliveryFee)}</span></div>
         )}
         {b.extra > 0 && (
           <div className="row"><span>Extra</span><span>{rupee(b.extra)}</span></div>

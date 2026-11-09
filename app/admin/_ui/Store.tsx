@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import type {
   AdminState,
   Bill,
+  Expense,
   OrderMode,
   Coupon,
   Order,
@@ -74,6 +75,14 @@ import {
 import { invoiceNumber, issueInvoiceNumber, resolveInvoiceNo } from "../../lib/invoice";
 import { recordStockChange } from "../../lib/stockStore";
 import {
+  subscribeToExpenses,
+  getExpensesSnapshot,
+  getExpensesServerSnapshot,
+  saveExpense as rrSaveExpense,
+  deleteExpense as rrDeleteExpense,
+  type Expense as RrExpense,
+} from "../../lib/expenseStore";
+import {
   subscribeToCoupons,
   getCouponsSnapshot,
   getCouponsServerSnapshot,
@@ -104,6 +113,14 @@ export interface FloorTab {
   fresh: number;
   cooking: number;
   billRequested: boolean;
+  /** When the guest (or the waiter on their behalf) asked to pay. */
+  billRequestedAt: number | null;
+  /** The coupon the guest already used, and what it took off. Billing opens
+   *  with these filled in so the admin bills what the customer was shown. */
+  couponCode: string | null;
+  discount: number;
+  /** Delivery charge on this tab. */
+  deliveryFee: number;
   /** Takeaway / delivery — a home order, not a seated tab. Items can never be
    *  added to one: the customer ordered exactly what they ordered. */
   home: boolean;
@@ -157,6 +174,7 @@ function toProduct(m: MenuItem): Product {
     category: m.category,
     price: m.price,
     stock: m.stock ?? null,
+    weightGrams: m.weightGrams ?? null,
     lowAt: m.lowStockThreshold ?? 5,
     description: m.description ?? "",
     image: m.image ?? "",
@@ -212,12 +230,30 @@ function toOrder(o: RrOrder, index: number): Order {
       : o.source === "waiter" ? "waiter"
       : "counter",
     subtotal: o.subtotal,
+    discount: o.discount ?? 0,
+    couponCode: o.couponCode ?? null,
+    deliveryFee: o.deliveryFee ?? 0,
     createdAt: o.createdAt,
     updatedAt: o.createdAt,
   };
 }
 
-function toSession(sess: RrSession): Session {
+/** orders grouped by session id — built once per snapshot. Rebuilding it per
+ *  session and per bill turned an admin render into sessions x orders work,
+ *  which a busy month of history would feel. */
+function indexBySession(orders: RrOrder[]): Map<string, RrOrder[]> {
+  const m = new Map<string, RrOrder[]>();
+  for (const o of orders) {
+    if (!o.sessionId) continue;
+    const cur = m.get(o.sessionId);
+    if (cur) cur.push(o);
+    else m.set(o.sessionId, [o]);
+  }
+  return m;
+}
+
+function toSession(sess: RrSession, bySession: Map<string, RrOrder[]>): Session {
+  const own = (bySession.get(sess.id) ?? []).filter((o) => o.status !== 'cancelled');
   const status: SessionStatus =
     sess.status === "open"
       ? (sess.billRequestedAt ? "bill_requested" : "open")
@@ -234,15 +270,62 @@ function toSession(sess: RrSession): Session {
     customerPhone: sess.customerPhone ?? "",
     billRequestedAt: sess.billRequestedAt ?? null,
     billId: sess.billId ?? null,
-    couponCode: null,
+    // The guest's coupon lives on the ticket they used it on. Reading it back
+    // here is what lets the billing panel open with the discount already in —
+    // it used to be hard-coded to null, so the admin billed the full price.
+    couponCode: own.map((o) => o.couponCode).find(Boolean) ?? null,
   };
 }
 
-function toBill(b: RrBill): Bill {
+/** What a bill was for, rebuilt from the session's own orders. Used when the
+ *  bill row has no payload — an older bill, or a database that hasn't had
+ *  supabase/add_bill_payload.sql applied. Without this the Orders page, the
+ *  invoice and every analytics tab show a bill with no items and no customer,
+ *  which is exactly what they were doing. */
+function fromSessionOrders(sessionId: string | null | undefined, bySession: Map<string, RrOrder[]>, sessions: Map<string, RrSession>) {
+  if (!sessionId) return null;
+  const own = (bySession.get(sessionId) ?? []).filter((o) => o.status !== "cancelled");
+  if (own.length === 0) return null;
+  const sess = sessions.get(sessionId);
+  const lines = new Map<string, OrderItem>();
+  for (const o of own) {
+    for (const it of o.items) {
+      const key = `${it.id ?? it.name}@@${it.price}`;
+      const cur = lines.get(key);
+      if (cur) cur.qty += it.qty;
+      else lines.set(key, { productId: it.id ?? null, name: it.name, price: it.price, qty: it.qty, notes: it.notes ?? "" });
+    }
+  }
+  const items = [...lines.values()];
+  return {
+    items,
+    itemCount: items.reduce((a, i) => a + i.qty, 0),
+    customerName: sess?.customerName || own.map((o) => o.customer?.name).find(Boolean) || "",
+    customerPhone: sess?.customerPhone || own.map((o) => o.customer?.phone).find(Boolean) || "",
+    note: own.map((o) => o.note).find(Boolean) ?? "",
+    couponCode: own.map((o) => o.couponCode).find(Boolean) ?? null,
+    discount: own.reduce((a, o) => a + (o.discount ?? 0), 0),
+    deliveryFee: own.reduce((a, o) => a + (o.deliveryFee ?? 0), 0),
+    mode: (own[0]?.mode ?? sess?.mode ?? "table") as OrderMode,
+  };
+}
+
+/** How a bill's sale reached the customer. Older bills have no mode of their
+ *  own, so it is read back off the session's orders — that is what lets
+ *  Analytics split income into dine-in, takeaway and delivery retroactively. */
+function billMode(b: RrBill, bySession: Map<string, RrOrder[]>, sessions: Map<string, RrSession>): OrderMode {
+  if (!b.sessionId) return "standing"; // a counter walk-in
+  const own = bySession.get(b.sessionId) ?? [];
+  return (own[0]?.mode ?? sessions.get(b.sessionId)?.mode ?? "table") as OrderMode;
+}
+
+function toBill(b: RrBill, bySession: Map<string, RrOrder[]>, sessions: Map<string, RrSession>): Bill {
   // The admin POS writes the full invoice payload to Supabase. When it's
-  // there, trust it; otherwise reconstruct a thin bill from the row and
-  // derive a human-readable INV number from the bill id.
+  // there, trust it; otherwise rebuild what we can from the session's orders,
+  // and only then fall back to the bare numbers on the row.
   const p = (b.payload ?? null) as Partial<Bill> | null;
+  const rebuilt = fromSessionOrders(b.sessionId, bySession, sessions);
+  const mode = billMode(b, bySession, sessions);
   const payment: Bill["payment"] =
     b.paidMethod === "cash" || b.paidMethod === "upi" || b.paidMethod === "card" || b.paidMethod === "split"
       ? b.paidMethod
@@ -253,6 +336,7 @@ function toBill(b: RrBill): Bill {
       id: b.id,
       invoiceNo,
       source: p.source ?? (b.sessionId ? "tab" : "counter"),
+      mode: p.mode ?? mode,
       sessionId: b.sessionId ?? null,
       customerName: p.customerName ?? "",
       customerPhone: p.customerPhone ?? "",
@@ -267,6 +351,7 @@ function toBill(b: RrBill): Bill {
       manualValue: p.manualValue ?? 0,
       manualDiscount: p.manualDiscount ?? 0,
       discount: p.discount ?? b.discount ?? 0,
+      deliveryFee: p.deliveryFee ?? rebuilt?.deliveryFee ?? 0,
       total: p.total ?? b.total ?? 0,
       createdAt: b.createdAt,
       tax: p.tax ?? b.tax ?? 0,
@@ -290,20 +375,24 @@ function toBill(b: RrBill): Bill {
     id: b.id,
     invoiceNo,
     source: b.sessionId ? "tab" : "counter",
+    mode,
     sessionId: b.sessionId ?? null,
-    customerName: "",
-    customerPhone: "",
-    items: [],
-    itemCount: 0,
+    customerName: rebuilt?.customerName ?? "",
+    customerPhone: rebuilt?.customerPhone ?? "",
+    items: rebuilt?.items ?? [],
+    itemCount: rebuilt?.itemCount ?? 0,
     subtotal: b.subtotal ?? 0,
-    couponCode: b.couponCode ?? null,
+    couponCode: b.couponCode ?? rebuilt?.couponCode ?? null,
     couponPercent: 0,
-    couponDiscount: b.discount ?? 0,
-    couponSource: null,
+    // No payload to split the discount, so the row's discount IS the coupon's
+    // when a coupon was used. Without this the coupon analytics read zero.
+    couponDiscount: (b.couponCode ?? rebuilt?.couponCode) ? (b.discount ?? rebuilt?.discount ?? 0) : 0,
+    couponSource: (b.couponCode ?? rebuilt?.couponCode) ? "guest" : null,
     manualType: "none",
     manualValue: 0,
     manualDiscount: 0,
     discount: b.discount ?? 0,
+    deliveryFee: rebuilt?.deliveryFee ?? 0,
     total: b.total ?? 0,
     createdAt: b.createdAt,
     tax: b.tax ?? 0,
@@ -320,7 +409,19 @@ function toBill(b: RrBill): Bill {
     received: b.total ?? 0,
     change: 0,
     extra: 0,
-    note: "",
+    note: rebuilt?.note ?? "",
+  };
+}
+
+function toExpense(e: RrExpense): Expense {
+  return {
+    id: e.id,
+    amount: e.amount,
+    at: e.createdAt,
+    title: e.title,
+    notes: e.notes,
+    category: e.category,
+    expenseDate: e.expenseDate,
   };
 }
 
@@ -380,6 +481,7 @@ export function AdminProvider({
   const rrSessions = useSyncExternalStore(subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot);
   const rrBills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
   const rrCoupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
+  const rrExpenses = useSyncExternalStore(subscribeToExpenses, getExpensesSnapshot, getExpensesServerSnapshot);
 
   /* Bills the admin has just completed in this session. Red Rose's `bills`
      table stores the thin, session-settling record; the admin's billing panel
@@ -390,23 +492,31 @@ export function AdminProvider({
 
   // Build the AdminState snapshot from Red Rose data
   const s: AdminState = useMemo(() => {
-    const serverBills = rrBills.map(toBill);
+    const bySession = indexBySession(rrOrders);
+    const sessionById = new Map(rrSessions.map((x) => [x.id, x]));
+    const serverBills = rrBills.map((b) => toBill(b, bySession, sessionById));
     const serverIds = new Set(serverBills.map((b) => b.id));
     const localOnly = extraBills.filter((b) => !serverIds.has(b.id));
     return {
       ...initial,
       products: menu.map(toProduct),
       orders: rrOrders.map(toOrder),
-      sessions: rrSessions.map(toSession),
+      sessions: rrSessions.map((x) => toSession(x, bySession)),
       bills: [...localOnly, ...serverBills].sort((a, b) => b.createdAt - a.createdAt),
       coupons: rrCoupons.map(toCoupon),
+      expenses: rrExpenses.map(toExpense),
+      expenseCategories: [...new Set(rrExpenses.map((e) => e.category).filter(Boolean))].map((name) => ({ id: name, name })),
     };
-  }, [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons, extraBills]);
+  }, [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons, rrExpenses, extraBills]);
 
   // Floor tabs — the open sessions, with their orders aggregated
   const floor: FloorTab[] = useMemo(() => {
     return s.sessions
-      .filter((sess) => sess.status === "open")
+      // "bill_requested" is still an OPEN tab — the guest has asked to pay, not
+      // paid. Filtering it out here is what made a tab vanish from the billing
+      // panel the moment somebody tapped "Request bill": Open tabs still listed
+      // it, but "Complete in Billing" opened an empty counter sale.
+      .filter((sess) => sess.status === "open" || sess.status === "bill_requested")
       .map((sess) => {
         // A cancelled ticket is not on the tab: it must not add items, money or
         // a "new order" badge to what the admin or the waiter sees.
@@ -432,6 +542,10 @@ export function AdminProvider({
           fresh,
           cooking,
           billRequested: sess.billRequestedAt !== null,
+          billRequestedAt: sess.billRequestedAt,
+          couponCode: sessOrders.map((o) => o.couponCode).find(Boolean) ?? null,
+          discount: sessOrders.reduce((sum, o) => sum + (o.discount ?? 0), 0),
+          deliveryFee: sessOrders.reduce((sum, o) => sum + (o.deliveryFee ?? 0), 0),
           home,
           awaitingApproval: live.some((o) => o.live === "awaiting_admin"),
           readyToBill: items > 0 && live.length > 0 && live.every((o) => o.live === "ready" || o.live === "served"),
@@ -514,7 +628,7 @@ export function AdminProvider({
               preparing: "cooking",
               ready: "ready",
               served: "served",
-              cancelled: "served",
+              cancelled: "cancelled",
             };
             rrUpdateOrderStatus(id, inverse[status] ?? "pending");
             return { ok: true, result: undefined as T };
@@ -570,6 +684,7 @@ export function AdminProvider({
               description: p.description ?? "",
               image: p.image ?? "",
               lowStockThreshold: p.lowAt ?? undefined,
+              weightGrams: p.weightGrams == null ? undefined : Number(p.weightGrams),
               status: p.active === false ? "inactive" : "active",
             };
             if (p.id) {
@@ -617,6 +732,36 @@ export function AdminProvider({
             else rrAddCoupon(payload as unknown as RrCoupon);
             return { ok: true, result: undefined as T };
           }
+          case "expense.save": {
+            const e = args as Partial<Expense> & { id?: string };
+            const r = await rrSaveExpense({
+              id: e.id,
+              title: e.title,
+              category: e.category,
+              amount: Number(e.amount ?? 0),
+              expenseDate: e.expenseDate,
+              notes: e.notes,
+            });
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not save that expense." };
+            return { ok: true, result: r.expense as unknown as T };
+          }
+          case "expense.delete": {
+            const r = await rrDeleteExpense(args.id as string);
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not delete that expense." };
+            return { ok: true, result: undefined as T };
+          }
+          case "category.rename": {
+            // Categories aren't a table of their own — they are whatever the
+            // products say they are, so renaming one re-tags every product in
+            // it. Without this the Inventory rename button errored out.
+            const from = String(args.from ?? "");
+            const to = String(args.to ?? "").trim();
+            if (!from || !to) return { ok: false, error: "Give the category a name." };
+            const hits = menu.filter((m) => m.category === from);
+            if (!hits.length) return { ok: false, error: "No products in that category." };
+            for (const m of hits) rrUpdateMenuItem(m.id, { category: to });
+            return { ok: true, result: undefined as T };
+          }
           case "coupon.delete": {
             const id = args.id as string;
             rrDeleteCoupon(id);
@@ -636,9 +781,13 @@ export function AdminProvider({
               : 0;
             const discount = Math.round((couponDiscount + manualDiscount) * 1000) / 1000;
             const extra = Number(args.extra ?? 0) || 0;
+            // Delivery is money the shop collects on top of the goods, so it
+            // is added after the discount and before the total — exactly the
+            // way the customer was quoted it at checkout.
+            const deliveryFee = Math.max(0, Number(args.deliveryFee ?? 0) || 0);
             const isGst = Boolean(args.isGst);
             const gstPercent = Number(args.gstPercent ?? 0);
-            const base = Math.max(0, subtotal - discount);
+            const base = Math.max(0, subtotal - discount) + deliveryFee;
             const taxable = isGst ? Math.round((base / (1 + gstPercent / 100)) * 1000) / 1000 : base;
             const gstAmount = isGst ? Math.round((base - taxable) * 1000) / 1000 : 0;
             const total = Math.round((base + extra) * 1000) / 1000;
@@ -667,6 +816,7 @@ export function AdminProvider({
               id,
               invoiceNo,
               source: sessionId ? "tab" : "counter",
+              mode: (args.mode as OrderMode) ?? (sessionId ? "table" : "standing"),
               sessionId,
               customerName: (args.customerName as string) || "",
               customerPhone: (args.customerPhone as string) || "",
@@ -681,6 +831,7 @@ export function AdminProvider({
               manualValue,
               manualDiscount,
               discount,
+              deliveryFee,
               total,
               createdAt: Date.now(),
               tax: gstAmount,
@@ -760,9 +911,18 @@ export function AdminProvider({
             if (!items.length) return { ok: false, error: "No items to add." };
             const sess = rrSessions.find((x) => x.id === sessionId);
             if (!sess) return { ok: false, error: "That tab is no longer open." };
+            // The guest has asked to pay. Adding to the tab now would charge
+            // them for something they never agreed to, so it is refused here
+            // as well as hidden in the UI.
+            if (sess.billRequestedAt) {
+              return { ok: false, error: "This guest has asked for the bill — nothing more can go on the tab. Bill it, then start a new one." };
+            }
             const subtotal = items.reduce((a, i) => a + i.price * i.qty, 0);
+            // Keep the product id on the line. Without it the stock never
+            // comes off for an admin-added item and the line is invisible to
+            // the product analytics.
             const rrItems = items.map((i, idx) => ({
-              id: `oi-${Date.now().toString(36)}-${idx}`,
+              id: i.productId ?? `oi-${Date.now().toString(36)}-${idx}`,
               name: i.name,
               price: i.price,
               qty: i.qty,

@@ -6,6 +6,54 @@ import { useEffect, useState } from "react";
 import { useAdmin } from "./Store";
 import { Btn, Icon, Modal, cx, type IconName } from "./kit";
 import { BRAND } from "../../lib/brand";
+import { publicBaseUrl, publicLinkIsLocalOnly } from "../../lib/publicUrl";
+
+/* Every link the shop sends — the invoice, a coupon — is built from the public
+   address of the site. On a laptop that address is http://localhost:3000, which
+   exists only on that laptop: tapped from WhatsApp on a phone it either fails
+   to resolve or (in a browser that forces HTTPS) dies with
+   ERR_SSL_PROTOCOL_ERROR. Nothing in the code can fix that — the site has to be
+   reachable — so we say so where the person sending the links will see it. */
+function LocalLinkWarning({ publicUrl }: { publicUrl: string }) {
+  const [hidden, setHidden] = useState(false);
+  const [base, setBase] = useState("");
+  useEffect(() => {
+    // window.location and sessionStorage only exist in the browser, so this
+    // has to read them after mount rather than during render.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (publicLinkIsLocalOnly(publicUrl)) setBase(publicBaseUrl(publicUrl));
+    try {
+      setHidden(sessionStorage.getItem("adm-local-link-ok") === "1");
+    } catch {}
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [publicUrl]);
+  if (!base || hidden) return null;
+  return (
+    <div className="mb-4 flex flex-wrap items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3">
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-500 text-white">
+        <Icon name="alert" size={16} />
+      </span>
+      <div className="min-w-0 flex-1 text-[12.5px] leading-snug text-amber-900">
+        <b className="block text-[13px]">Invoice and coupon links will not open on a customer&rsquo;s phone.</b>
+        This computer is serving the site at <code className="font-mono">{base}</code>, which only exists here — that is why a link
+        you send comes back as &ldquo;can&rsquo;t provide a secure connection&rdquo;. Put the public address of the live site in{" "}
+        <code className="font-mono">.env</code> as <code className="font-mono">NEXT_PUBLIC_SITE_URL=https://your-site.com</code> and restart the server.
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setHidden(true);
+          try {
+            sessionStorage.setItem("adm-local-link-ok", "1");
+          } catch {}
+        }}
+        className="shrink-0 rounded-lg px-2 py-1 text-[11.5px] font-bold uppercase tracking-wide text-amber-700 hover:bg-amber-100"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
 type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[] };
 
@@ -22,6 +70,7 @@ const NAV: Nav[] = [
   { href: "/admin/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
   { href: "/admin/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
   { href: "/admin/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
+  { href: "/admin/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
 ];
 
 const Cherry = () => (
@@ -72,6 +121,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const openTabs = floor.filter((f) => f.items > 0 && !(f.home && f.awaitingApproval));
   const kitchenPending = openTabs.length;
   const billReq = openTabs.filter((f) => f.billRequested || f.readyToBill).length;
+  /* Somebody has actually asked to pay — that badge pulses, because a guest is
+     sitting there waiting while it does. */
+  const asking = openTabs.filter((f) => f.billRequested).length;
   const low = s.products.filter((p) => p.active && p.stock !== null && p.stock <= p.lowAt).length;
 
 
@@ -79,7 +131,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     "/admin/kitchen": kitchenPending ? (
       <span className="grid h-5 min-w-5 place-items-center rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">{kitchenPending}</span>
     ) : null,
-    "/admin/billing": billReq ? <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-amber-950">{billReq}</span> : null,
+    "/admin/billing": billReq ? (
+      <span className={cx("grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[10px] font-bold", asking ? "adm-pulse bg-amber-500 text-white" : "bg-amber-400 text-amber-950")}>
+        {billReq}
+      </span>
+    ) : null,
     "/admin/inventory": low ? <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">{low}</span> : null,
     "/admin/online": fresh ? <span className="adm-pulse grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{fresh}</span> : null,
   };
@@ -180,7 +236,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         )}
 
         <div className={cx("flex flex-1 flex-col min-w-0 transition-[padding] duration-200", rail ? "lg:pl-[76px]" : "lg:pl-[248px]")}>
-          <main className="mx-auto w-full min-w-0 max-w-[1480px] flex-1 p-3 sm:p-6">{children}</main>
+          <main className="mx-auto w-full min-w-0 max-w-[1480px] flex-1 p-3 sm:p-6">
+            <LocalLinkWarning publicUrl={s.settings.publicUrl} />
+            {children}
+          </main>
           <footer className="mx-auto flex w-full max-w-[1480px] flex-col items-center gap-3 border-t border-slate-200 px-4 py-7 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:flex-row sm:justify-between sm:px-6">
             <span>© 2026 All rights reserved. {BRAND.fullName}.</span>
             <span>

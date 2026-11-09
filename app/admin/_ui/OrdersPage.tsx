@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Bill } from "./types";
 import { rupee } from "./money";
-import { inRange, rangeOf, type Period } from "./analytics";
+import { CHANNEL_LABEL, channelOf, inRange, rangeOf, type Period } from "./analytics";
 import { useAdmin } from "./Store";
 import { billText, waLink } from "./receipt";
 import PrintModal from "./PrintModal";
@@ -37,7 +37,7 @@ function Chip({ on, children, onClick, tone = "red" }: { on: boolean; children: 
 
 export default function OrdersPage() {
   const { s, act, confirm } = useAdmin();
-  const [type, setType] = useState<"all" | "tab" | "counter">("all");
+  const [type, setType] = useState<"all" | "dinein" | "takeaway" | "delivery">("all");
   const [date, setDate] = useState<DateF>("any");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -64,7 +64,7 @@ export default function OrdersPage() {
   const bills = useMemo(
     () =>
       s.bills
-        .filter((b) => (type === "all" || b.source === type) && inRange(b.createdAt, range))
+        .filter((b) => (type === "all" || channelOf(b) === type) && inRange(b.createdAt, range))
         .filter((b) => !needle || `${b.invoiceNo} ${b.customerName} ${b.customerPhone} ${b.couponCode ?? ""} ${b.items.map((i) => i.name).join(" ")}`.toLowerCase().includes(needle))
         .sort((a, b) => b.createdAt - a.createdAt),
     [s.bills, type, range, needle],
@@ -76,8 +76,8 @@ export default function OrdersPage() {
 
   /* The bills on screen as an Excel workbook with real columns. */
   const exportRows = (): (string | number)[][] => [
-    ["Invoice", "Type", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Extra", "Bill type", "GST %", "Taxable amount", "GST amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
-    ...bills.map((b) => [b.invoiceNo, b.source, b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.extra, b.isGst ? "GST" : "Non-GST", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
+    ["Invoice", "Channel", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Delivery", "Extra", "Bill type", "GST %", "Taxable amount", "GST amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
+    ...bills.map((b) => [b.invoiceNo, CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.deliveryFee, b.extra, b.isGst ? "GST" : "Non-GST", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
   ];
   const stamp = () => new Date().toISOString().slice(0, 10);
   const exportExcel = () => downloadExcel(`bills-${stamp()}.xlsx`, [{ name: "Bills", rows: exportRows() }]);
@@ -105,9 +105,10 @@ export default function OrdersPage() {
             <span className="w-14 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Type</span>
             {(
               [
-                ["all", "All Bills"],
-                ["tab", "Customer tab"],
-                ["counter", "Counter"],
+                ["all", "All bills"],
+                ["dinein", "Dine-in"],
+                ["takeaway", "Takeaway"],
+                ["delivery", "Delivery"],
               ] as const
             ).map(([v, t]) => (
               <Chip key={v} on={type === v} onClick={() => setType(v)}>
@@ -161,7 +162,7 @@ export default function OrdersPage() {
                   <th className={th}>Invoice no</th>
                   <th className={th}>Customer name</th>
                   <th className={th}>Mobile</th>
-                  <th className={th}>Bill type</th>
+                  <th className={th}>Channel</th>
                   <th className={th}>Total</th>
                   <th className={th}>Payment</th>
                   <th className={th}>Date</th>
@@ -182,7 +183,9 @@ export default function OrdersPage() {
                     </td>
                     <td className={cx(td, "font-semibold text-slate-800")}>{b.customerName || "—"}</td>
                     <td className={cx(td, "adm-num text-slate-600")}>{b.customerPhone || <span className="text-slate-400">—</span>}</td>
-                    <td className={td}>{b.source === "tab" ? <Badge tone="orange">Customer tab</Badge> : <Badge tone="sky">Counter</Badge>}</td>
+                    <td className={td}>
+                      <Badge tone={channelOf(b) === "delivery" ? "violet" : channelOf(b) === "takeaway" ? "sky" : "orange"}>{CHANNEL_LABEL[channelOf(b)]}</Badge>
+                    </td>
                     <td className={cx(td, "font-bold text-slate-900")}>{rupee(b.total)}</td>
                     <td className={cx(td, "text-slate-600")}>{PAY[b.payment]}</td>
                     <td className={cx(td, "text-slate-600")}>{fmtDate(b.createdAt)}</td>
@@ -277,21 +280,30 @@ export default function OrdersPage() {
                 <span className="block text-slate-500">{bill.customerPhone || "no phone"}</span>
               </p>
               <p className="text-right">
-                <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{bill.source === "tab" ? "Customer tab" : "Counter"}</span>
+                <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{CHANNEL_LABEL[channelOf(bill)]}</span>
                 <b>{fmtDateTime(bill.createdAt)}</b>
                 <span className="block">{bill.status === "completed" ? <Badge tone="green">Completed</Badge> : <Badge tone="slate">Void</Badge>}</span>
               </p>
             </div>
-            <ul className="my-4 divide-y divide-dashed divide-slate-200">
-              {bill.items.map((i, k) => (
-                <li key={k} className="flex justify-between gap-3 py-2">
-                  <span>
-                    <b>{i.qty}×</b> {i.name} <span className="text-slate-400">@ {rupee(i.price)}</span>
-                  </span>
-                  <b>{rupee(i.qty * i.price)}</b>
-                </li>
-              ))}
-            </ul>
+            {/* A big order used to run off the bottom of the sheet; the list
+                scrolls on its own now so the totals always stay in view. */}
+            {bill.items.length === 0 ? (
+              <p className="my-4 rounded-xl bg-amber-50 px-4 py-3 text-[12.5px] text-amber-800">
+                This bill was saved before the shop stored its item list, and its tickets are gone — only the totals below are left.
+              </p>
+            ) : (
+              <ul className="adm-scroll my-4 max-h-[42vh] divide-y divide-dashed divide-slate-200 overflow-y-auto pr-1">
+                {bill.items.map((i, k) => (
+                  <li key={k} className="flex justify-between gap-3 py-2">
+                    <span className="min-w-0">
+                      <b>{i.qty}×</b> {i.name} <span className="text-slate-400">@ {rupee(i.price)}</span>
+                      {i.notes && <span className="block text-[11.5px] italic text-amber-700">{i.notes}</span>}
+                    </span>
+                    <b className="shrink-0">{rupee(i.qty * i.price)}</b>
+                  </li>
+                ))}
+              </ul>
+            )}
             <dl className="space-y-1.5 border-t border-slate-200 pt-3">
               <div className="flex justify-between">
                 <dt className="text-slate-500">Subtotal ({bill.itemCount} items)</dt>
@@ -309,6 +321,12 @@ export default function OrdersPage() {
                 <div className="flex justify-between text-red-600">
                   <dt>Discount{bill.manualType === "percent" ? ` (${bill.manualValue}%)` : ""}</dt>
                   <dd>-{rupee(bill.manualDiscount)}</dd>
+                </div>
+              )}
+              {bill.deliveryFee > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-slate-500">Delivery charge</dt>
+                  <dd>{rupee(bill.deliveryFee)}</dd>
                 </div>
               )}
               {bill.extra > 0 && (

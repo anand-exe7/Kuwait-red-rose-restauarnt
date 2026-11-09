@@ -36,6 +36,9 @@ interface HomeOrder {
   address?: string;
   landmark?: string;
   note?: string;
+  discount: number;
+  couponCode?: string;
+  deliveryFee: number;
   total: number;
   placedAt: number;
 }
@@ -81,6 +84,9 @@ export default function OnlineOrdersPage() {
           : undefined,
         landmark: a?.landmark,
         note: orders.map((o) => o.note).find(Boolean) || undefined,
+        discount: orders.reduce((sum, o) => sum + o.discount, 0),
+        couponCode: orders.map((o) => o.couponCode).find(Boolean) || undefined,
+        deliveryFee: orders.reduce((sum, o) => sum + o.deliveryFee, 0),
         total: orders.reduce((sum, o) => sum + o.total, 0),
         placedAt: first.createdAt,
       });
@@ -253,6 +259,25 @@ function Card({
           </li>
         ))}
       </ul>
+
+      {/* What the customer was quoted, line by line, so accepting is not a
+          guess about what they owe. */}
+      {(g.discount > 0 || g.deliveryFee > 0) && (
+        <dl className="mb-3 space-y-1 rounded-xl bg-slate-50 px-3 py-2 text-[12.5px]">
+          {g.discount > 0 && (
+            <div className="flex justify-between text-red-600">
+              <dt>Discount{g.couponCode ? ` (${g.couponCode})` : ""}</dt>
+              <dd className="font-semibold">-{rupee(g.discount)}</dd>
+            </div>
+          )}
+          {g.deliveryFee > 0 && (
+            <div className="flex justify-between text-violet-700">
+              <dt>Delivery charge</dt>
+              <dd className="font-semibold">{rupee(g.deliveryFee)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
 
       {g.note && (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] leading-snug text-amber-900">

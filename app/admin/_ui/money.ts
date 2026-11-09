@@ -54,6 +54,8 @@ export interface BillComputed {
   couponDiscount: number;
   manualDiscount: number;
   discount: number;
+  /** Delivery charge, added after the discount. */
+  deliveryFee: number;
   taxable: number;
   tax: number;
   gstAmount: number;
@@ -67,13 +69,15 @@ export interface BillInputs {
   coupon?: Coupon | null;
   manualType?: "percent" | "amount" | "none";
   manualValue?: number;
+  /** Delivery charge for this bill (0 for anything but a delivery). */
+  deliveryFee?: number;
   extra?: number;
   gst?: boolean;
   gstPercent?: number;
 }
 
 export function computeBill(input: BillInputs): BillComputed {
-  const { items, coupon, manualType = "none", manualValue = 0, extra = 0, gst = false, gstPercent = 0 } = input;
+  const { items, coupon, manualType = "none", manualValue = 0, deliveryFee = 0, extra = 0, gst = false, gstPercent = 0 } = input;
   const subtotal = round2(items.reduce((s, i) => s + i.price * i.qty, 0));
   const couponOk: CouponCheck | null = coupon ? checkCoupon(coupon, subtotal) : null;
   const couponDiscount = couponOk && couponOk.ok ? couponOk.discount : 0;
@@ -84,7 +88,7 @@ export function computeBill(input: BillInputs): BillComputed {
         ? round2(manualValue)
         : 0;
   const discount = round2(couponDiscount + manualDiscount);
-  const base = Math.max(0, round2(subtotal - discount));
+  const base = round2(Math.max(0, round2(subtotal - discount)) + deliveryFee);
   const taxable = gst ? round2(base / (1 + gstPercent / 100)) : base;
   const gstAmount = gst ? round2(base - taxable) : 0;
   const total = round2(base + extra);
@@ -95,6 +99,7 @@ export function computeBill(input: BillInputs): BillComputed {
     couponDiscount,
     manualDiscount,
     discount,
+    deliveryFee,
     taxable,
     tax: gstAmount,
     gstAmount,

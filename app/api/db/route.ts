@@ -5,6 +5,7 @@ import { getServerSupabase } from '../../lib/supabaseServer';
 import { HttpError, bad, deny, throttle, isObj, str, int, money, round3, clientIp } from '../../lib/server/http';
 import { priceItems, checkCoupon, consumeCoupon, TAX_RATE } from '../../lib/server/pricing';
 import { applySaleForOrder, reverseSaleForOrder } from '../../lib/server/stock';
+import { feeForAreaName } from '../../lib/delivery/server';
 
 // Single guarded door for every database WRITE made by the browser.
 //
@@ -25,7 +26,7 @@ interface Body { table?: string; op?: Op; values?: Values; match?: Match }
 
 const COLUMNS: Record<string, string[]> = {
   menu_items: ['id', 'name', 'category', 'price', 'description', 'image', 'prep_time', 'status', 'is_popular',
-    'is_chef_special', 'is_best_seller', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'created_at'],
+    'is_chef_special', 'is_best_seller', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'weight_grams', 'created_at'],
   coupons: ['id', 'code', 'discount_percent', 'min_order', 'expiry', 'usage_limit', 'used_count', 'active', 'created_at',
     'targeted_only', 'sent_phones'],
   app_settings: ['id', 'value'],
@@ -33,7 +34,7 @@ const COLUMNS: Record<string, string[]> = {
   sessions: ['id', 'table_number', 'mode', 'status', 'standing_label', 'customer_name', 'customer_phone', 'guests',
     'opened_at', 'closed_at', 'bill_requested_at', 'bill_id', 'created_at'],
   orders: ['id', 'table_number', 'items', 'status', 'priority', 'subtotal', 'tax', 'total', 'source', 'mode',
-    'discount', 'coupon_code', 'standing_label', 'session_id', 'billed', 'created_at',
+    'discount', 'coupon_code', 'delivery_fee', 'standing_label', 'session_id', 'billed', 'created_at',
     // Customer remark + hand-over stamp — see supabase/order_notes_handover.sql.
     'note', 'handed_over_at',
     // Customer identity + delivery address — see supabase/add_customer_columns.sql.
@@ -43,6 +44,8 @@ const COLUMNS: Record<string, string[]> = {
   // supabase/add_bill_payload.sql for the migration.
   bills: ['id', 'session_id', 'subtotal', 'tax', 'discount', 'total', 'coupon_code', 'paid_method', 'created_at', 'invoice_no', 'payload'],
   waiter_calls: ['id', 'table_number', 'resolved', 'created_at'],
+  // Shop expenses — see supabase/expenses.sql. Admin-only, like the catalogue.
+  expenses: ['id', 'title', 'category', 'amount', 'expense_date', 'notes', 'created_at'],
 };
 
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
@@ -55,10 +58,10 @@ const isFloor = (r: Role | null) => r === 'admin' || r === 'waiter'; // may bill
 // keeps the shop taking orders while the migration is still pending. Only
 // these columns may be dropped: a missing core column is a real error.
 const DROPPABLE: Record<string, string[]> = {
-  orders: ['note', 'handed_over_at', 'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
+  orders: ['note', 'handed_over_at', 'delivery_fee', 'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
   bills: ['invoice_no', 'payload'],
   coupons: ['targeted_only', 'sent_phones'],
-  menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold'],
+  menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold', 'weight_grams'],
 };
 
 /** The column name out of a PostgREST "missing column" error, if that's what it is. */
@@ -177,21 +180,39 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     }
 
     // Stock follows the order: it comes off the shelf when the ticket reaches
-    // the kitchen, and goes back on if that ticket is then cancelled. We read
-    // the rows as they are NOW, so a repeated approve can't count twice
-    // (applySaleForOrder is idempotent anyway).
+    // the kitchen, and goes back on if that ticket is then cancelled.
+    //
+    // The approve is done as ONE guarded write — update … where status =
+    // 'awaiting_admin' … returning the rows — so two taps on Accept, or two
+    // devices accepting at once, can only move the order once. Reading first
+    // and writing after would let both callers see 'awaiting_admin' and take
+    // the stock off twice, which is how stock ended up double-counted.
     const goingToKitchen = v.status === 'pending';
     const cancelling = v.status === 'cancelled';
-    const affected = goingToKitchen || cancelling
+
+    if (goingToKitchen) {
+      const moved = await sb
+        .from('orders')
+        .update(v)
+        .match(match)
+        .eq('status', 'awaiting_admin')
+        .select('id,items,session_id,source');
+      if (moved.error) return moved;
+      for (const o of moved.data ?? []) await applySaleForOrder(sb, o);
+      // Anything the guard skipped (an order already past approval) still gets
+      // the plain update, so moving a ticket back to 'pending' keeps working.
+      if ((moved.data?.length ?? 0) > 0 && Object.keys(v).length === 1) return moved;
+    }
+
+    const affected = cancelling
       ? (await sb.from('orders').select('id,items,session_id,source,status').match(match)).data ?? []
       : [];
 
     const res = await sb.from('orders').update(v).match(match);
-    if (!res.error) {
+    if (!res.error && cancelling) {
       for (const o of affected) {
-        if (goingToKitchen && o.status === 'awaiting_admin') await applySaleForOrder(sb, o);
         // Declined before the kitchen ever saw it → no stock ever moved.
-        if (cancelling && o.status !== 'awaiting_admin') await reverseSaleForOrder(sb, o, 'Order cancelled');
+        if (o.status !== 'awaiting_admin') await reverseSaleForOrder(sb, o, 'Order cancelled');
       }
     }
     return res;
@@ -200,7 +221,10 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   // insert
   const staff = isStaff(role);
   if (!staff) throttle(`o:${ctx.ip}`, 20);
-  const source = v.source === 'waiter' ? 'waiter' : 'customer';
+  // Who put this on the tab. It is printed on the ticket and shown as the
+  // "added by" badge, so an admin's line must not be filed as the customer's.
+  const claimed = v.source === 'waiter' || v.source === 'admin' ? v.source : 'customer';
+  const source = claimed === 'admin' && role !== 'admin' ? 'customer' : claimed;
   if (source === 'waiter' && !isFloor(role)) throw deny('Waiter orders need a staff login');
   const mode =
     v.mode === 'standing' || v.mode === 'takeaway' || v.mode === 'delivery' ? v.mode : 'table';
@@ -235,9 +259,21 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   const priority = staff && v.priority === 'high' ? 'high' : 'normal';
 
   // ---- items, prices and coupon: checked against the database, not the client ----
-  const { items, subtotal } = await priceItems(sb, v.items, { admin: role === 'admin' });
+  const { items, subtotal, grams } = await priceItems(sb, v.items, { admin: role === 'admin' });
   const coupon = await checkCoupon(sb, v.coupon_code, subtotal, v.customer_phone);
   let discount = coupon?.discount ?? 0;
+
+  // Delivery is charged on top of the goods, and it is priced HERE from the
+  // area's weight brackets — never taken from the browser. Without this the
+  // fee the customer agreed to never reached the order, so the tab, the bill
+  // and the invoice were all short by the delivery charge.
+  const addressArea =
+    mode === 'delivery' && v.delivery_address && typeof v.delivery_address === 'object'
+      ? (v.delivery_address as Record<string, unknown>).governorate ?? (v.delivery_address as Record<string, unknown>).area
+      : null;
+  let deliveryFee = mode === 'delivery' ? await feeForAreaName(sb, addressArea, grams) : 0;
+  // An admin writing the order themselves may set the charge by hand.
+  if (role === 'admin' && v.delivery_fee != null) deliveryFee = money(v.delivery_fee, 'delivery fee');
 
   let tax: number;
   let total: number;
@@ -245,10 +281,10 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     // Admin POS: manual discounts, delivery and tax-free sales are legitimate.
     if (v.discount != null) discount = Math.min(subtotal, money(v.discount, 'discount'));
     tax = v.tax != null ? Math.min(subtotal, money(v.tax, 'tax')) : round3((subtotal - discount) * TAX_RATE);
-    total = v.total != null ? money(v.total, 'total') : round3(subtotal - discount + tax);
+    total = v.total != null ? money(v.total, 'total') : round3(subtotal - discount + deliveryFee + tax);
   } else {
     tax = round3((subtotal - discount) * TAX_RATE);
-    total = round3(subtotal - discount + tax);
+    total = round3(subtotal - discount + deliveryFee + tax);
   }
 
   const sessionId = typeof v.session_id === 'string' && /^SN-[0-9]+-[0-9]+$/.test(v.session_id) ? v.session_id : null;
@@ -271,6 +307,7 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
     id, table_number: tableNumber, items, status, priority, subtotal, tax, total, source, mode,
     discount: discount > 0 ? round3(discount) : null,
     coupon_code: coupon?.code ?? null,
+    delivery_fee: round3(deliveryFee),
     standing_label: typeof v.standing_label === 'string' ? v.standing_label.slice(0, 40) : null,
     session_id: sessionId, billed, created_at: Date.now(),
     // The customer's remark typed at checkout; staff screens all show it.
@@ -381,6 +418,7 @@ export async function POST(request: NextRequest) {
       case 'coupons':
       case 'tables':
       case 'app_settings':
+      case 'expenses':
         result = await adminOnlyWrite(ctx, table, op, values, match);
         break;
       case 'sessions': result = await sessionsWrite(ctx, op, values, match); break;
