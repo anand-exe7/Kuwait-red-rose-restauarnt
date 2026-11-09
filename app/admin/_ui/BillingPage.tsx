@@ -7,7 +7,6 @@ import { useAdmin, whoIs, type FloorTab } from "./Store";
 import Catalog from "./Catalog";
 import PrintModal, { PrintFormats } from "./PrintModal";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
-import { publicLinkIsLocalOnly } from "../../lib/publicUrl";
 import { Badge, Btn, Icon, Modal, WaIcon, cx, fmtTime, ago } from "./kit";
 
 type Line = { key: number; productId: string | null; name: string; price: string; qty: number };
@@ -27,7 +26,9 @@ const kuwaitDigits = (v: string) => {
 const okPhone = (p: string) => /^\d{8,15}$/.test(p);
 const sigOf = (f: FloorTab) => f.orders.map((o) => o.id + o.status).join("|");
 
-const DEFAULT_GST = "18";
+/* Kuwait VAT. The shop bills with it on by default — switching it off is
+   the exception (an export, a zero-rated sale), not the norm. */
+const DEFAULT_GST = "5";
 
 let seq = 0;
 const blank = (): Line => ({ key: ++seq, productId: null, name: "", price: "", qty: 1 });
@@ -70,7 +71,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const [mType, setMType] = useState<DiscountType>("amount");
   const [mVal, setMVal] = useState("");
   const [extra, setExtra] = useState("");
-  const [isGst, setIsGst] = useState(false);
+  const [isGst, setIsGst] = useState(true);
   const [gstPct, setGstPct] = useState(DEFAULT_GST);
   const [pay, setPay] = useState<PayMethod>("cash");
   const [received, setReceived] = useState("");
@@ -166,7 +167,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   if (!items.length) problems.push("Add at least one item.");
   if (items.some((i) => !i.name)) problems.push("Every item needs a name.");
   if (cp && calc.couponOk && !calc.couponOk.ok) problems.push(`Coupon ${cp.code}: ${calc.couponOk.reason}.`);
-  if (isGst && !(gstPct !== "" && Number(gstPct) >= 0 && Number(gstPct) <= 100)) problems.push("GST should be a percentage between 0 and 100.");
+  if (isGst && !(gstPct !== "" && Number(gstPct) >= 0 && Number(gstPct) <= 100)) problems.push("VAT should be a percentage between 0 and 100.");
   if (pay === "cash" && recv > 0 && recv < calc.total) problems.push("Amount received is less than the total.");
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
   else if (pay === "split" && splitOff !== 0) problems.push(`Split payment: cash + card should equal ${rupee(calc.total)}.`);
@@ -526,7 +527,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
             <dl className="space-y-3 border-t border-dashed border-slate-200 pt-4 text-[14px]">
               <div className="flex justify-between">
                 <dt className="text-slate-600">
-                  Subtotal ({calc.itemCount} items){isGst && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-800/70">excl. GST</span>}
+                  Subtotal ({calc.itemCount} items){isGst && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-800/70">excl. VAT</span>}
                 </dt>
                 <dd className="font-semibold">{rupee(calc.subtotal)}</dd>
               </div>
@@ -573,8 +574,8 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               <div className="grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Bill type">
                 {(
                   [
-                    [false, "Non-GST bill"],
-                    [true, "GST invoice"],
+                    [false, "No VAT"],
+                    [true, "VAT invoice"],
                   ] as const
                 ).map(([g, t]) => (
                   <button
@@ -591,10 +592,10 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               {isGst && (
                 <div className="flex items-center justify-between gap-3 text-[14px]">
                   <span className="font-bold text-slate-800">
-                    GST <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800/70">(added)</span>
+                    VAT <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800/70">(added on top)</span>
                   </span>
                   <span className="flex items-center gap-2">
-                    <input type="number" min={0} max={100} step="0.1" inputMode="decimal" className="h-10 w-20 rounded-lg border border-slate-300 px-3 text-right text-[14px] font-bold outline-none focus:border-slate-400" value={gstPct} onChange={(e) => setGstPct(e.target.value)} aria-label="GST percent" />
+                    <input type="number" min={0} max={100} step="0.1" inputMode="decimal" className="h-10 w-20 rounded-lg border border-slate-300 px-3 text-right text-[14px] font-bold outline-none focus:border-slate-400" value={gstPct} onChange={(e) => setGstPct(e.target.value)} aria-label="VAT percent" />
                     <span className="text-slate-600">%</span>
                     <b className="adm-num w-24 text-right font-semibold text-slate-700">{rupee(calc.gstAmount)}</b>
                   </span>
@@ -606,7 +607,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               <span className="text-[15px] font-extrabold uppercase tracking-[0.04em] text-slate-900">Grand total</span>
               <b className="adm-num text-[22px] font-extrabold text-slate-900">{rupee(calc.total)}</b>
             </div>
-            {isGst && calc.gstAmount > 0 && <p className="-mt-3 text-right text-[11.5px] text-slate-400">includes {rupee(calc.gstAmount)} GST on {rupee(calc.taxable)}</p>}
+            {isGst && calc.gstAmount > 0 && <p className="-mt-3 text-right text-[11.5px] text-slate-400">{rupee(calc.gstAmount)} VAT added on {rupee(calc.taxable)} after discount</p>}
 
             <div className="rounded-2xl border border-slate-200 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -673,12 +674,6 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                 Save order
               </Btn>
               {!okPhone(phone) && phone && <p className="text-center text-[11.5px] text-slate-400">WhatsApp needs a valid mobile number.</p>}
-              {publicLinkIsLocalOnly(s.settings.publicUrl) && (
-                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] font-semibold text-amber-700">
-                  Heads up: no public site address is set, so the invoice link in the WhatsApp message will point at this
-                  computer and won&apos;t open on the customer&apos;s phone. Set <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site.
-                </p>
-              )}
               {mode === "tab" && f && <p className="pt-1 text-center text-[11.5px] text-slate-400">Completing closes {whoIs(f.session)}&apos;s tab — their next order starts a fresh one.</p>}
             </div>
           </div>
@@ -703,15 +698,16 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
              pushed down, so the first pick fills the row the user just saw. */
           setLines((ls) => {
             let next = [...ls];
-            for (const { productId, qty } of picks) {
-              const prod = s.products.find((x) => x.id === productId);
-              if (!prod) continue;
-              const existing = next.findIndex((l) => l.productId === prod.id);
+            for (const { productId, qty, name, price } of picks) {
+              // A size is not a row in s.products, so the pick brings its own
+              // name and price — the bill has to read "Black Forest (1kg)".
+              if (!name) continue;
+              const existing = next.findIndex((l) => l.productId === productId);
               if (existing >= 0) {
                 next[existing] = { ...next[existing], qty: Math.min(999, next[existing].qty + qty) };
                 continue;
               }
-              const line: Line = { key: ++seq, productId: prod.id, name: prod.name, price: String(prod.price), qty };
+              const line: Line = { key: ++seq, productId, name, price: String(price), qty };
               if (next.length === 1 && !next[0].name.trim() && !next[0].price) next = [line];
               else next.push(line);
             }

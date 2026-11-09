@@ -15,7 +15,7 @@ import {
   isExpired,
   remainingUses,
 } from "../../lib/couponStore";
-import { publicLink, publicLinkIsLocalOnly } from "../../lib/publicUrl";
+import { publicLink } from "../../lib/publicUrl";
 import { BRAND } from "../../lib/brand";
 import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, Switch, WaIcon, inputCls, cx } from "./kit";
 
@@ -227,9 +227,6 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
   const [name, setName] = useState("");
   const [onlyThis, setOnlyThis] = useState(coupon.targetedOnly);
   const [err, setErr] = useState<string | null>(null);
-  // No public site configured → we leave the link out rather than sending the
-  // customer a localhost URL that can never open.
-  const localOnly = publicLinkIsLocalOnly();
 
   const send = async () => {
     const digits = phone.replace(/\D/g, "");
@@ -272,13 +269,6 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
       <p className="text-sm text-slate-500">
         The coupon goes to the customer&apos;s WhatsApp with its code and a link to order. It&apos;s recorded against their number here.
       </p>
-
-      {localOnly && (
-        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-          The coupon link will point at this computer, so it won&apos;t open on the customer&apos;s phone. Set{" "}
-          <code className="font-mono">NEXT_PUBLIC_SITE_URL</code> to your live site address and it will.
-        </p>
-      )}
 
       <div className="mt-4 flex flex-col gap-4">
         <Field label="Customer phone (WhatsApp) *">

@@ -24,18 +24,23 @@ import { getServerSupabase } from './lib/supabaseServer';
 // Admin-managed homepage media (Admin → Homepage) refreshes server-side.
 export const revalidate = 30;
 
-async function fetchHomeMedia(): Promise<{ gallery: string[]; videos: string[]; finest: string[]; celebrations: string }> {
-  const empty = { gallery: [], videos: [], finest: [], celebrations: '' };
+type HomeMediaShape = { gallery: string[]; videos: string[]; finest: string[]; celebrations: string; captions: Record<string, string> };
+
+async function fetchHomeMedia(): Promise<HomeMediaShape> {
+  const empty: HomeMediaShape = { gallery: [], videos: [], finest: [], celebrations: '', captions: {} };
   try {
     const sb = getServerSupabase();
     if (!sb) return empty;
     const { data } = await sb.from('app_settings').select('value').eq('id', 'home_media').maybeSingle();
-    const v = (data?.value ?? {}) as Partial<typeof empty>;
+    const v = (data?.value ?? {}) as Partial<HomeMediaShape>;
     return {
       gallery: Array.isArray(v.gallery) ? v.gallery.filter((x) => typeof x === 'string') : [],
       videos: Array.isArray(v.videos) ? v.videos.filter((x) => typeof x === 'string') : [],
       finest: Array.isArray(v.finest) ? v.finest.filter((x) => typeof x === 'string') : [],
       celebrations: typeof v.celebrations === 'string' ? v.celebrations : '',
+      captions: v.captions && typeof v.captions === 'object'
+        ? Object.fromEntries(Object.entries(v.captions).filter(([, t]) => typeof t === 'string'))
+        : {},
     };
   } catch {
     return empty;
@@ -85,10 +90,10 @@ const IMAGES = {
   // Unsplash IDs are verified to resolve.
   // Fallback photos used until the admin uploads real ones in
   // Admin → Homepage → Kuwait's Finest Flavours (overrides these per-slot).
-  baklavaTray: 'photo-1598110750624-207050c4f28c', // a tray of baklava
-  dates: 'photo-1770617476915-7269d29d27dc', // rows of Medjool dates
-  saffron: 'photo-1643471672168-f4a4b6cfa440', // saffron threads from a jar
-  pistachios: 'photo-1610137512859-aa919f651a05', // pistachios in the shell
+  baklavaTray: 'photo-1705663106388-6c1c51ff5a8d', // pistachio baklava, syrup being poured
+  dates: 'photo-1771231591559-d19c89ad118a', // Medjool dates, packed close
+  saffron: 'photo-1615885108069-7d5bef9a7e22', // saffron threads spilling from the jar
+  pistachios: 'photo-1702745284678-2ae974a7f0aa', // pistachio tartlets, cream and crushed nuts
   giftBoxes: 'photo-1607344645866-009c320b63e0', // black boxes, gold ribbon
   chocolates: 'photo-1481391319762-47dff72954d9', // an open box of chocolates
 } as const;
@@ -96,8 +101,12 @@ const IMAGES = {
 // A `src` can be an Unsplash id (built into a URL) or a full http(s) URL — the
 // latter is what admin-uploaded homepage photos use, so we pass those through.
 const isFullUrl = (s: string) => /^https?:\/\//.test(s);
-const img = (id: string, w = 700) =>
-  isFullUrl(id) ? id : `https://images.unsplash.com/${id}?auto=format&fit=crop&q=85&w=${w}`;
+/* q=90 and widths up to 2K. The cards are ~270 CSS px wide but sit on retina
+   and 3x phone screens, where a 1100px copy is already being stretched — that
+   is why the photos looked soft. `auto=format` still ships AVIF/WebP, so the
+   bigger copy costs far less than its pixel count suggests. */
+const img = (id: string, w = 1000) =>
+  isFullUrl(id) ? id : `https://images.unsplash.com/${id}?auto=format&fit=crop&q=90&w=${w}`;
 
 /** Several widths of one photo, so high-density screens get a sharp copy. */
 const srcSet = (id: string, widths: number[]) =>
@@ -624,7 +633,7 @@ export default async function Home() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={isFullUrl(p.image) ? p.image : img(p.image, 900)}
-                    srcSet={srcSet(p.image, [500, 800, 1100])}
+                    srcSet={srcSet(p.image, [600, 900, 1400, 2048])}
                     sizes="(min-width: 1024px) 280px, (min-width: 640px) 46vw, 46vw"
                     alt={p.name}
                     loading="lazy"
@@ -803,7 +812,7 @@ export default async function Home() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={img(celebrationsSrc, 1000)}
-                  srcSet={srcSet(celebrationsSrc, [700, 1000, 1400])}
+                  srcSet={srcSet(celebrationsSrc, [900, 1400, 2048])}
                   sizes="(min-width: 1024px) 440px, (min-width: 640px) 420px, 340px"
                   alt="Black gift boxes tied with gold ribbon"
                   loading="lazy"
@@ -941,24 +950,58 @@ export default async function Home() {
           <EdgeCurve position="bottom" />
         </section>
 
-      {/* ==================== GALLERY (admin-managed) ==================== */}
+      {/* ============== INSIDE OUR SHOP (admin-managed photos) ==============
+           The shop's OWN photographs, uploaded in Admin → Images & videos.
+           Everything else on this page is stock photography that ships with
+           the site; this is the one section that is actually them, so it gets
+           room to breathe instead of a strip of thumbnails. Each photo can
+           carry a caption, set next to the photo in the admin. */}
       {media.gallery.length > 0 && (
-        <section className="relative py-20 sm:py-28">
-          <div className={CONTAINER}>
-            <div className="text-center">
-              <p className="eyebrow eyebrow-center text-brand-gold-dark">From our kitchen</p>
-              <h2 className="heading mt-5 text-brand-wine">The <em className="text-brand-red">gallery</em></h2>
+        <Reveal>
+          <section className="relative py-20 sm:py-28">
+            <Cutout src="petal-b" className="-left-12 top-10 w-[110px] sm:w-[170px] xl:left-[2%]" p0={70} p1={-70} r0={-12} r1={8} f={7} />
+            <div className={CONTAINER}>
+              <div className="mx-auto max-w-2xl text-center">
+                <p className="eyebrow eyebrow-center text-brand-gold-dark">Our shop</p>
+                <h2 className="heading mt-5 text-brand-wine">
+                  Inside our <em className="text-brand-red">kitchen</em>
+                </h2>
+                <p className="mt-5 font-body text-[15px] leading-relaxed text-brand-ink/65 sm:text-base">
+                  Photographs from the counter and the kitchen in {BRAND.area} — taken by us, not bought from a photo
+                  library.
+                </p>
+              </div>
+
+              {/* Four across on a wide screen — the admin uploads four, and
+                  they read as one row rather than three and a stray. */}
+              <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {media.gallery.map((url, i) => {
+                  const caption = (media.captions[url] ?? '').trim();
+                  return (
+                    <figure
+                      key={url}
+                      className="curtain group relative isolate aspect-[4/5] overflow-hidden rounded-[22px] border border-brand-gold/25 bg-brand-sand shadow-[0_26px_52px_-30px_rgba(74,21,21,0.6)]"
+                      style={{ '--i': i } as React.CSSProperties}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={caption}
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.05]"
+                      />
+                      {caption && (
+                        <figcaption className="absolute left-4 top-4 rounded-full bg-brand-cream/95 px-3.5 py-1.5 font-body text-[9.5px] font-bold uppercase tracking-[0.2em] text-brand-wine shadow-sm backdrop-blur-sm sm:text-[10.5px]">
+                          {caption}
+                        </figcaption>
+                      )}
+                    </figure>
+                  );
+                })}
+              </div>
             </div>
-            <div className="mt-12 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {media.gallery.map((url) => (
-                <div key={url} className="aspect-[9/16] overflow-hidden rounded-2xl border border-brand-gold/25 bg-brand-sand shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+          </section>
+        </Reveal>
       )}
 
       {/* ==================== VIDEOS (admin-managed) ==================== */}
@@ -1188,8 +1231,8 @@ function Photo({ src, label, from, aspect, i }: { src: string; label: string; fr
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={img(src, 800)}
-        srcSet={srcSet(src, [500, 800, 1100])}
+        src={img(src, 1200)}
+        srcSet={srcSet(src, [600, 900, 1200, 1600, 2048])}
         sizes="(min-width: 1024px) 270px, 45vw"
         alt={label}
         loading="lazy"

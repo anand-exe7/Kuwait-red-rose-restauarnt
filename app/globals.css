@@ -1163,3 +1163,76 @@ html:has(.landing) { scroll-behavior: smooth; }
   animation: menu-item-flash 2.4s ease-out;
   border-color: rgba(176, 30, 40, 0.55);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Brand roses — drifting decoration behind a page the shop sends out
+   (the invoice, a coupon).
+
+   Purely decorative: pointer-events off so nothing here can swallow a tap on
+   the invoice, aria-hidden in the markup, and removed outright when the page
+   is printed or saved as a PDF. Honours prefers-reduced-motion: the roses
+   still show, they just stop moving.
+   ───────────────────────────────────────────────────────────────────────── */
+.brand-roses {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.brand-rose {
+  position: absolute;
+  width: 170px;
+  max-width: 34vw;
+  opacity: 0.42;
+  filter: drop-shadow(0 18px 30px rgba(74, 21, 21, 0.25));
+  will-change: transform;
+}
+
+/* Right-hand side, level with the top of the invoice. */
+.brand-rose--a {
+  top: 6%;
+  right: -3%;
+  animation: brand-rose-drift 13s ease-in-out infinite;
+}
+
+/* Lower down the right edge, drifting out of phase with the first. */
+.brand-rose--b {
+  bottom: 8%;
+  right: 4%;
+  width: 120px;
+  opacity: 0.34;
+  animation: brand-rose-drift 17s ease-in-out infinite reverse;
+  animation-delay: -4s;
+}
+
+/* A single petal on the left, to stop the page leaning right. */
+.brand-rose--c {
+  top: 42%;
+  left: -4%;
+  width: 96px;
+  opacity: 0.3;
+  animation: brand-rose-drift 21s ease-in-out infinite;
+  animation-delay: -9s;
+}
+
+@keyframes brand-rose-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(-6deg); }
+  50%  { transform: translate3d(-14px, -22px, 0) rotate(5deg); }
+  100% { transform: translate3d(0, 0, 0) rotate(-6deg); }
+}
+
+/* On a phone the paper takes the whole width — a little softer than on
+   desktop, but still clearly a rose rather than a smudge. */
+@media (max-width: 640px) {
+  .brand-rose { opacity: 0.24; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-rose { animation: none; }
+}
+
+@media print {
+  .brand-roses { display: none !important; }
+}

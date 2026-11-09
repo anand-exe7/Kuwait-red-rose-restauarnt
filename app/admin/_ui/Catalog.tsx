@@ -5,8 +5,58 @@ import type { Product } from "./types";
 import { rupee } from "./money";
 import { useAdmin } from "./Store";
 import { Btn, Icon, Modal, SearchBox, cx } from "./kit";
+import { variantName } from "../../lib/menuStore";
 
 const thumb = (src: string) => (src.includes("images.unsplash.com") ? src.replace(/([?&])w=\d+/, "$1w=120") : src);
+
+/* One thing that can actually be sold.
+
+   A product with sizes is not one sellable thing, it is three: the 500 g, the
+   1 kg and the 1.5 kg, each with its own price and its own shelf. So the list
+   below is built from sizes, not from products, and `id` carries
+   "<productId>::<sizeId>" — the same key the order line and the stock ledger
+   use, so the right shelf is the one that moves. */
+interface Sellable {
+  id: string;
+  name: string;
+  price: number;
+  stock: number | null;
+  image: string;
+  category: string;
+  active: boolean;
+}
+
+/** What a pick hands back. The name and price travel with it because a size
+ *  is not in `s.products` — looking it up by id there would find nothing. */
+export interface Pick {
+  productId: string;
+  qty: number;
+  name: string;
+  price: number;
+}
+
+function sellablesOf(products: Product[]): Sellable[] {
+  const out: Sellable[] = [];
+  for (const p of products) {
+    const variants = p.variants ?? [];
+    if (variants.length === 0) {
+      out.push({ id: p.id, name: p.name, price: p.price, stock: p.stock, image: p.image, category: p.category, active: p.active });
+      continue;
+    }
+    for (const v of variants) {
+      out.push({
+        id: `${p.id}::${v.id}`,
+        name: variantName(p.name, v),
+        price: v.price,
+        stock: v.stock,
+        image: p.image,
+        category: p.category,
+        active: p.active,
+      });
+    }
+  }
+  return out;
+}
 
 /** Product picker. `onPick` = pick one (billing row); `onAdd` = build a small order (customer tab). */
 export default function Catalog({
@@ -21,7 +71,7 @@ export default function Catalog({
   onClose: () => void;
   title?: string;
   onPick?: (p: Product) => void;
-  onAdd?: (items: { productId: string; qty: number }[]) => Promise<boolean> | boolean;
+  onAdd?: (items: Pick[]) => Promise<boolean> | boolean;
   addLabel?: string;
 }) {
   const { s } = useAdmin();
@@ -36,12 +86,14 @@ export default function Catalog({
     onClose();
   };
 
+  const sellables = useMemo(() => sellablesOf(s.products), [s.products]);
   const cats = useMemo(() => ["All", ...Array.from(new Set(s.products.map((p) => p.category)))], [s.products]);
-  const list = s.products.filter((p) => (cat === "All" || p.category === cat) && (!q || `${p.name} ${p.category}`.toLowerCase().includes(q.toLowerCase())) && (onPick || p.active));
+  const list = sellables.filter((p) => (cat === "All" || p.category === cat) && (!q || `${p.name} ${p.category}`.toLowerCase().includes(q.toLowerCase())) && (onPick || p.active));
+  const byId = useMemo(() => new Map(sellables.map((x) => [x.id, x])), [sellables]);
   const count = Object.values(cart).reduce((a, b) => a + b, 0);
-  const total = Object.entries(cart).reduce((a, [id, n]) => a + (s.products.find((p) => p.id === id)?.price ?? 0) * n, 0);
+  const total = Object.entries(cart).reduce((a, [id, n]) => a + (byId.get(id)?.price ?? 0) * n, 0);
 
-  const bump = (p: Product, d: number) =>
+  const bump = (p: Sellable, d: number) =>
     setCart((c) => {
       const n = Math.max(0, Math.min(p.stock ?? 99, (c[p.id] ?? 0) + d));
       const next = { ...c };
@@ -68,7 +120,12 @@ export default function Catalog({
               disabled={!count || busy}
               onClick={async () => {
                 setBusy(true);
-                const ok = await onAdd(Object.entries(cart).map(([productId, qty]) => ({ productId, qty })));
+                const ok = await onAdd(
+                  Object.entries(cart).map(([productId, qty]) => {
+                    const sell = byId.get(productId);
+                    return { productId, qty, name: sell?.name ?? "", price: sell?.price ?? 0 };
+                  }),
+                );
                 setBusy(false);
                 if (ok) close();
               }}
@@ -113,7 +170,14 @@ export default function Catalog({
                   </p>
                 </div>
                 {onPick ? (
-                  <Btn size="sm" kind="soft" onClick={() => (onPick(p), close())}>
+                  <Btn
+                    size="sm"
+                    kind="soft"
+                    onClick={() => (
+                      onPick({ ...(s.products.find((x) => x.id === p.id.split("::")[0]) as Product), id: p.id, name: p.name, price: p.price, stock: p.stock }),
+                      close()
+                    )}
+                  >
                     Use
                   </Btn>
                 ) : n ? (

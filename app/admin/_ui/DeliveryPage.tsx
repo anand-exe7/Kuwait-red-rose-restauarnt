@@ -201,8 +201,7 @@ export default function DeliveryPage() {
 
       {error && (
         <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
-          {error} — apply <code>supabase/delivery_areas.sql</code> and{" "}
-          <code>supabase/delivery_weight_tiers.sql</code> in the Supabase SQL editor to use per-area, per-weight pricing.
+          {error}
         </div>
       )}
 

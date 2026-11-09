@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Bill } from "./types";
 import { rupee } from "./money";
-import { CHANNEL_LABEL, channelOf, completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, splitGst, startOfWeek, paymentStats, summary, weekly, type Channel, type Period } from "./analytics";
+import { CHANNEL_LABEL, channelOf, completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, startOfWeek, paymentStats, summary, weekly, type Channel, type Period } from "./analytics";
 import Link from "next/link";
 import { useAdmin } from "./Store";
 import { Badge, Btn, Card, DateRange, Empty, Kpi, Page, PageHead, Pills, SearchBox, Switch, Tabs, cx, downloadExcel, fmtDate, fmtTime, type ExcelSheet } from "./kit";
@@ -91,57 +91,55 @@ function ChannelSplit({ by, money = true }: { by: Record<Channel, { revenue: num
   );
 }
 
-/** GST invoices vs non-GST bills: how revenue splits, and the tax collected on the GST side. */
+/** VAT invoices vs bills with no VAT: how revenue splits, and the tax collected. */
 function GstSplit({ gstN, gstRev, gst, taxable, nonGstN, nonGstRev }: { gstN: number; gstRev: number; gst: number; taxable: number; nonGstN: number; nonGstRev: number }) {
   const total = gstRev + nonGstRev;
   const pct = (v: number) => (total > 0 ? (v / total) * 100 : 0);
   return (
     <div className="space-y-4">
       <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
-        {gstRev > 0 && <div className="adm-fill h-full bg-amber-500" style={{ width: `${pct(gstRev)}%` }} title={`GST ${rupee(gstRev)}`} />}
-        {nonGstRev > 0 && <div className="adm-fill h-full bg-slate-400" style={{ width: `${pct(nonGstRev)}%` }} title={`Non-GST ${rupee(nonGstRev)}`} />}
+        {gstRev > 0 && <div className="adm-fill h-full bg-amber-500" style={{ width: `${pct(gstRev)}%` }} title={`VAT ${rupee(gstRev)}`} />}
+        {nonGstRev > 0 && <div className="adm-fill h-full bg-slate-400" style={{ width: `${pct(nonGstRev)}%` }} title={`No VAT ${rupee(nonGstRev)}`} />}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-3.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-700">GST invoices</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-amber-700">VAT invoices</span>
             <b className="adm-num text-[16px] text-slate-900">{rupee(gstRev)}</b>
           </div>
           <p className="mt-1 text-[11.5px] text-slate-500">
-            {gstN} invoice{gstN === 1 ? "" : "s"} · {rupee(gst)} GST on {rupee(taxable)} taxable
+            {gstN} invoice{gstN === 1 ? "" : "s"} · {rupee(gst)} VAT on {rupee(taxable)} after discount
           </p>
         </div>
         <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Non-GST bills</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Bills with no VAT</span>
             <b className="adm-num text-[16px] text-slate-900">{rupee(nonGstRev)}</b>
           </div>
           <p className="mt-1 text-[11.5px] text-slate-500">{nonGstN} bill{nonGstN === 1 ? "" : "s"} · no tax charged</p>
         </div>
       </div>
       <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3 text-[13px]">
-        <dt className="font-semibold text-slate-600">Total GST collected</dt>
+        <dt className="font-semibold text-slate-600">Total VAT collected</dt>
         <dd className="adm-num font-extrabold text-amber-700">{rupee(gst)}</dd>
       </div>
     </div>
   );
 }
 
-/** Per-rate GST table: how much taxable, CGST, SGST and GST fell under each rate. */
-function GstByRate({ rates }: { rates: { rate: number; invoices: number; taxable: number; gst: number; total: number; cgst: number; sgst: number }[] }) {
-  if (!rates.length) return <p className="py-8 text-center text-[13px] text-slate-400">No GST invoices in this period yet.</p>;
+/** Per-rate VAT table: how much was taxable and how much VAT fell under each rate. */
+function GstByRate({ rates }: { rates: { rate: number; invoices: number; taxable: number; gst: number; total: number }[] }) {
+  if (!rates.length) return <p className="py-8 text-center text-[13px] text-slate-400">No VAT invoices in this period yet.</p>;
   const cell = "px-3 py-2.5 text-[12.5px] whitespace-nowrap";
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-100 adm-scroll">
       <table className="w-full min-w-[480px]">
         <thead className="bg-slate-50">
           <tr>
-            <th className={cx(th, "text-left")}>GST rate</th>
+            <th className={cx(th, "text-left")}>VAT rate</th>
             <th className={cx(th, "text-right")}>Invoices</th>
             <th className={cx(th, "text-right")}>Taxable</th>
-            <th className={cx(th, "text-right")}>CGST</th>
-            <th className={cx(th, "text-right")}>SGST</th>
-            <th className={cx(th, "text-right")}>Total GST</th>
+            <th className={cx(th, "text-right")}>VAT collected</th>
           </tr>
         </thead>
         <tbody>
@@ -150,8 +148,6 @@ function GstByRate({ rates }: { rates: { rate: number; invoices: number; taxable
               <td className={cx(cell, "font-bold text-slate-900")}>{r.rate}%</td>
               <td className={cx(cell, "text-right text-slate-600")}>{r.invoices}</td>
               <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(r.taxable)}</td>
-              <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(r.cgst)}</td>
-              <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(r.sgst)}</td>
               <td className={cx(cell, "adm-num text-right font-bold text-amber-700")}>{rupee(r.gst)}</td>
             </tr>
           ))}
@@ -161,14 +157,14 @@ function GstByRate({ rates }: { rates: { rate: number; invoices: number; taxable
   );
 }
 
-/** Invoice-by-invoice GST — the list an accountant files from. Shows the latest few, the Excel export has them all. */
+/** Invoice-by-invoice VAT — the list an accountant files from. Shows the latest few, the Excel export has them all. */
 function GstRegister({ bills, onExport }: { bills: Bill[]; onExport: () => void }) {
   const [all, setAll] = useState(false);
   const rows = all ? bills : bills.slice(0, 12);
   const cell = "px-3 py-2.5 text-[12.5px] whitespace-nowrap";
   return (
     <Card
-      title="GST invoices"
+      title="VAT invoices"
       right={
         <Btn size="sm" icon="download" onClick={onExport} disabled={!bills.length}>
           Download Excel
@@ -176,7 +172,7 @@ function GstRegister({ bills, onExport }: { bills: Bill[]; onExport: () => void 
       }
     >
       {!bills.length ? (
-        <p className="py-8 text-center text-[13px] text-slate-400">No GST invoices in this period yet.</p>
+        <p className="py-8 text-center text-[13px] text-slate-400">No VAT invoices in this period yet.</p>
       ) : (
         <>
           <div className="overflow-x-auto rounded-xl border border-slate-100 adm-scroll">
@@ -188,14 +184,12 @@ function GstRegister({ bills, onExport }: { bills: Bill[]; onExport: () => void 
                   <th className={cx(th, "text-left")}>Customer</th>
                   <th className={cx(th, "text-right")}>Rate</th>
                   <th className={cx(th, "text-right")}>Taxable</th>
-                  <th className={cx(th, "text-right")}>CGST</th>
-                  <th className={cx(th, "text-right")}>SGST</th>
+                  <th className={cx(th, "text-right")}>VAT</th>
                   <th className={cx(th, "text-right")}>Invoice total</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((b) => {
-                  const half = splitGst(b.gstAmount);
                   return (
                     <tr key={b.id} className="border-b border-slate-100 last:border-0">
                       <td className={cx(cell, "font-semibold text-slate-900")}>{b.invoiceNo}</td>
@@ -203,8 +197,7 @@ function GstRegister({ bills, onExport }: { bills: Bill[]; onExport: () => void 
                       <td className={cx(cell, "max-w-[180px] truncate text-slate-700")}>{b.customerName || b.customerPhone || "—"}</td>
                       <td className={cx(cell, "text-right text-slate-600")}>{b.gstPercent}%</td>
                       <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(b.taxableAmount)}</td>
-                      <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(half.cgst)}</td>
-                      <td className={cx(cell, "adm-num text-right text-slate-700")}>{rupee(half.sgst)}</td>
+                      <td className={cx(cell, "adm-num text-right font-bold text-amber-700")}>{rupee(b.gstAmount)}</td>
                       <td className={cx(cell, "adm-num text-right font-bold text-amber-700")}>{rupee(b.total)}</td>
                     </tr>
                   );
@@ -283,16 +276,13 @@ export default function AnalyticsPage() {
   /* The Expenses tab has its own filters; this uses the period picked here, so
      the two agree on what "this month" means but can differ in range. */
   const expensesTotal = useMemo(() => expensesIn(s.expenses, range).reduce((a, e) => a + e.amount, 0), [s.expenses, range]);
-  /* GST collected is passed on to the government, so it isn't earnings. */
+  /* VAT collected is passed on to the government, so it isn't earnings. */
   const net = sum.revenue - sum.gst - expensesTotal;
   const gstBills = useMemo(() => inPeriod.filter((b) => b.isGst).sort((a, b) => b.createdAt - a.createdAt), [inPeriod]);
   const exportGst = () => {
-    const head = ["Invoice", "Date", "Customer", "Mobile", "GST %", "Taxable amount", "CGST", "SGST", "Total GST", "Invoice total"];
-    const body = gstBills.map((b) => {
-      const h = splitGst(b.gstAmount);
-      return [b.invoiceNo, fmtDate(b.createdAt), b.customerName, b.customerPhone, b.gstPercent, b.taxableAmount, h.cgst, h.sgst, b.gstAmount, b.total];
-    });
-    downloadExcel(`gst-invoices-${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "GST invoices", rows: [head, ...body] }]);
+    const head = ["Invoice", "Date", "Customer", "Mobile", "VAT %", "Taxable amount", "VAT amount", "Invoice total"];
+    const body = gstBills.map((b) => [b.invoiceNo, fmtDate(b.createdAt), b.customerName, b.customerPhone, b.gstPercent, b.taxableAmount, b.gstAmount, b.total]);
+    downloadExcel(`vat-invoices-${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "VAT invoices", rows: [head, ...body] }]);
   };
   const lowCount = s.products.filter((p) => p.stock !== null && p.stock <= p.lowAt).length;
   const customers = useMemo(() => customerStats(inPeriod), [inPeriod]);
@@ -314,7 +304,7 @@ export default function AnalyticsPage() {
           ["Metric", "Value"],
           ["Total revenue", sum.revenue],
           ["Total expenses", expensesTotal],
-          ["GST collected", sum.gst],
+          ["VAT collected", sum.gst],
           ["Net earnings", net],
           ["Completed bills", sum.count],
           [],
@@ -339,7 +329,7 @@ export default function AnalyticsPage() {
       {
         name: "Bills",
         rows: [
-          ["Invoice", "Date", "Time", "Channel", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Delivery", "Extra", "GST %", "Taxable", "GST amount", "Total", "Payment", "Status"],
+          ["Invoice", "Date", "Time", "Channel", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Delivery", "Extra", "VAT %", "Taxable", "VAT amount", "Total", "Payment", "Status"],
           ...inPeriod
             .slice()
             .sort((a, b) => b.createdAt - a.createdAt)
@@ -403,8 +393,8 @@ export default function AnalyticsPage() {
                 gstView ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-500",
               )}
             >
-              GST view
-              <Switch on={gstView} onChange={setGstView} label="GST view" />
+              VAT view
+              <Switch on={gstView} onChange={setGstView} label="VAT view" />
             </div>
           ) : undefined
         }
@@ -445,27 +435,25 @@ export default function AnalyticsPage() {
         ]}
       />
 
-      {/* ============ GST VIEW ============ */}
+      {/* ============ VAT VIEW ============ */}
       {tab === "revenue" && gstView && (
         <div className="adm-in space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="GST collected" value={rupee(gstr.gst)} hint={gstr.avgRate > 0 ? `Avg ${gstr.avgRate.toFixed(1)}% on taxable sales` : "No GST collected yet"} icon="percent" tone="amber" />
-            <Kpi label="Taxable sales" value={rupee(gstr.taxable)} hint="Value GST was charged on" icon="rupee" tone="sky" />
-            <Kpi label="GST invoice value" value={rupee(gstr.revenue)} hint="Taxable sales + GST" icon="billing" tone="emerald" />
-            <Kpi label="GST invoices" value={gstr.invoices} hint={`of ${sum.count} bill${sum.count === 1 ? "" : "s"} in period`} icon="list" tone="violet" />
+            <Kpi label="VAT collected" value={rupee(gstr.gst)} hint={gstr.avgRate > 0 ? `Avg ${gstr.avgRate.toFixed(1)}% on taxable sales` : "No VAT collected yet"} icon="percent" tone="amber" />
+            <Kpi label="Taxable sales" value={rupee(gstr.taxable)} hint="Value VAT was charged on" icon="rupee" tone="sky" />
+            <Kpi label="VAT invoice value" value={rupee(gstr.revenue)} hint="Taxable sales + VAT" icon="billing" tone="emerald" />
+            <Kpi label="VAT invoices" value={gstr.invoices} hint={`of ${sum.count} bill${sum.count === 1 ? "" : "s"} in period`} icon="list" tone="violet" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="CGST (central)" value={rupee(gstr.cgst)} hint="Half of GST collected" icon="percent" tone="violet" />
-            <Kpi label="SGST (state)" value={rupee(gstr.sgst)} hint="Half of GST collected" icon="percent" tone="violet" />
-            <Kpi label="Non-GST sales" value={rupee(sum.nonGstRev)} hint={`${gstr.nonGstBills} bill${gstr.nonGstBills === 1 ? "" : "s"} billed without GST`} icon="bag" tone="slate" />
-            <Kpi label="GST rates used" value={gstr.rates.length ? gstr.rates.map((r) => `${r.rate}%`).join(", ") : "—"} hint={`${gstr.rates.length} rate${gstr.rates.length === 1 ? "" : "s"} in this period`} icon="sliders" tone="amber" small />
+            <Kpi label="Sales with no VAT" value={rupee(sum.nonGstRev)} hint={`${gstr.nonGstBills} bill${gstr.nonGstBills === 1 ? "" : "s"} billed without VAT`} icon="bag" tone="slate" />
+            <Kpi label="VAT rates used" value={gstr.rates.length ? gstr.rates.map((r) => `${r.rate}%`).join(", ") : "—"} hint={`${gstr.rates.length} rate${gstr.rates.length === 1 ? "" : "s"} in this period`} icon="sliders" tone="amber" small />
           </div>
 
           <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-            <Card title="GST by rate" right={<span className="text-[12px] text-slate-500">CGST + SGST shown separately</span>}>
+            <Card title="VAT by rate">
               <GstByRate rates={gstr.rates} />
             </Card>
-            <Card title="GST vs Non-GST" right={<span className="text-[12px] text-slate-500">{sum.count} bill{sum.count === 1 ? "" : "s"} in period</span>}>
+            <Card title="With VAT vs without" right={<span className="text-[12px] text-slate-500">{sum.count} bill{sum.count === 1 ? "" : "s"} in period</span>}>
               {sum.count ? (
                 <GstSplit gstN={sum.gstN} gstRev={sum.gstRev} gst={sum.gst} taxable={sum.taxable} nonGstN={sum.nonGstN} nonGstRev={sum.nonGstRev} />
               ) : (
@@ -477,7 +465,7 @@ export default function AnalyticsPage() {
           <GstRegister bills={gstBills} onExport={exportGst} />
 
           <p className="rounded-xl border border-amber-100 bg-amber-50/50 px-4 py-2.5 text-center text-[12.5px] text-amber-800">
-            GST view — only the tax side of the books. Turn off <b>GST view</b> to see full revenue, products and customers.
+            VAT view — only the tax side of the books. Turn off <b>VAT view</b> to see full revenue, products and customers.
           </p>
         </div>
       )}
@@ -486,8 +474,8 @@ export default function AnalyticsPage() {
       {tab === "revenue" && !gstView && (
         <div className="adm-in space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Net earnings" value={rupee(net)} hint={sum.gst > 0 ? "Revenue − GST − expenses" : "Revenue − expenses"} icon="rupee" tone={net >= 0 ? "emerald" : "red"} />
-            <Kpi label="Total revenue" value={rupee(sum.revenue)} hint={sum.gst > 0 ? `Includes ${rupee(sum.gst)} GST collected` : "Customer tabs + counter combined"} icon="rupee" tone="emerald" />
+            <Kpi label="Net earnings" value={rupee(net)} hint={sum.gst > 0 ? "Revenue − VAT − expenses" : "Revenue − expenses"} icon="rupee" tone={net >= 0 ? "emerald" : "red"} />
+            <Kpi label="Total revenue" value={rupee(sum.revenue)} hint={sum.gst > 0 ? `Includes ${rupee(sum.gst)} VAT collected` : "Customer tabs + counter combined"} icon="rupee" tone="emerald" />
             <Kpi label="Total expenses" value={rupee(expensesTotal)} hint="Recorded on the Expenses page" icon="bag" tone="rose" />
             <Kpi label="Discounts given" value={rupee(sum.discount)} hint={`${sum.discounted} discounted bills`} icon="coupon" tone="violet" />
           </div>
@@ -567,7 +555,7 @@ export default function AnalyticsPage() {
                 <p className="text-[13px] text-slate-400">No customer mobiles on bills in this period.</p>
               )}
             </Card>
-            <Card title="GST vs Non-GST" right={<span className="text-[12px] text-slate-500">{sum.count} bill{sum.count === 1 ? "" : "s"} in period</span>}>
+            <Card title="With VAT vs without" right={<span className="text-[12px] text-slate-500">{sum.count} bill{sum.count === 1 ? "" : "s"} in period</span>}>
               {sum.count ? (
                 <GstSplit gstN={sum.gstN} gstRev={sum.gstRev} gst={sum.gst} taxable={sum.taxable} nonGstN={sum.nonGstN} nonGstRev={sum.nonGstRev} />
               ) : (

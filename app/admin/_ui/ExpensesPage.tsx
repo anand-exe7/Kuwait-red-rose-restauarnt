@@ -4,12 +4,21 @@
 // something. Rent, wages, gas, packaging, a repair: one row each, with a
 // category and the day the money actually went out.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Expense } from "./types";
 import { rupee } from "./money";
 import { expenseStats, rangeOf, type Period } from "./analytics";
 import { useAdmin } from "./Store";
 import { EXPENSE_CATEGORIES } from "../../lib/expenseStore";
+import {
+  addExpenseCategory,
+  deleteExpenseCategory,
+  expenseCategoriesFrom,
+  getExpenseCategoriesServerSnapshot,
+  getExpenseCategoriesSnapshot,
+  renameExpenseCategory,
+  subscribeToExpenseCategories,
+} from "../../lib/expenseCategoryStore";
 import {
   Btn,
   Card,
@@ -35,7 +44,7 @@ const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
-const blank = (): Form => ({ title: "", category: "Ingredients", amount: "", expenseDate: todayISO(), notes: "" });
+const blank = (category = ""): Form => ({ title: "", category, amount: "", expenseDate: todayISO(), notes: "" });
 
 const th = "px-4 py-3 text-left text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500 whitespace-nowrap";
 const td = "px-4 py-3.5 text-[13px]";
@@ -49,16 +58,76 @@ export default function ExpensesPage() {
   const [q, setQ] = useState("");
   const [form, setForm] = useState<Form | null>(null);
   const [busy, setBusy] = useState(false);
+  const [manageCats, setManageCats] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [renameOf, setRenameOf] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState("");
 
   const range = useMemo(() => rangeOf(period, from, to), [period, from, to]);
   const stats = useMemo(() => expenseStats(s.expenses, range, cat, q), [s.expenses, range, cat, q]);
 
-  /* Every category the shop has actually used, plus the starters, so the
-     picker never loses one somebody typed last month. */
-  const categories = useMemo(
-    () => [...new Set([...EXPENSE_CATEGORIES, ...s.expenses.map((e) => e.category)].filter(Boolean))],
-    [s.expenses],
+  /* Three sources, in priority order: the list the admin manages, the
+     built-in starters, and anything an expense already carries — so a
+     category somebody typed last month never vanishes from the filter. */
+  const savedCats = expenseCategoriesFrom(
+    useSyncExternalStore(subscribeToExpenseCategories, getExpenseCategoriesSnapshot, getExpenseCategoriesServerSnapshot),
   );
+  const categories = useMemo(
+    () => [...new Set([...savedCats, ...EXPENSE_CATEGORIES, ...s.expenses.map((e) => e.category)].filter(Boolean))],
+    [savedCats, s.expenses],
+  );
+  /* What the Add/Edit form offers. Once the admin has made their own
+     categories, those are the only ones on the picker — a list of built-in
+     names nobody chose is how expenses end up filed under "Other". The
+     built-ins are the fallback only while the admin has created none, so the
+     form is never an empty dropdown. A category an older expense already
+     carries is added back when that expense is opened, so editing it can
+     never silently re-file it. */
+  const pickerCats = savedCats.length > 0 ? savedCats : EXPENSE_CATEGORIES;
+  const formCats =
+    form && form.category && !pickerCats.includes(form.category) ? [form.category, ...pickerCats] : pickerCats;
+  /** How many expenses sit in each category — shown on the filter chips, and
+   *  what decides whether a category is safe to delete. */
+  const usage = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of s.expenses) m.set(e.category, (m.get(e.category) ?? 0) + 1);
+    return m;
+  }, [s.expenses]);
+
+  const createCategory = async () => {
+    setBusy(true);
+    const r = await addExpenseCategory(newCatName, categories);
+    setBusy(false);
+    if (!r.ok) return toast({ kind: "err", title: r.error ?? "Could not create that category." });
+    toast({ kind: "ok", title: `"${newCatName.trim()}" added.` });
+    setNewCatName("");
+  };
+
+  const applyRename = async (from: string) => {
+    setBusy(true);
+    const r = await renameExpenseCategory(from, renaming, categories);
+    setBusy(false);
+    if (!r.ok) return toast({ kind: "err", title: r.error ?? "Could not rename that category." });
+    // Re-tag the expenses that carried the old name, or they drop out of
+    // every filter and the breakdown shows a category that no longer exists.
+    const moving = s.expenses.filter((e) => e.category === from);
+    for (const e of moving) await act("expense.save", { ...e, category: renaming.trim() });
+    if (cat === from) setCat(renaming.trim());
+    toast({ kind: "ok", title: `Renamed to "${renaming.trim()}"${moving.length ? ` · ${moving.length} expense${moving.length === 1 ? "" : "s"} moved` : ""}.` });
+    setRenameOf(null);
+  };
+
+  const removeCategory = async (name: string) => {
+    const used = usage.get(name) ?? 0;
+    if (used > 0) {
+      return toast({ kind: "err", title: `${used} expense${used === 1 ? " is" : "s are"} still in "${name}". Move them first.` });
+    }
+    if (!(await confirm({ title: `Delete "${name}"?`, body: "Nothing is filed under it, so nothing is lost.", ok: "Delete", danger: true }))) return;
+    const r = await deleteExpenseCategory(name, categories);
+    if (!r.ok) return toast({ kind: "err", title: r.error ?? "Could not delete that category." });
+    if (cat === name) setCat("all");
+    toast({ kind: "ok", title: `"${name}" deleted.` });
+  };
 
   const rows = useMemo(() => [...stats.rows].sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.at - a.at), [stats.rows]);
 
@@ -67,6 +136,7 @@ export default function ExpensesPage() {
     const amount = Number(form.amount);
     if (!form.title.trim()) return toast({ kind: "err", title: "Give the expense a name." });
     if (!Number.isFinite(amount) || amount <= 0) return toast({ kind: "err", title: "Enter how much it cost." });
+    if (!form.category.trim()) return toast({ kind: "err", title: "Choose a category for this expense." });
     setBusy(true);
     const r = await act<Expense>("expense.save", { ...form, amount });
     setBusy(false);
@@ -107,7 +177,10 @@ export default function ExpensesPage() {
             <Btn icon="download" onClick={exportExcel} disabled={!rows.length}>
               Download Excel
             </Btn>
-            <Btn kind="red" icon="plus" onClick={() => setForm(blank())}>
+            <Btn icon="edit" onClick={() => setManageCats(true)}>
+              Manage categories
+            </Btn>
+            <Btn kind="red" icon="plus" onClick={() => setForm(blank(pickerCats[0] ?? ""))}>
               Add expense
             </Btn>
           </span>
@@ -151,7 +224,12 @@ export default function ExpensesPage() {
                   on ? "bg-red-600 text-white shadow-[0_4px_10px_-4px_rgba(220,38,38,.9)]" : "bg-slate-100 text-slate-700 hover:bg-slate-200",
                 )}
               >
-                {c === "all" ? "All categories" : c}
+                <span className="flex items-center gap-1.5">
+                  {c === "all" ? "All categories" : c}
+                  <span className={cx("adm-num rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums", on ? "bg-white/20 text-white/90" : "bg-white text-slate-500")}>
+                    {c === "all" ? s.expenses.length : usage.get(c) ?? 0}
+                  </span>
+                </span>
               </button>
             );
           })}
@@ -260,12 +338,19 @@ export default function ExpensesPage() {
               <input className={inputCls} value={form.title} maxLength={80} placeholder="Gas cylinder, October rent…" onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </Field>
             <Field label="Category">
-              <input className={inputCls} list="expense-cats" value={form.category} maxLength={40} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-              <datalist id="expense-cats">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
+              <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                <option value="">Choose a category…</option>
+                {formCats.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
-              </datalist>
+              </select>
+              {savedCats.length === 0 && (
+                <p className="mt-1.5 text-[11.5px] text-slate-400">
+                  These are the starter categories. Make your own in <b>Manage categories</b> and the list becomes yours.
+                </p>
+              )}
             </Field>
             <Field label="Amount (KD)">
               <input className={inputCls} type="number" min={0} step="0.001" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
@@ -278,6 +363,87 @@ export default function ExpensesPage() {
             </Field>
           </div>
         )}
+      </Modal>
+
+      {/* Manage categories — create one before you have spent the money,
+          rename one everywhere at once, retire one nothing uses. */}
+      <Modal
+        open={manageCats}
+        onClose={() => (setManageCats(false), setNewCatName(""), setRenameOf(null))}
+        title="Expense categories"
+        footer={<Btn onClick={() => (setManageCats(false), setNewCatName(""), setRenameOf(null))}>Done</Btn>}
+      >
+        <div className="mb-4 rounded-xl border border-dashed border-slate-200 p-3">
+          <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Create category</span>
+          <div className="flex gap-2">
+            <input
+              className={inputCls}
+              value={newCatName}
+              maxLength={40}
+              placeholder="e.g. Electricity"
+              onChange={(e) => setNewCatName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && newCatName.trim() && createCategory()}
+            />
+            <Btn kind="red" disabled={busy || !newCatName.trim()} onClick={createCategory}>
+              Create
+            </Btn>
+          </div>
+        </div>
+
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-100">
+          {categories.map((c) => {
+            const used = usage.get(c) ?? 0;
+            return (
+              <li key={c} className="flex items-center gap-2 bg-white px-3 py-2.5">
+                {renameOf === c ? (
+                  <>
+                    <input
+                      autoFocus
+                      className={inputCls}
+                      value={renaming}
+                      maxLength={40}
+                      onChange={(e) => setRenaming(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && renaming.trim() && applyRename(c)}
+                    />
+                    <Btn kind="red" disabled={busy || !renaming.trim()} onClick={() => applyRename(c)}>
+                      Save
+                    </Btn>
+                    <Btn kind="plain" onClick={() => setRenameOf(null)}>
+                      Cancel
+                    </Btn>
+                  </>
+                ) : (
+                  <>
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-slate-800">{c}</span>
+                    <span className="adm-num shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+                      {used}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`Rename ${c}`}
+                      onClick={() => (setRenameOf(c), setRenaming(c))}
+                      className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                    >
+                      <Icon name="edit" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${c}`}
+                      onClick={() => removeCategory(c)}
+                      className={cx("rounded-lg p-1.5", used > 0 ? "text-slate-300" : "text-red-500 hover:bg-red-50")}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-3 text-[11.5px] text-slate-400">
+          Renaming moves every expense filed under the old name. A category with expenses in it can&rsquo;t be deleted —
+          move them first.
+        </p>
       </Modal>
     </Page>
   );
