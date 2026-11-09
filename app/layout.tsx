@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PwaRegister from "./components/PwaRegister";
+import { BRAND } from './lib/brand';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,7 +20,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   applicationName: "Red Rose",
   title: {
-    default: "Red Rose Sweets",
+    default: BRAND.fullName,
     template: "%s · Red Rose",
   },
   description: "Order Red Rose sweets from your table, right from your phone.",

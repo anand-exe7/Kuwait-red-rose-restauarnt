@@ -194,11 +194,14 @@ html:has(.adm) {
 @keyframes adm-grow-x {
   from { transform: scaleX(0); }
 }
+/* Entrance fade only. This class sits on every page shell and on each card in
+   the live boards, which re-mount whenever Realtime sends an update — a
+   translate here made the whole screen twitch every few seconds. */
 .adm-in {
-  animation: adm-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: adm-in 0.28s ease-out both;
 }
 @keyframes adm-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; }
 }
 .adm-pulse { position: relative; }
 .adm-pulse::after {
@@ -231,9 +234,171 @@ html:has(.adm) {
 /* ---------- print ---------- */
 .adm-print { display: none; }
 @media print {
-  @page { margin: 10mm; }
   html:has(.adm),
   .adm { background: #fff !important; }
   .adm-app { display: none !important; }
   .adm-print { display: block; color: #000; }
+}
+
+/* ===========  THERMAL RECEIPTS  ============================================
+   2-inch (48mm printable) and 3-inch (72mm printable) rolls. A clean column:
+   logo medallion up top, shop name, address, boxed meta, one-line items with
+   price per piece under the name, totals rail with a big grand-total band.
+   Black ink only so cheap thermal printers reproduce it crisply.            */
+.rcpt {
+  font-family: ui-sans-serif, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: #000;
+  line-height: 1.35;
+  padding: 3mm 2mm 5mm;
+  margin: 0 auto;
+}
+.rcpt__logo { display: block; width: 14mm; height: 14mm; border-radius: 50%; object-fit: cover; margin: 0 auto 2mm; filter: grayscale(100%) contrast(1.15); }
+.rcpt h1 { font-size: 13pt; font-weight: 800; text-align: center; margin: 0; letter-spacing: 0.02em; }
+.rcpt__addr { font-size: 8pt; margin: 0.6mm 0 2mm; letter-spacing: 0.02em; }
+.rcpt__tag { text-align: center; font-size: 7.5pt; letter-spacing: 0.18em; text-transform: uppercase; border: 1px solid #000; padding: 0.6mm 0; margin: 0 6mm 2mm; }
+.rcpt .c { text-align: center; }
+
+.rcpt__meta { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 1.5mm 0; margin: 1mm 0 2mm; }
+.rcpt__meta .row { display: flex; justify-content: space-between; gap: 2mm; font-size: 8.5pt; padding: 0.3mm 0; }
+.rcpt__meta .row span:first-child { color: #000; text-transform: uppercase; letter-spacing: 0.08em; font-size: 7.5pt; }
+.rcpt__meta .row span:last-child, .rcpt__meta .row b { text-align: right; }
+
+.rcpt__tbl { width: 100%; border-collapse: collapse; margin: 0 0 1.5mm; }
+.rcpt__tbl th { font-size: 7pt; text-transform: uppercase; letter-spacing: 0.1em; text-align: left; padding: 0.8mm 0; border-bottom: 1px solid #000; }
+.rcpt__tbl th.rcpt__qty, .rcpt__tbl th.rcpt__amt { text-align: right; }
+.rcpt__tbl td { padding: 1.4mm 0 1mm; font-size: 8.5pt; border-bottom: 1px dotted #999; vertical-align: top; }
+.rcpt__name { display: block; font-weight: 700; word-break: break-word; }
+.rcpt__rate { display: block; font-size: 7.5pt; color: #333; margin-top: 0.3mm; }
+.rcpt__qty { text-align: right; font-variant-numeric: tabular-nums; padding-left: 1.5mm !important; }
+.rcpt__amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; padding-left: 1.5mm !important; }
+
+.rcpt__sum { margin: 1.5mm 0 0; }
+.rcpt__sum .row { display: flex; justify-content: space-between; gap: 2mm; font-size: 8.5pt; padding: 0.6mm 0; }
+.rcpt__sum .row span:first-child { color: #000; }
+.rcpt__total { font-size: 11pt !important; font-weight: 800 !important; padding: 1.4mm 0 !important; border-top: 1.2px solid #000; border-bottom: 1.2px solid #000; margin-top: 1mm; letter-spacing: 0.02em; }
+
+.rcpt__thank { margin: 3mm 0 0; font-size: 8pt; letter-spacing: 0.04em; font-style: italic; }
+
+/* 2-inch (48mm printable) — same shape as the 3", just a touch tighter. The
+   extra breathing room between meta rows, items and totals keeps a cheap
+   thermal print legible instead of a solid ink wall. */
+.rcpt--2 {
+  font-size: 8.5pt;
+  padding: 3mm 2mm 5mm;
+  line-height: 1.4;
+}
+.rcpt--2 .rcpt__logo { width: 11mm; height: 11mm; margin-bottom: 1.4mm; }
+.rcpt--2 h1 { font-size: 11pt; letter-spacing: 0.03em; }
+.rcpt--2 .rcpt__addr { font-size: 7.2pt; margin-bottom: 2mm; }
+.rcpt--2 .rcpt__tag { margin: 0 4mm 2mm; font-size: 6.6pt; letter-spacing: 0.15em; padding: 0.6mm 0; }
+.rcpt--2 .rcpt__meta { padding: 2mm 0; margin: 2mm 0; }
+.rcpt--2 .rcpt__meta .row { font-size: 7.6pt; padding: 0.6mm 0; }
+.rcpt--2 .rcpt__meta .row span:first-child { font-size: 6.8pt; }
+.rcpt--2 .rcpt__tbl th { font-size: 6.6pt; padding: 1mm 0; letter-spacing: 0.08em; }
+.rcpt--2 .rcpt__tbl td { font-size: 7.8pt; padding: 1.4mm 0 1.1mm; }
+.rcpt--2 .rcpt__name { font-size: 8pt; }
+.rcpt--2 .rcpt__rate { font-size: 6.8pt; }
+.rcpt--2 .rcpt__sum .row { font-size: 7.8pt; padding: 0.7mm 0; }
+.rcpt--2 .rcpt__total { font-size: 10.5pt !important; padding: 1.6mm 0 !important; }
+.rcpt--2 .rcpt__thank { font-size: 7.4pt; margin-top: 3mm; }
+
+/* 3-inch (72mm printable) — breathing room, larger totals band. */
+.rcpt--3 { font-size: 9pt; }
+.rcpt--3 .rcpt__total { font-size: 12pt !important; }
+
+/* ===========  SHEET INVOICES (A3 / A4 / A5)  ===============================
+   Classic invoice: wordmark + logo header, meta block on the right, billed-to
+   split row, zebra items table, right-aligned totals rail with a bold grand
+   total band. Scales by paper via .inv--a{n}. Same layout across every size —
+   only padding and type scale change, so the customer's A4 link and the
+   admin's A3 print read as one document.                                      */
+.inv {
+  font-family: var(--body);
+  color: #1a0f0a;
+  background: #fff;
+  padding: 14mm 16mm;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.inv__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; border-bottom: 2.5px solid #1a0f0a; padding-bottom: 7mm; }
+.inv__brand { display: flex; align-items: center; gap: 5mm; }
+.inv__logo { width: 22mm; height: 22mm; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px #d9c8aa; }
+.inv__head h1 { margin: 0; font-size: 24pt; font-weight: 800; letter-spacing: -0.015em; color: #1a0f0a; line-height: 1.05; }
+.inv__head p { margin: 1.5mm 0 0; font-size: 9pt; color: #6b5340; letter-spacing: 0.06em; }
+.inv__meta { text-align: right; min-width: 50mm; }
+.inv__meta h2 { margin: 0 0 3mm; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.26em; color: #b01e28; font-weight: 800; }
+.inv__meta p { margin: 0.8mm 0 0; font-size: 9.5pt; color: #4b3b2e; }
+.inv__meta .inv__no { margin-top: 0; }
+.inv__meta .inv__no b { font-size: 13pt; color: #1a0f0a; letter-spacing: 0.06em; }
+
+.inv__to { display: flex; justify-content: space-between; gap: 10mm; margin: 7mm 0 3mm; background: #fbf3df; border-radius: 3mm; padding: 5mm 6mm; }
+.inv__to span { display: block; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.22em; color: #a78962; margin-bottom: 1.5mm; font-weight: 700; }
+.inv__to b { display: block; font-size: 12pt; color: #1a0f0a; font-weight: 700; }
+.inv__to p { margin: 0.8mm 0 0; font-size: 9.5pt; color: #6b5340; }
+.inv__r { text-align: right; }
+
+.inv__tbl { width: 100%; border-collapse: collapse; margin: 6mm 0 6mm; }
+.inv__tbl th { background: #1a0f0a; color: #fbf3df; padding: 3mm 3mm; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.18em; text-align: left; font-weight: 700; }
+.inv__tbl th.n, .inv__tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.inv__tbl th:first-child { border-top-left-radius: 2mm; }
+.inv__tbl th:last-child { border-top-right-radius: 2mm; }
+.inv__tbl td { padding: 2.8mm 3mm; font-size: 10pt; border-bottom: 1px solid #efe2c6; }
+.inv__tbl tr:nth-child(even) td { background: #fdf9ee; }
+
+.inv__sum { margin: 0 0 0 auto; width: 58%; display: block; }
+.inv__sum div { display: flex; justify-content: space-between; padding: 2mm 1mm; border-bottom: 1px dashed #d9c8aa; font-size: 10pt; }
+.inv__sum dt { color: #6b5340; }
+.inv__sum dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: #1a0f0a; }
+.inv__tot { border-top: 2.5px solid #1a0f0a !important; border-bottom: 2.5px solid #1a0f0a !important; margin-top: 3mm; font-size: 14pt !important; font-weight: 800; padding: 3.5mm 3mm !important; background: #fbf3df; }
+.inv__tot dt, .inv__tot dd { color: #1a0f0a; font-weight: 800; }
+
+.inv__foot { margin-top: 12mm; display: flex; justify-content: space-between; align-items: center; gap: 6mm; padding-top: 4mm; border-top: 1px dashed #d9c8aa; font-size: 8.5pt; color: #6b5340; letter-spacing: 0.04em; }
+.inv__foot span:first-child { font-style: italic; }
+
+/* Paper-size trims — identical layout, only paper-scaled typography and
+   padding so the A4 the customer gets reads like the A3 printed at the
+   counter and the A5 duplicate. */
+.inv--a3 { font-size: 12pt; padding: 20mm 24mm; }
+.inv--a3 .inv__head h1 { font-size: 30pt; }
+.inv--a3 .inv__head { padding-bottom: 9mm; }
+.inv--a3 .inv__logo { width: 28mm; height: 28mm; }
+.inv--a3 .inv__meta h2 { font-size: 13pt; }
+.inv--a3 .inv__meta .inv__no b { font-size: 16pt; }
+.inv--a3 .inv__tbl td { font-size: 11pt; padding: 3.2mm 3.5mm; }
+.inv--a3 .inv__sum div { font-size: 11pt; }
+.inv--a3 .inv__tot { font-size: 16pt !important; padding: 4mm 3.5mm !important; }
+.inv--a3 .inv__sum { width: 52%; }
+
+.inv--a4 { font-size: 10.5pt; padding: 14mm 16mm; }
+
+.inv--a5 { font-size: 9pt; padding: 9mm 10mm; }
+.inv--a5 .inv__head { padding-bottom: 4mm; gap: 6mm; }
+.inv--a5 .inv__head h1 { font-size: 18pt; }
+.inv--a5 .inv__head p { font-size: 8pt; }
+.inv--a5 .inv__logo { width: 16mm; height: 16mm; }
+.inv--a5 .inv__brand { gap: 3mm; }
+.inv--a5 .inv__meta h2 { font-size: 9pt; letter-spacing: 0.18em; margin-bottom: 2mm; }
+.inv--a5 .inv__meta .inv__no b { font-size: 11pt; }
+.inv--a5 .inv__meta p { font-size: 8pt; }
+.inv--a5 .inv__to { margin: 4mm 0 2mm; padding: 3.5mm 4mm; }
+.inv--a5 .inv__to b { font-size: 10pt; }
+.inv--a5 .inv__to span { font-size: 7pt; margin-bottom: 1mm; }
+.inv--a5 .inv__tbl { margin: 4mm 0 4mm; }
+.inv--a5 .inv__tbl th { font-size: 7.5pt; padding: 2mm 2mm; letter-spacing: 0.14em; }
+.inv--a5 .inv__tbl td { font-size: 8.8pt; padding: 2mm 2mm; }
+.inv--a5 .inv__sum { width: 72%; }
+.inv--a5 .inv__sum div { font-size: 9pt; padding: 1.4mm 1mm; }
+.inv--a5 .inv__tot { font-size: 12pt !important; padding: 2.4mm 2mm !important; margin-top: 2mm; }
+.inv--a5 .inv__foot { margin-top: 7mm; font-size: 7.5pt; }
+
+/* Pagebreak helpers */
+@media print {
+  .inv, .rcpt { page-break-inside: avoid; }
+}
+
+/* Somebody working the counter does not need things sliding about. */
+@media (prefers-reduced-motion: reduce) {
+  .adm-in, .adm-bar, .adm-fill, .adm-drawer, .adm-scrim, .adm-title { animation: none !important; }
+  .adm-pulse::after { animation: none; opacity: .5; }
 }

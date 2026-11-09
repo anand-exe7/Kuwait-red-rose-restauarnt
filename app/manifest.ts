@@ -1,8 +1,9 @@
 import type { MetadataRoute } from 'next';
+import { BRAND } from './lib/brand';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Red Rose Sweets',
+    name: BRAND.fullName,
     short_name: 'Red Rose',
     description: 'Order Red Rose sweets from your table, right from your phone.',
     start_url: '/',

@@ -42,6 +42,12 @@ html, body {
 html { overflow-x: hidden; }
 body { overflow-x: clip; }
 
+/* Always reserve the scrollbar's width. Every sheet, drawer and modal in the
+   app locks body scrolling while it is open; without this the scrollbar
+   disappears with it and the whole page jumps sideways by ~15px on open and
+   back on close. */
+html { scrollbar-gutter: stable; }
+
 body {
   background: var(--background);
   color: var(--foreground);
