@@ -18,7 +18,7 @@ import {
 import {
   addOrder, type DeliveryAddress, type OrderMode,
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, orderLabel,
-  getUserOpenDineInTab, type UserOpenTab,
+  getUserOpenDineInTab, type UserOpenTab, type Order,
 } from '../lib/orderStore';
 import {
   subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot,
@@ -27,7 +27,7 @@ import {
 import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
 import {
-  validateCoupon, incrementCouponUsage,
+  validateCoupon,
   subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot,
 } from '../lib/couponStore';
 import {
@@ -40,8 +40,11 @@ import {
   subscribeToCustomerAuth, getCustomerAuthSnapshot, getCustomerAuthServerSnapshot,
   signOut,
 } from '../lib/customerAuthStore';
-import { sendOrderToShop, isWhatsAppConfigured } from '../lib/whatsapp';
+import { sendOrderToShop, isWhatsAppConfigured, type WhatsAppOrderInput } from '../lib/whatsapp';
+import { invoicePath, resolveInvoiceNo, resolveOrderNo } from '../lib/invoice';
 import { subscribeToTables, getTablesSnapshot, getTablesServerSnapshot } from '../lib/tableStore';
+import { getBills, getBillsSnapshot, getBillsServerSnapshot, subscribeToBills } from '../lib/billStore';
+import { BRAND } from '../lib/brand';
 
 const PETALS = [
   { src: 'petal-a', left: '8%', w: '26px', dur: 17, delay: 0, sway: 40 },
@@ -83,6 +86,10 @@ export default function MenuPage() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('browse');
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  // The session the order landed on — the invoice is keyed to it, so this is
+  // what the confirmation screen and the WhatsApp message both point at.
+  const [lastSessionId, setLastSessionId] = useState<string | null>(null);
+  const [lastWhatsApp, setLastWhatsApp] = useState<WhatsAppOrderInput | null>(null);
   const [lastMode, setLastMode] = useState<CheckoutMode | null>(null);
   const [couponInput, setCouponInput] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountPercent: number; id: string } | null>(null);
@@ -92,6 +99,9 @@ export default function MenuPage() {
   // claim it with the number it was sent to, right at apply time.
   const [couponPhone, setCouponPhone] = useState('');
   const [couponNeedsPhone, setCouponNeedsPhone] = useState(false);
+  // Arrived from a /coupon/CODE link ("Use it & order now"): the code travels
+  // in the URL and is applied for them at checkout.
+  const [pendingCoupon, setPendingCoupon] = useState('');
   const [signInOpen, setSignInOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // True while we're waiting on sign-in to continue the user's checkout —
@@ -105,6 +115,9 @@ export default function MenuPage() {
   const [phone, setPhone] = useState('');
   const [tableInput, setTableInput] = useState('');
   const [pickupTime, setPickupTime] = useState('');
+  // A note for the whole order ("no sugar", "call before you come"). It reaches
+  // the admin, the chef's ticket and the waiter, and prints on the invoice.
+  const [remark, setRemark] = useState('');
   const [address, setAddress] = useState<DeliveryAddress>(EMPTY_ADDRESS);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -196,7 +209,25 @@ export default function MenuPage() {
     run();
   }, []);
 
+  // /menu?coupon=CODE — carry the code in, clean the URL, and tell them it is
+  // waiting. Deferred to a task so this never sets state inside the effect body.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const want = new URL(window.location.href).searchParams.get('coupon');
+    if (!want) return;
+    const t = window.setTimeout(() => {
+      const code = want.trim().toUpperCase().slice(0, 40);
+      setPendingCoupon(code);
+      setCouponInput(code);
+      const u = new URL(window.location.href);
+      u.searchParams.delete('coupon');
+      window.history.replaceState({}, '', u.toString());
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
+
   const menu = allMenuItems.filter(m => m.status === 'active');
   // Categories reflect what the admin actually created (built-ins + any custom
   // ones in use), so a new category shows up here automatically.
@@ -377,15 +408,41 @@ export default function MenuPage() {
     setStep('details');
   };
 
-  // Jump from the profile / open-tab banner straight into adding to the tab.
-  // With items already in the cart, go right to the tab details; otherwise open
-  // the cart so they can pick items (they'll choose the tab at the mode step).
+  /* "Add items" on the open tab means exactly that: show me the food. It used
+     to open the checkout drawer at the Last-details step, which is the one
+     screen a guest with an open tab has no reason to see. Now it closes
+     everything and scrolls to the first dish, with the tab remembered so
+     checkout lands straight back on it. */
   const startAddToTab = () => {
     setProfileOpen(false);
-    setIsCartOpen(true);
-    if (cartItemCount > 0 && auth.user) chooseAddToTab();
-    else { setAttachToTab(false); setStep('browse'); }
+    setIsCartOpen(false);
+    setStep('browse');
+    setAttachToTab(true);
+    setActiveCategory('All');
+    // Next frame: the profile modal has to unmount (it locks body scroll)
+    // before the page can be scrolled.
+    requestAnimationFrame(() => {
+      const grid = document.getElementById('menu-grid');
+      if (grid) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   };
+
+  // A coupon that came in on the URL is applied as soon as the checkout knows
+  // the basket (and the number, for a personal coupon).
+  useEffect(() => {
+    if (!pendingCoupon || appliedCoupon || step !== 'details' || cartTotal <= 0) return;
+    const t = window.setTimeout(() => {
+      const res = validateCoupon(pendingCoupon, cartTotal, phone.trim() || undefined);
+      if (res.ok && res.coupon) {
+        setAppliedCoupon({ code: res.coupon.code, discountPercent: res.coupon.discountPercent, id: res.coupon.id });
+        setCouponError(null);
+        setCouponNeedsPhone(false);
+      } else if (res.needsPhone) {
+        setCouponNeedsPhone(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [pendingCoupon, appliedCoupon, step, cartTotal, phone]);
 
   const askBill = () => {
     if (myOpenTab && !myOpenTab.billRequested) requestBill(myOpenTab.sessionId);
@@ -449,56 +506,53 @@ export default function MenuPage() {
         sessionId: attach ? myOpenTab!.sessionId : undefined,
         customer,
         deliveryAddress: selectedMode === 'delivery' ? address : undefined,
-        // Explicit — all customer orders queue for admin, regardless of mode.
-        status: 'awaiting_admin',
+        note: remark.trim() || undefined,
+        // No explicit status: a dine-in order goes straight to the chef, a
+        // takeaway or delivery queues for the admin. addOrder decides, and the
+        // server decides again — the two agree.
       });
-      if (appliedCoupon) incrementCouponUsage(appliedCoupon.id);
+      // The server counts the redemption when it prices the order (see
+      // consumeCoupon in /api/db), so counting it here too burned every coupon
+      // twice and hit the usage limit after half the orders.
       setLastOrderId(order.id);
+      setLastSessionId(order.sessionId ?? null);
       setLastMode(selectedMode);
       if (selectedMode === 'takeaway' || selectedMode === 'delivery') {
-        sendOrderToShop({
+        // Keep the exact message input around: "Open WhatsApp again" has to
+        // resend THIS order. It used to rebuild the message from the cart,
+        // which placeOrder empties two lines below — so the second message
+        // went out with no items and a different invoice number.
+        const waInput: WhatsAppOrderInput = {
           order,
           mode: selectedMode,
           customer,
           address: selectedMode === 'delivery' ? address : undefined,
           deliveryFee: selectedMode === 'delivery' ? deliveryFee : 0,
           pickupTime: selectedMode === 'takeaway' ? pickupTime : undefined,
-        });
+          note: remark.trim() || undefined,
+        };
+        setLastWhatsApp(waInput);
+        sendOrderToShop(waInput);
+      } else {
+        setLastWhatsApp(null);
       }
       setCart({});
       setAppliedCoupon(null);
       setCouponInput('');
+      setRemark('');
       setStep('success');
     }, 600);
   };
 
   const resendWhatsApp = () => {
-    if (!lastOrderId || !lastMode || lastMode === 'table') return;
-    const items = Object.entries(cart).map(([id, qty]) => {
-      const item = menu.find(m => m.id === id)!;
-      return { id: item.id, name: item.name, price: item.price, qty };
-    });
-    sendOrderToShop({
-      order: {
-        id: lastOrderId, table: 0, items, status: 'awaiting_admin', priority: 'normal',
-        subtotal: cartTotal, tax: taxAmt, total: grandTotal, createdAt: Date.now(),
-        source: 'customer', mode: lastMode,
-      },
-      mode: lastMode,
-      customer: {
-        name: auth.user?.name ?? undefined,
-        email: auth.user?.email ?? undefined,
-        phone,
-      },
-      address: lastMode === 'delivery' ? address : undefined,
-      deliveryFee: lastMode === 'delivery' ? deliveryFee : 0,
-      pickupTime: lastMode === 'takeaway' ? pickupTime : undefined,
-    });
+    if (lastWhatsApp) sendOrderToShop(lastWhatsApp);
   };
 
   const startNewOrder = () => {
     setStep('browse');
     setLastOrderId(null);
+    setLastSessionId(null);
+    setLastWhatsApp(null);
     setLastMode(null);
     setSelectedMode(null);
     setAttachToTab(false);
@@ -624,7 +678,7 @@ export default function MenuPage() {
             </h1>
 
             <p className="anim-fade-up mt-6 max-w-md font-body text-[14px] font-light leading-relaxed text-white/80 sm:text-[15px]">
-              Baklava, cakes and pastries from our Salmiya kitchen — browse, build your order, and we&apos;ll have it to your table, counter or door.
+              Baklava, cakes and pastries from our {BRAND.area} kitchen — browse, build your order, and we&apos;ll have it to your table, counter or door.
             </p>
 
             <div className="anim-fade-up mt-7 flex flex-wrap items-center gap-4 font-body text-[10px] font-medium uppercase tracking-[0.26em] text-brand-gold-light/85">
@@ -763,6 +817,20 @@ export default function MenuPage() {
         </div>
       )}
 
+      {pendingCoupon && !appliedCoupon && (
+        <div className="mx-auto mt-8 max-w-6xl px-4 md:px-6">
+          <div className="anim-coupon-applied flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-brand-green/40 bg-brand-green/10 px-4 py-3">
+            <Tag size={15} className="shrink-0 text-brand-green" />
+            <p className="font-body text-[12.5px] font-bold text-brand-wine">
+              Coupon <span className="font-mono">{pendingCoupon}</span> is ready for you.
+            </p>
+            <p className="font-body text-[12px] text-brand-ink/60">
+              Add what you want — we apply it at checkout.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="sticky top-[68px] z-30 mt-8 border-b border-brand-gold/20 bg-brand-cream/85 py-3 backdrop-blur-md md:mb-2">
         <div className="no-scrollbar mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 md:justify-center md:gap-3 md:px-6">
           {categories.map(cat => (
@@ -774,7 +842,7 @@ export default function MenuPage() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-6xl px-4 pt-8 md:px-6 md:pt-10">
+      <div id="menu-grid" className="mx-auto max-w-6xl px-4 pt-8 md:px-6 md:pt-10">
         <div className="mb-6 flex items-end justify-between gap-4 md:mb-8">
           <h3
             className="font-wordmark text-[32px] uppercase leading-none tracking-[0.012em] text-brand-wine md:text-[40px]"
@@ -920,12 +988,33 @@ export default function MenuPage() {
                   </p>
                 </div>
                 {lastOrderId && (
-                  <div className="rounded-full border border-brand-gold/40 bg-white px-5 py-2.5 font-body text-[10.5px] font-medium uppercase tracking-[0.24em] text-brand-gold-dark">
-                    Order #{lastOrderId}
+                  <div className="flex flex-col items-center gap-1.5">
+                    {/* An order number, NOT an invoice: nothing has been billed
+                        yet. The invoice we issue at billing ends in these same
+                        five digits. */}
+                    <div className="rounded-full border border-brand-gold/40 bg-white px-5 py-2.5 font-mono text-[15px] font-bold tracking-[0.14em] text-brand-wine">
+                      #{resolveOrderNo({ sessionId: lastSessionId, id: lastOrderId })}
+                    </div>
+                    <p className="font-body text-[10.5px] font-medium uppercase tracking-[0.2em] text-brand-gold-dark">
+                      Your order number
+                    </p>
+                    <p className="max-w-[16rem] text-center font-body text-[11px] leading-snug text-brand-wine/50">
+                      Keep this number. Your invoice is sent once the shop closes the bill.
+                    </p>
                   </div>
                 )}
                 <div className="mt-2 flex w-full flex-col gap-3">
-                  {waConfigured && lastMode !== 'table' && (
+                  {lastOrderId && (
+                    <a
+                      href={invoicePath({ sessionId: lastSessionId, id: lastOrderId })}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-outline w-full justify-center py-4"
+                    >
+                      <Receipt size={16} /> Track my order
+                    </a>
+                  )}
+                  {waConfigured && lastWhatsApp && (
                     <button onClick={resendWhatsApp} className="btn btn-outline w-full py-4">
                       <Send size={16} /> Open WhatsApp again
                     </button>
@@ -1167,6 +1256,23 @@ export default function MenuPage() {
                         </>
                       )}
 
+                      <Field label="Anything we should know? (optional)">
+                        <textarea
+                          value={remark}
+                          onChange={e => setRemark(e.target.value.slice(0, 300))}
+                          rows={2}
+                          placeholder={
+                            selectedMode === 'delivery' ? 'Less sweet, call me before you come…'
+                            : selectedMode === 'takeaway' ? 'Less sweet, pack it in two boxes…'
+                            : 'Less sweet, no nuts…'
+                          }
+                          className="input-plain resize-none leading-snug"
+                        />
+                        <p className="mt-1 font-body text-[10.5px] font-medium text-brand-ink/45">
+                          The shop, the kitchen and the counter all see this. {300 - remark.length} characters left.
+                        </p>
+                      </Field>
+
                       {formError && (
                         <p className="rounded-xl border border-brand-red/30 bg-brand-red/5 px-4 py-3 font-body text-xs text-brand-red">{formError}</p>
                       )}
@@ -1289,6 +1395,24 @@ function CustomerProfileModal({
 }) {
   // Match my orders: userId wins when we have one, else fall back to email
   // (demo sign-ins get a synthesized @demo.local email).
+  // The bills the shop closed. We read the invoice number off the bill row
+  // itself rather than deriving it, so what the customer sees here is exactly
+  // what is printed on their receipt and sent on WhatsApp — even when the
+  // number had to be probed forward past a clash.
+  const bills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
+  React.useMemo(() => getBills(), []);
+  const invoiceBySession = React.useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of bills) {
+      if (b.sessionId && b.invoiceNo) m.set(b.sessionId, b.invoiceNo);
+    }
+    return m;
+  }, [bills]);
+  const invoiceOf = React.useCallback(
+    (o: Order) => (o.sessionId ? invoiceBySession.get(o.sessionId) ?? '' : ''),
+    [invoiceBySession]
+  );
+
   const myOrders = React.useMemo(() => {
     return allOrders
       .filter(o => {
@@ -1301,6 +1425,7 @@ function CustomerProfileModal({
 
   // The live tab's orders never count as "history" — they only land there once
   // the admin closes the bill. Everything else is a completed/past order.
+  const [detail, setDetail] = React.useState<Order | null>(null);
   const openTabOrderIds = React.useMemo(
     () => new Set(openTab?.orders.map(o => o.id) ?? []),
     [openTab]
@@ -1323,7 +1448,22 @@ function CustomerProfileModal({
       case 'cooking':        return 'bg-brand-red/10 text-brand-red border-brand-red/25';
       case 'ready':          return 'bg-brand-plum/10 text-brand-plum border-brand-plum/25';
       case 'served':         return 'bg-brand-green/10 text-brand-green border-brand-green/25';
+      case 'cancelled':      return 'bg-brand-red/15 text-brand-red border-brand-red/40';
       default:               return 'bg-brand-sand text-brand-wine/70 border-brand-gold/25';
+    }
+  };
+
+  /* Said the way a customer would say it — "awaiting admin" means nothing to
+     the person who ordered. */
+  const statusLabel = (o: Order) => {
+    switch (o.status) {
+      case 'cancelled':      return 'Cancelled';
+      case 'awaiting_admin': return 'Waiting for the shop';
+      case 'pending':        return 'With the kitchen';
+      case 'cooking':        return 'Being made';
+      case 'ready':          return o.billed ? 'Ready for you' : 'Cooked — bill to come';
+      case 'served':         return o.billed ? 'Completed' : 'Served';
+      default:               return String(o.status).replace('_', ' ');
     }
   };
 
@@ -1472,11 +1612,26 @@ function CustomerProfileModal({
             ) : (
               <div className="flex flex-col gap-2">
                 {historyOrders.map(o => (
-                  <div key={o.id} className="rounded-2xl border border-brand-gold/25 bg-white p-3">
+                  /* Tap anywhere on the row to open the full order. The row
+                     itself stays a summary — the detail belongs in a sheet, so
+                     a long history is still skimmable. */
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => setDetail(o)}
+                    className="w-full rounded-2xl border border-brand-gold/25 bg-white p-3 text-left transition-colors hover:border-brand-red/40 active:scale-[0.995]"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-mono text-sm font-black text-brand-red">{o.id}</p>
-                        <p className="mt-0.5 flex items-center gap-1.5 font-body text-xs text-brand-wine/60">
+                        {/* Billed → the invoice number, which is what the receipt
+                            and the WhatsApp message show. Not billed yet → the
+                            order number, because no invoice exists. */}
+                        <p className="font-mono text-sm font-black text-brand-red">
+                          {o.billed
+                            ? invoiceOf(o) || resolveInvoiceNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })
+                            : `#${resolveOrderNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })}`}
+                        </p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 font-body text-xs text-brand-wine/60">
                           <CalendarClock size={11} />
                           {new Date(o.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           <span className="opacity-50">·</span> {orderLabel(o)}
@@ -1485,31 +1640,27 @@ function CustomerProfileModal({
                           )}
                         </p>
                       </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex shrink-0 flex-col items-end gap-1">
                         <p className="font-wordmark text-xl text-brand-wine" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
                           {formatKWD(o.total)}
                         </p>
                         <span className={`inline-flex rounded-full border px-2 py-0.5 font-body text-[9px] font-black uppercase tracking-wide ${statusTone(o.status)}`}>
-                          {o.status.replace('_', ' ')}
+                          {statusLabel(o)}
                         </span>
                       </div>
                     </div>
-                    <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-body text-xs text-brand-wine/70">
-                      {o.items.map(it => (
-                        <li key={it.id}><span className="font-bold">{it.qty}×</span> {it.name}</li>
-                      ))}
-                    </ul>
-                    {o.billed && o.sessionId && (
-                      <div className="mt-2.5 border-t border-brand-gold/15 pt-2.5">
-                        <Link
-                          href={`/receipt/${o.sessionId}`}
-                          className="inline-flex items-center gap-1.5 font-body text-[11px] font-bold uppercase tracking-[0.14em] text-brand-red hover:text-brand-wine"
-                        >
-                          <Receipt size={12} /> View receipt
-                        </Link>
-                      </div>
-                    )}
-                  </div>
+                    <div className="mt-2 flex items-end justify-between gap-3">
+                      <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-body text-xs text-brand-wine/70">
+                        {o.items.slice(0, 3).map(it => (
+                          <li key={it.id}><span className="font-bold">{it.qty}×</span> {it.name}</li>
+                        ))}
+                        {o.items.length > 3 && <li className="text-brand-wine/45">+{o.items.length - 3} more</li>}
+                      </ul>
+                      <span className="shrink-0 font-body text-[10px] font-black uppercase tracking-[0.14em] text-brand-red">
+                        View
+                      </span>
+                    </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -1524,6 +1675,122 @@ function CustomerProfileModal({
           <button onClick={onClose} className="btn btn-wine flex-1 py-3 text-[11px]">
             Back to menu
           </button>
+        </div>
+      </div>
+
+      {detail && <OrderDetailModal order={detail} invoiceNo={invoiceOf(detail)} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+/** One past order, in full: every line, what was paid, and the way through to
+ *  the invoice (or, for an order still being made, its live status page). */
+function OrderDetailModal({ order, invoiceNo, onClose }: { order: Order; invoiceNo?: string; onClose: () => void }) {
+  const billed = !!order.billed;
+  const invoice = billed
+    ? invoiceNo || resolveInvoiceNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })
+    : '';
+  const ref = billed ? invoice : `#${resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })}`;
+  const itemsTotal = order.items.reduce((sum, i) => sum + i.price * i.qty, 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-end justify-center bg-[#2a0a0a]/55 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Order ${ref}`}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-brand-gold/30 bg-brand-cream shadow-2xl sm:rounded-3xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-brand-gold/25 bg-white p-5">
+          <div className="min-w-0">
+            <p className="font-body text-[9.5px] font-black uppercase tracking-[0.22em] text-brand-gold-dark">
+              {billed ? 'Invoice' : 'Order number'}
+            </p>
+            <p className="mt-1 font-mono text-lg font-black text-brand-red">{ref}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 font-body text-xs text-brand-wine/60">
+              <CalendarClock size={11} />
+              {new Date(order.createdAt).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              <span className="opacity-50">·</span> {orderLabel(order)}
+            </p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-brand-gold/30 text-brand-wine/60 hover:text-brand-red">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          <p className="mb-2.5 font-body text-[10px] font-black uppercase tracking-[0.22em] text-brand-wine/60">
+            What you ordered
+          </p>
+          <ul className="divide-y divide-brand-gold/20 overflow-hidden rounded-2xl border border-brand-gold/25 bg-white">
+            {order.items.map(it => (
+              <li key={it.id} className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 grid h-7 min-w-7 place-items-center rounded-lg bg-brand-red/10 px-1.5 font-body text-[12px] font-black text-brand-red">
+                  {it.qty}×
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-body text-sm font-semibold text-brand-wine">{it.name}</p>
+                  {it.notes && <p className="font-body text-[11.5px] italic text-brand-wine/50">{it.notes}</p>}
+                  <p className="font-body text-[11px] text-brand-wine/45">{formatKWD(it.price)} each</p>
+                </div>
+                <span className="shrink-0 font-body text-sm font-bold text-brand-wine/75">{formatKWD(it.price * it.qty)}</span>
+              </li>
+            ))}
+          </ul>
+
+          <dl className="mt-3 space-y-1.5 rounded-2xl bg-white/70 p-4 font-body text-sm text-brand-wine/70">
+            <div className="flex justify-between">
+              <dt>Items</dt>
+              <dd>{formatKWD(itemsTotal)}</dd>
+            </div>
+            {!!order.discount && order.discount > 0 && (
+              <div className="flex justify-between text-brand-green">
+                <dt>Discount{order.couponCode ? ` (${order.couponCode})` : ''}</dt>
+                <dd>-{formatKWD(order.discount)}</dd>
+              </div>
+            )}
+            <div className="flex items-end justify-between border-t border-brand-gold/25 pt-2">
+              <dt className="font-body text-[10px] font-black uppercase tracking-[0.2em] text-brand-wine">Total</dt>
+              <dd className="font-wordmark text-2xl text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
+                {formatKWD(order.total)}
+              </dd>
+            </div>
+          </dl>
+
+          {order.note && (
+            <div className="mt-3 rounded-2xl border border-brand-gold/40 bg-brand-gold/10 p-4 font-body text-sm text-brand-wine">
+              <p className="mb-1 font-body text-[9.5px] font-black uppercase tracking-[0.2em] text-brand-gold-dark">Your remark</p>
+              {order.note}
+            </div>
+          )}
+
+          {order.deliveryAddress && (
+            <div className="mt-3 rounded-2xl border border-brand-red/20 bg-brand-red/5 p-4 font-body text-sm text-brand-wine">
+              <p className="mb-1 font-body text-[9.5px] font-black uppercase tracking-[0.2em] text-brand-red">Delivered to</p>
+              {[order.deliveryAddress.governorate, order.deliveryAddress.area,
+                order.deliveryAddress.street && `Street ${order.deliveryAddress.street}`,
+                order.deliveryAddress.building && `Building ${order.deliveryAddress.building}`,
+                order.deliveryAddress.floor && `Floor ${order.deliveryAddress.floor}`,
+                order.deliveryAddress.apartment && `Apt ${order.deliveryAddress.apartment}`,
+              ].filter(Boolean).join(', ')}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 border-t border-brand-gold/25 bg-brand-sand/40 p-4">
+          <button onClick={onClose} className="btn btn-outline flex-1 justify-center py-3 text-[11px]">Close</button>
+          <Link
+            href={invoice ? `/invoice/${encodeURIComponent(invoice)}` : invoicePath({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt, billed: order.billed })}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn btn-wine flex-1 justify-center py-3 text-[11px]"
+          >
+            <Receipt size={14} /> {billed ? 'View invoice' : 'Track order'}
+          </Link>
         </div>
       </div>
     </div>

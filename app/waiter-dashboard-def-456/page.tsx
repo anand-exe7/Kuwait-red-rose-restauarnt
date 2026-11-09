@@ -1,1187 +1,1670 @@
 "use client";
 
+// Waiter station.
+//
+// The whole screen is built around one idea: a waiter taps the thing in front
+// of them (a table, a walk-in, a takeaway bag) and sees exactly what that guest
+// ordered, with two buttons — add more, or close the bill. Everything else is
+// out of the way.
+//
+// Three tabs, and no more — one per kind of guest:
+//   Tables   — the floor plan, plus walk-ins. Tap a table, see what they
+//              ordered, add more, close the bill.
+//   Takeaway — bags the admin has accepted, waiting to be handed over.
+//   Delivery — orders the admin has accepted, waiting for a driver.
+//
+// Alerts and the kitchen feed are NOT tabs. They are one drawer behind the
+// bell in the header, reachable from any tab, because a waiter needs them
+// while they are looking at something else — not instead of it.
+//
+// A takeaway or delivery order only appears here once the ADMIN has accepted
+// it (Admin → Online orders). Before that it is not the shop's problem yet.
+// Nothing can be added to one either: the customer ordered what they ordered,
+// and the admin settles the bill.
+//
+// Tables, open tabs and their items all come from the same Supabase-backed
+// stores the admin portal reads (tableStore / sessionStore / orderStore), so
+// what a waiter sees here and what the admin sees under Open Tabs cannot drift
+// apart.
+
 import React, { useState, useMemo, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import {
-  Plus,
-  Minus,
-  Send,
-  Clock,
-  Hash,
-  Coffee,
-  Utensils,
-  Bell,
-  BellRing,
-  Search,
-  X,
-  Flame,
-  Check,
-  Trash2,
-  Receipt,
-  FileText,
-  Volume2,
-  VolumeX,
-  PackageCheck,
-  PersonStanding,
-  ChevronRight,
-  Banknote,
-  Users,
-  ShoppingBag,
-  Truck,
+  Plus, Minus, Send, Clock, Hash, Coffee, Bell, BellRing, Search, X, Flame, Check,
+  Trash2, Receipt, Volume2, VolumeX, PackageCheck, PersonStanding, Banknote, ShoppingBag,
+  Truck, ChevronLeft, Utensils, CircleAlert, Info, UserRound,
 } from 'lucide-react';
-import type { Order } from '../lib/orderStore';
-import { addOrder, updateOrderStatus, orderLabel, getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, getActiveStandingSessions, getSessionOrders, billSession } from '../lib/orderStore';
-import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
-import { WaiterCall, resolveWaiterCall, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls } from '../lib/waiterCallStore';
+import type { Order, OrderMode, OrderItem } from '../lib/orderStore';
+import {
+  addOrder, updateOrderStatus, orderLabel, markHandedOver, isHomeMode,
+  getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders,
+} from '../lib/orderStore';
+import type { MenuItem } from '../lib/menuStore';
+import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu } from '../lib/menuStore';
+import {
+  WaiterCall, resolveWaiterCall,
+  getWaiterCallsSnapshot, getWaiterCallsServerSnapshot, subscribeToWaiterCalls,
+} from '../lib/waiterCallStore';
 import { getTablesSnapshot, getTablesServerSnapshot, subscribeToTables } from '../lib/tableStore';
+import {
+  getSessionsSnapshot, getSessionsServerSnapshot, subscribeToSessions, requestBill, type Session,
+} from '../lib/sessionStore';
 import { formatKWD, round3 } from '../lib/currency';
+import { resolveOrderNo } from '../lib/invoice';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import { playChime, primeAudioOnFirstInteraction } from '../lib/sound';
-import { Pagination, usePagination } from '../components/Pagination';
 
-type TableSel = number | 'standing';
+type Lane = 'tables' | 'takeaway' | 'delivery';
+
+/** What the detail panel / item picker is currently pointed at. */
+interface Target {
+  /** Open session, when the guest already has one. */
+  sessionId?: string;
+  /** Dine-in table number; null for standing / takeaway. */
+  table: number | null;
+  mode: OrderMode;
+  standingLabel?: string;
+  title: string;
+  subtitle?: string;
+  /** Deliveries are the driver's job — the waiter can look but not touch. */
+  readOnly?: boolean;
+}
+
+/** One open tab: a session plus the orders sitting on it. */
+interface Tab {
+  sessionId: string;
+  session?: Session;
+  mode: OrderMode;
+  table: number | null;
+  standingLabel?: string;
+  title: string;
+  guest?: string;
+  guestPhone?: string;
+  orders: Order[];
+  itemCount: number;
+  total: number;
+  openedAt: number;
+  billRequested: boolean;
+  hasReady: boolean;
+  hasCooking: boolean;
+  waitingApproval: boolean;
+  /** The 5 digits the customer quotes — and the tail of their invoice. */
+  orderNo: string;
+  /** Every ticket is cooked. */
+  allReady: boolean;
+  /** Takeaway or delivery — the customer never sat down. */
+  home: boolean;
+  /** The admin has closed the bill and the invoice has gone out. */
+  billed: boolean;
+  /** Cooked AND billed: this is the moment it leaves the shop. */
+  readyToHandOver: boolean;
+  /** The remark the customer typed at checkout. */
+  note?: string;
+}
+
+const card = 'rounded-3xl border border-brand-gold/25 bg-white shadow-[0_22px_48px_-34px_rgba(74,21,21,0.45)]';
+const sectionTitle = 'flex items-center gap-2 text-[10.5px] font-bold uppercase tracking-[0.22em] text-brand-gold-dark';
+
+/** Merge the items of several orders into one list, keeping notes apart. */
+function mergeItems(orders: Order[]): (OrderItem & { lineTotal: number; byStaff: boolean })[] {
+  const map = new Map<string, OrderItem & { lineTotal: number; byStaff: boolean }>();
+  for (const o of orders) {
+    const byStaff = o.source === 'waiter' || o.source === 'admin';
+    for (const it of o.items) {
+      const key = `${it.name}@@${it.price}@@${it.notes ?? ''}@@${byStaff ? 's' : 'c'}`;
+      const cur = map.get(key);
+      if (cur) { cur.qty += it.qty; cur.lineTotal += it.price * it.qty; }
+      else map.set(key, { ...it, lineTotal: it.price * it.qty, byStaff });
+    }
+  }
+  return [...map.values()];
+}
+
+const timeOf = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function sinceLabel(from: number, now: number): string {
+  const mins = Math.max(0, Math.round((now - from) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60);
+  return `${h}h ${mins % 60}m`;
+}
 
 export default function WaiterDashboard() {
-  // State
-  const [activeTable, setActiveTable] = useState<TableSel>(1);
-  const [order, setOrder] = useState<Record<string, number>>({});
-  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<'tables' | 'menu' | 'ticket' | 'alerts'>('menu');
-  const [activeCategory, setActiveCategory] = useState<string>('All');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isPriorityRush, setIsPriorityRush] = useState<boolean>(false);
-  const [tableFilter, setTableFilter] = useState<'all' | 'occupied'>('all');
-  const [editingNoteFor, setEditingNoteFor] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [muted, setMuted] = useState<boolean>(false);
-  const [standingLabel, setStandingLabel] = useState<string>('');
-  const [billingSessionId, setBillingSessionId] = useState<string | null>(null);
+  const [lane, setLane] = useState<Lane>('tables');
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [target, setTarget] = useState<Target | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [billingFor, setBillingFor] = useState<Tab | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const activeLabel = activeTable === 'standing' ? 'Standing' : `Table ${activeTable}`;
-
-  // Live shared stores (synced across tabs/devices via localStorage today)
-  const placedOrders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
-  const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
-  const activeWaiterCalls = useMemo(() => waiterCalls.filter((c: WaiterCall) => !c.resolved), [waiterCalls]);
-  const calledTables = useMemo(() => new Set(activeWaiterCalls.map(c => c.table)), [activeWaiterCalls]);
-
-  const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
-  const menu = useMemo(() => allMenuItems.filter(m => m.status === 'active'), [allMenuItems]);
-
-  // Tables come from the admin's Table Management (active tables only)
+  // ── Live data — the same stores the admin portal reads ────────────────────
+  const orders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  const sessions = useSyncExternalStore(subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot);
   const allTables = useSyncExternalStore(subscribeToTables, getTablesSnapshot, getTablesServerSnapshot);
-  const tableNumbers = useMemo(
-    () => allTables.filter(t => t.active).map(t => t.number).sort((a, b) => a - b),
+  const allMenu = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
+  const waiterCalls = useSyncExternalStore(subscribeToWaiterCalls, getWaiterCallsSnapshot, getWaiterCallsServerSnapshot);
+
+  const menu = useMemo(() => allMenu.filter(m => m.status === 'active'), [allMenu]);
+  const tables = useMemo(
+    () => allTables.filter(t => t.active).sort((a, b) => a.number - b.number),
     [allTables]
   );
+  const openCalls = useMemo(() => waiterCalls.filter((c: WaiterCall) => !c.resolved), [waiterCalls]);
+  const callingTables = useMemo(() => new Set(openCalls.map(c => c.table)), [openCalls]);
 
-  // Table occupancy from real active orders
-  const tablesStatus = useMemo(() => {
-    const status: Record<number, 'available' | 'occupied'> = {};
-    for (const t of tableNumbers) status[t] = 'available';
-    for (const o of placedOrders) {
-      if (o.status !== 'served' && o.mode !== 'standing' && o.mode !== 'takeaway' && o.mode !== 'delivery') {
-        status[o.table] = 'occupied';
-      }
-    }
-    return status;
-  }, [placedOrders, tableNumbers]);
+  // Ticks the "open for 12 min" labels without re-rendering on every state change.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
-  // Orders active for the current selection (table N, or all standing)
-  const activeOrdersForActiveTable = useMemo(() => {
-    return placedOrders.filter(o => {
-      if (o.status === 'served') return false;
-      if (activeTable === 'standing') return o.mode === 'standing';
-      return o.table === activeTable && o.mode !== 'standing' && o.mode !== 'takeaway';
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(cur => (cur === msg ? null : cur)), 2600);
+  }, []);
+
+  // ── Open tabs, grouped the way the admin's Open Tabs page groups them ─────
+  const tabs = useMemo<Tab[]>(() => {
+    const byId = new Map<string, Tab>();
+
+    const blank = (sessionId: string, session?: Session): Tab => ({
+      sessionId,
+      session,
+      mode: session?.mode ?? 'table',
+      table: session?.tableNumber ?? null,
+      standingLabel: session?.standingLabel ?? undefined,
+      title: '',
+      guest: session?.customerName || undefined,
+      guestPhone: session?.customerPhone || undefined,
+      orders: [],
+      itemCount: 0,
+      total: 0,
+      openedAt: session?.openedAt ?? 0,
+      billRequested: !!session?.billRequestedAt,
+      hasReady: false,
+      hasCooking: false,
+      waitingApproval: false,
+      orderNo: '',
+      allReady: false,
+      home: false,
+      billed: false,
+      readyToHandOver: false,
     });
-  }, [placedOrders, activeTable]);
 
-  const standingActiveCount = useMemo(
-    () => placedOrders.filter(o => o.mode === 'standing' && o.status !== 'served').length,
-    [placedOrders]
-  );
-  const standingEverCount = useMemo(() => placedOrders.filter(o => o.mode === 'standing').length, [placedOrders]);
-
-  const activeStandingSessions = useMemo(() => getActiveStandingSessions(placedOrders), [placedOrders]);
-
-  const activeTableSessions = useMemo(() => {
-    const sessions = new Map<string, { table: number; count: number; total: number }>();
-    for (const o of placedOrders) {
-      if ((o.mode === 'table' || !o.mode) && !o.billed && o.sessionId) {
-        const cur = sessions.get(o.sessionId);
-        if (cur) { cur.count++; cur.total += o.total; }
-        else sessions.set(o.sessionId, { table: o.table, count: 1, total: o.total });
-      }
+    // Start from the open sessions the admin sees…
+    const allSessions = new Map(sessions.map(x => [x.id, x]));
+    for (const s of sessions) {
+      if (s.status !== 'open') continue;
+      byId.set(s.id, blank(s.id, s));
     }
-    return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, table: v.table, orderCount: v.count, total: v.total }));
-  }, [placedOrders]);
 
-  const activeTakeawaySessions = useMemo(() => {
-    const sessions = new Map<string, { count: number; total: number; id: string }>();
-    for (const o of placedOrders) {
-      if (o.mode === 'takeaway' && !o.billed && o.sessionId) {
-        const cur = sessions.get(o.sessionId);
-        if (cur) { cur.count++; cur.total += o.total; }
-        else sessions.set(o.sessionId, { count: 1, total: o.total, id: o.id.split('-')[1] });
+    // …then hang the un-billed orders off them. An order whose session row
+    // hasn't arrived yet still gets a card, so nothing goes invisible while
+    // Realtime catches up.
+    for (const o of orders) {
+      if (!o.sessionId) continue;
+      // A billed takeaway/delivery is NOT finished for the waiter: it still has
+      // to be handed to the customer or the driver. It stays on the board until
+      // somebody marks that, and only then disappears.
+      if (o.status === 'cancelled') continue;
+      const isHome = isHomeMode(o.mode);
+      // 'served' on a home order means it was handed over, so it is finished
+      // either way — which also keeps hand-over working before the
+      // handed_over_at migration is applied.
+      const awaitingHandover = isHome && o.billed && !o.handedOverAt && o.status !== 'served';
+      if (o.billed && !awaitingHandover) continue;
+      if (o.status === 'served' && !awaitingHandover && !byId.has(o.sessionId)) continue;
+      // A tab the admin has closed is finished, whatever state its tickets were
+      // left in. Showing it here is how the waiter ended up with three tabs
+      // while the admin had one. (A session we simply haven't received yet is
+      // different — that one still gets a card, so nothing goes invisible while
+      // Realtime catches up.)
+      const sess = allSessions.get(o.sessionId);
+      if (sess && sess.status !== 'open' && !awaitingHandover) continue;
+      let tab = byId.get(o.sessionId);
+      if (!tab) {
+        tab = blank(o.sessionId);
+        tab.mode = o.mode ?? 'table';
+        tab.table = (o.mode ?? 'table') === 'table' ? o.table : null;
+        tab.standingLabel = o.standingLabel;
+        tab.openedAt = o.createdAt;
+        byId.set(o.sessionId, tab);
       }
+      tab.orders.push(o);
+      tab.itemCount += o.items.reduce((a, i) => a + i.qty, 0);
+      tab.total += o.total;
+      tab.openedAt = tab.openedAt ? Math.min(tab.openedAt, o.createdAt) : o.createdAt;
+      if (o.status === 'ready') tab.hasReady = true;
+      if (o.status === 'cooking' || o.status === 'pending') tab.hasCooking = true;
+      if (o.status === 'awaiting_admin') tab.waitingApproval = true;
+      // The ORDER's mode is the truth. Sessions opened before delivery got its
+      // own mode were all filed as 'takeaway', so trusting the session row
+      // would list a delivery under Takeaway here while the admin shows it
+      // under Delivery.
+      if (o.mode) {
+        tab.mode = o.mode;
+        if (o.mode === 'table' && tab.table == null) tab.table = o.table;
+      }
+      if (o.billed) tab.billed = true;
+      if (!tab.note && o.note) tab.note = o.note;
+      if (!tab.guest) tab.guest = o.customer?.name || undefined;
+      if (!tab.guestPhone) tab.guestPhone = o.customer?.phone || undefined;
+      if (!tab.standingLabel) tab.standingLabel = o.standingLabel;
+      if (tab.mode === 'table' && tab.table == null) tab.table = o.table;
     }
-    return Array.from(sessions.entries()).map(([sessionId, v]) => ({ sessionId, orderCount: v.count, total: v.total, id: v.id }));
-  }, [placedOrders]);
 
-  // Delivery orders waiting to go out — one order per card (deliveries don't
-  // reuse sessions). Only shows admin-approved ones so the waiter never hands
-  // out a ticket the admin hasn't released.
-  const activeDeliveryOrders = useMemo(
-    () => placedOrders
-      .filter(o => o.mode === 'delivery' && !o.billed && (o.status === 'pending' || o.status === 'cooking' || o.status === 'ready'))
-      .sort((a, b) => a.createdAt - b.createdAt),
-    [placedOrders]
-  );
+    const out: Tab[] = [];
+    for (const tab of byId.values()) {
+      // An open session with nothing on it is noise on the floor plan — the
+      // table button already shows it as free.
+      if (tab.orders.length === 0) continue;
+      // A home order the admin has not accepted yet belongs to the admin's
+      // Online orders queue, not to the floor. It appears here the moment it
+      // is accepted and becomes a kitchen ticket.
+      const home = tab.mode === 'takeaway' || tab.mode === 'delivery';
+      if (home && tab.waitingApproval) continue;
+      tab.home = home;
+      tab.orders.sort((a, b) => a.createdAt - b.createdAt);
+      tab.total = round3(tab.total);
+      tab.allReady = tab.orders.every(o => o.status === 'ready' || o.status === 'served');
+      // Cooked is not the hand-over moment: the admin has to close the bill and
+      // send the invoice first. Only then does this one leave the shop.
+      tab.readyToHandOver = home && tab.billed;
+      // Home orders are known by the number the customer was given, so a
+      // waiter calling "order 48213" is saying the same thing the guest is.
+      tab.orderNo = resolveOrderNo({ sessionId: tab.sessionId, id: tab.orders[0].id, createdAt: tab.orders[0].createdAt });
+      tab.title =
+        tab.mode === 'standing' ? (tab.standingLabel ? `Walk-in · ${tab.standingLabel}` : 'Walk-in')
+        : tab.mode === 'takeaway' ? `Takeaway #${tab.orderNo}`
+        : tab.mode === 'delivery' ? `Delivery #${tab.orderNo}`
+        : `Table ${tab.table ?? '—'}`;
+      out.push(tab);
+    }
+    return out.sort((a, b) => a.openedAt - b.openedAt);
+  }, [orders, sessions]);
 
-  const currentSessionId = useMemo(() => {
-    if (activeTable === 'standing') return undefined;
-    const tableOrders = placedOrders.filter(o => o.table === activeTable && !o.billed && o.sessionId && (o.mode || 'table') === 'table');
-    return tableOrders[0]?.sessionId;
-  }, [placedOrders, activeTable]);
+  const tabsBySession = useMemo(() => new Map(tabs.map(t => [t.sessionId, t])), [tabs]);
+  const dineInTabs = useMemo(() => tabs.filter(t => t.mode === 'table'), [tabs]);
+  const standingTabs = useMemo(() => tabs.filter(t => t.mode === 'standing'), [tabs]);
+  const takeawayTabs = useMemo(() => tabs.filter(t => t.mode === 'takeaway'), [tabs]);
+  const deliveryTabs = useMemo(() => tabs.filter(t => t.mode === 'delivery'), [tabs]);
 
-  const sessionOrders = useMemo(() => {
-    const sid = billingSessionId || currentSessionId;
-    if (!sid) return [];
-    return getSessionOrders(placedOrders, sid);
-  }, [placedOrders, billingSessionId, currentSessionId]);
+  /** sessionId of the open tab sitting on each table number. */
+  const tabByTable = useMemo(() => {
+    const m = new Map<number, Tab>();
+    for (const t of dineInTabs) if (t.table != null) m.set(t.table, t);
+    return m;
+  }, [dineInTabs]);
 
-  const canBill = useMemo(() => {
-    if (activeTable === 'standing') return false;
-    return placedOrders.some(o => o.table === activeTable && !o.billed && o.sessionId && (o.mode || 'table') === 'table');
-  }, [placedOrders, activeTable]);
-
-  // ── Ready-order alert (sound + visual) ─────────────────────────────────────
+  // ── Alerts: only the two things that need a waiter on their feet ──────────
+  // Dine-in and walk-ins: cooked food waiting to be carried out.
   const readyOrders = useMemo(
-    // Delivery orders are collected by drivers (see Admin -> Deliveries), not served by waiters.
-    () => placedOrders.filter(o => o.status === 'ready' && o.mode !== 'delivery').sort((a, b) => a.createdAt - b.createdAt),
-    [placedOrders]
+    () => orders
+      .filter(o => o.status === 'ready' && !o.billed && o.mode !== 'takeaway' && o.mode !== 'delivery')
+      .sort((a, b) => a.createdAt - b.createdAt),
+    [orders]
   );
+  // Takeaway and delivery: billed and paid for, so it can go out of the door.
+  // Before the admin bills it there is nothing for the waiter to do but wait.
+  const handoverOrders = useMemo(
+    () => orders
+      .filter(o => (o.mode === 'takeaway' || o.mode === 'delivery') && o.billed && !o.handedOverAt)
+      .sort((a, b) => a.createdAt - b.createdAt),
+    [orders]
+  );
+  const alertCount = openCalls.length + readyOrders.length + handoverOrders.length;
+
+  // Standing sessions are keyed by their label, so two unnamed walk-ins would
+  // merge onto one tab. Number them instead.
+  const standingEverCount = useMemo(
+    () => new Set(orders.filter(o => o.mode === 'standing').map(o => o.sessionId ?? o.id)).size,
+    [orders]
+  );
+
+  const kitchenTickets = useMemo(
+    () => orders.filter(o => !o.billed && (o.status === 'pending' || o.status === 'cooking' || o.status === 'ready'))
+      .sort((a, b) => (a.priority === 'high' ? -1 : 0) - (b.priority === 'high' ? -1 : 0) || a.createdAt - b.createdAt),
+    [orders]
+  );
+
+  // ── Chimes ────────────────────────────────────────────────────────────────
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const knownReadyRef = useRef<Set<string>>(new Set());
-  const readyInitializedRef = useRef(false);
-  const knownCallsRef = useRef<Set<string>>(new Set());
-  const callsInitializedRef = useRef(false);
-
   const chime = useCallback(() => playChime(audioCtxRef, muted), [muted]);
-
-  // Prime/resume audio on first interaction (browser autoplay policy)
   useEffect(() => primeAudioOnFirstInteraction(audioCtxRef), []);
+  useChimeOnNew(readyOrders.map(o => o.id), chime);
+  useChimeOnNew(handoverOrders.map(o => o.id), chime);
+  useChimeOnNew(openCalls.map(c => c.id), chime);
 
-  // Chime once when a brand-new ready ticket appears (event-driven only — no repeat timer)
-  useEffect(() => {
-    const currentReady = new Set(readyOrders.map(o => o.id));
-    if (!readyInitializedRef.current) {
-      knownReadyRef.current = currentReady;
-      readyInitializedRef.current = true;
-      return;
-    }
-    let hasNew = false;
-    currentReady.forEach(id => { if (!knownReadyRef.current.has(id)) hasNew = true; });
-    knownReadyRef.current = currentReady;
-    if (hasNew) chime();
-  }, [readyOrders, chime]);
+  // ── The live tab for whatever the panel is pointed at ─────────────────────
+  const activeTab = target?.sessionId ? tabsBySession.get(target.sessionId) ?? null : null;
 
-  // Chime once when a table calls for a waiter
-  useEffect(() => {
-    const currentCalls = new Set(activeWaiterCalls.map(c => c.id));
-    if (!callsInitializedRef.current) {
-      knownCallsRef.current = currentCalls;
-      callsInitializedRef.current = true;
-      return;
-    }
-    let hasNew = false;
-    currentCalls.forEach(id => { if (!knownCallsRef.current.has(id)) hasNew = true; });
-    knownCallsRef.current = currentCalls;
-    if (hasNew) chime();
-  }, [activeWaiterCalls, chime]);
+  // Once a tab is billed its session disappears from the store, so the panel
+  // has nothing left to show. Derived rather than closed from an effect, so
+  // there's no extra render pass and no stale frame.
+  const panel = target && (!target.sessionId || tabsBySession.has(target.sessionId)) ? target : null;
 
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2600);
-  };
-
-  // Order builders
-  const addToOrder = (id: string) => setOrder(prev => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
-  const removeFromOrder = (id: string) => {
-    setOrder(prev => {
-      const copy = { ...prev };
-      if (copy[id] > 1) copy[id]--;
-      else {
-        delete copy[id];
-        setItemNotes(n => { const c = { ...n }; delete c[id]; return c; });
-      }
-      return copy;
+  const openTable = (tableNumber: number) => {
+    const tab = tabByTable.get(tableNumber);
+    setTarget({
+      sessionId: tab?.sessionId,
+      table: tableNumber,
+      mode: 'table',
+      title: `Table ${tableNumber}`,
+      subtitle: tab ? `Open ${sinceLabel(tab.openedAt, now)}` : 'Free — no orders yet',
     });
   };
 
-  const clearOrder = () => {
-    setOrder({});
-    setItemNotes({});
-    setIsPriorityRush(false);
-    setStandingLabel('');
-    triggerToast(`Cleared ticket for ${activeLabel}`);
+  const openTab = (tab: Tab) => {
+    setTarget({
+      sessionId: tab.sessionId,
+      table: tab.table,
+      mode: tab.mode,
+      standingLabel: tab.standingLabel,
+      title: tab.title,
+      subtitle: `Open ${sinceLabel(tab.openedAt, now)}`,
+      // Takeaway and delivery are fixed orders settled by the admin — the
+      // waiter hands them over, but never edits or bills them.
+      readOnly: tab.mode === 'delivery' || tab.mode === 'takeaway',
+    });
   };
 
-  // Totals
-  const subtotal = Object.entries(order).reduce((acc, [id, qty]) => {
-    const item = menu.find(m => m.id === id);
-    return acc + (item?.price || 0) * qty;
-  }, 0);
-  // Shop runs tax-inclusive pricing.
-  const tax = 0;
-  const orderTotal = round3(subtotal + tax);
-  const orderItemCount = useMemo(() => Object.values(order).reduce((a, b) => a + b, 0), [order]);
+  const startWalkIn = () => {
+    setTarget({ table: null, mode: 'standing', title: 'New walk-in', subtitle: 'No table — eats standing' });
+    setPickerOpen(true);
+  };
 
-  const submitOrder = () => {
-    if (Object.keys(order).length === 0) return;
-    const itemsList = Object.entries(order).map(([id, qty]) => {
-      const item = menu.find(m => m.id === id);
-      return { id, name: item?.name || 'Item', price: item?.price || 0, qty, notes: itemNotes[id] || undefined };
-    });
-    const isStanding = activeTable === 'standing';
-    addOrder({
-      table: isStanding ? 0 : activeTable,
-      mode: isStanding ? 'standing' : 'table',
-      items: itemsList,
-      priority: isPriorityRush ? 'high' : 'normal',
+  const fireOrder = (items: OrderItem[], rush: boolean, standingLabel?: string) => {
+    if (!target || items.length === 0) return;
+    const subtotal = round3(items.reduce((a, i) => a + i.price * i.qty, 0));
+    const placed = addOrder({
+      table: target.table ?? 0,
+      mode: target.mode,
+      items,
+      priority: rush ? 'high' : 'normal',
       subtotal,
-      tax,
-      total: orderTotal,
+      tax: 0, // the shop prices tax-inclusive
+      total: subtotal,
       source: 'waiter',
-      standingLabel: isStanding ? (standingLabel.trim() || `Walk-in #${standingEverCount + 1}`) : undefined,
+      standingLabel: target.mode === 'standing'
+        ? (standingLabel?.trim() || target.standingLabel || `Walk-in #${standingEverCount + 1}`)
+        : undefined,
+      sessionId: target.sessionId,
     });
-    setOrder({});
-    setItemNotes({});
-    setIsPriorityRush(false);
-    setStandingLabel('');
-    triggerToast(`Order fired to kitchen · ${activeLabel}`);
-    setActiveTab('tables');
+    setPickerOpen(false);
+    // Stay on the tab we just added to, so the waiter sees the new lines land.
+    setTarget(t => (t ? {
+      ...t,
+      sessionId: t.sessionId ?? placed.sessionId,
+      standingLabel: placed.standingLabel ?? t.standingLabel,
+      title: t.mode === 'standing' && placed.standingLabel ? `Walk-in · ${placed.standingLabel}` : t.title,
+    } : t));
+    showToast(`Sent to kitchen · ${target.title}`);
   };
 
-  const serveOrder = (ticketId: string) => {
-    updateOrderStatus(ticketId, 'served');
-    triggerToast(`Ticket ${ticketId} served`);
+  const serve = (id: string) => {
+    updateOrderStatus(id, 'served');
+    showToast('Marked as served');
   };
 
-  const filteredMenu = useMemo(() => {
-    return menu.filter(item => {
-      const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-      const q = searchQuery.toLowerCase();
-      const matchesSearch = item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q);
-      return matchesCategory && matchesSearch;
-    });
-  }, [menu, activeCategory, searchQuery]);
-
-  const selectTable = (t: TableSel) => {
-    setActiveTable(t);
-    setActiveTab('menu');
-    if (t !== 'standing') setStandingLabel('');
-    triggerToast(t === 'standing' ? 'Standing / walk-in order' : `Switched to Table ${t}`);
+  /** Takeaway given to the customer / delivery given to the driver. It leaves
+   *  the board for good, on every device. */
+  const handOver = (tab: Tab) => {
+    markHandedOver(tab.sessionId);
+    setTarget(null);
+    showToast(tab.mode === 'delivery' ? `#${tab.orderNo} — with the driver` : `#${tab.orderNo} — handed over`);
   };
 
-  const cardBase = 'bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)]';
+  const handOverOrder = (o: Order) => {
+    if (!o.sessionId) return;
+    markHandedOver(o.sessionId);
+    showToast(o.mode === 'delivery' ? 'With the driver' : 'Handed over');
+  };
+
+  /* The waiter never takes the money. They tell the admin the table is ready
+     to pay; the admin raises the bill, takes payment and sends the invoice. */
+  const askAdminToBill = (tab: Tab) => {
+    requestBill(tab.sessionId);
+    setBillingFor(null);
+    setTarget(null);
+    showToast(`${tab.title} — admin asked to bill`);
+  };
 
   return (
-    <div className={`landing ${landingFonts} h-[100dvh] flex flex-col bg-brand-cream text-brand-ink font-body pb-[66px] lg:pb-0 selection:bg-brand-red selection:text-white`}>
-      {/* Toast */}
-      {toastMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-brand-wine text-white px-6 py-3 rounded-full font-body font-medium text-[11px] uppercase tracking-[0.18em] border border-brand-gold/40 shadow-xl flex items-center gap-2 animate-in slide-in-from-top-4">
-          <Check size={16} className="text-brand-gold" />
-          <span>{toastMessage}</span>
+    <div className={`landing ${landingFonts} flex min-h-[100dvh] flex-col bg-brand-cream pb-[88px] font-body text-brand-ink`}>
+      {toast && (
+        <div className="fixed left-1/2 top-3 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-full border border-brand-gold/40 bg-brand-wine px-5 py-2.5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-xl">
+          <Check size={15} className="text-brand-gold-light" /> {toast}
         </div>
       )}
 
-      <div className="flex-1 min-h-0 w-full max-w-[1700px] mx-auto p-3 sm:p-5 lg:p-6 flex flex-col gap-3 sm:gap-4">
-
-        {/* ============ TOP BAR ============ */}
-        <header className="shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-3 rounded-2xl md:rounded-full border border-brand-gold/25 bg-[#4f070c] p-2 md:py-2 md:pl-3 md:pr-2.5 shadow-[0_18px_44px_-14px_rgba(35,0,4,0.55)]">
-          <div className="flex items-center justify-between w-full md:w-auto gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <BrandMark sub="Waiter" compact />
-              <p className="hidden sm:block text-[9px] font-medium uppercase tracking-[0.22em] text-brand-gold-light/80 truncate">Station 2</p>
-            </div>
-            <div className="md:hidden flex items-center gap-1.5 rounded-full border border-brand-gold/30 px-2.5 py-1.5 shrink-0 text-brand-gold-light">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[9px] font-medium uppercase tracking-[0.18em]">{activeLabel}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="relative flex-1 md:w-64">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-gold-light/70" size={14} />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search dishes…"
-                className="w-full rounded-full border border-white/20 bg-white/[0.07] py-2 pl-10 pr-9 text-xs font-light text-white placeholder-white/45 transition-all focus:border-brand-gold-light/70 focus:outline-none"
-              />
-              {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/60 hover:text-white">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 border-b border-brand-gold/20 bg-[#4f070c] px-3 py-2.5 sm:px-5">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-3">
+          <BrandMark sub="Waiter" compact />
+          <div className="flex items-center gap-2">
+            <span className="hidden items-center gap-1.5 rounded-full border border-brand-gold/30 px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-green-300 sm:inline-flex">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" /> Live
+            </span>
             <button
-              onClick={() => setMuted(m => !m)}
-              title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
-              className={`btn shrink-0 relative h-9 w-9 p-0 ${muted ? 'text-white/50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)] hover:text-white' : 'btn-outline-light'}`}
+              onClick={() => setAlertsOpen(true)}
+              aria-label={`Alerts and kitchen feed${alertCount ? ` — ${alertCount} need you` : ''}`}
+              className={`relative grid h-9 w-9 place-items-center rounded-full border transition-colors ${
+                alertCount ? 'border-brand-red bg-brand-red text-white' : 'border-brand-gold/50 text-brand-gold-light'
+              }`}
             >
-              {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
-              {!muted && readyOrders.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-brand-gold animate-ping" />
+              {alertCount ? <BellRing size={16} /> : <Bell size={16} />}
+              {alertCount > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full border-2 border-[#4f070c] bg-white px-1 text-[10px] font-bold leading-none text-brand-red">
+                  {alertCount}
+                </span>
               )}
             </button>
-
-            <div className="hidden lg:flex items-center gap-1.5 rounded-full border border-brand-gold/30 py-1 px-3 shrink-0 text-brand-gold-light">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping" />
-              <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-green-300">Live</span>
-            </div>
+            <button
+              onClick={() => setMuted(m => !m)}
+              aria-label={muted ? 'Turn sound alerts on' : 'Turn sound alerts off'}
+              className={`grid h-9 w-9 place-items-center rounded-full border transition-colors ${
+                muted ? 'border-white/20 text-white/50' : 'border-brand-gold/50 text-brand-gold-light'
+              }`}
+            >
+              {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
           </div>
-        </header>
-
-        {/* ============ ALERTS PAGE (ready pickups + waiter calls + deliveries + incoming) ============ */}
-        {activeTab === 'alerts' ? (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 content-start gap-4 min-h-0 overflow-y-auto custom-scrollbar pb-20 lg:pb-20">
-            <AlertsSection
-              title="Ready to serve — pick up now"
-              icon={BellRing}
-              emptyText="No tickets waiting for pickup."
-              pageLabel="pickups"
-              items={readyOrders.map(o => ({
-                id: o.id,
-                title: orderLabel(o),
-                subtitle: `#${o.id.split('-')[1]} · ${o.items.reduce((s, i) => s + i.qty, 0)} items · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                actionLabel: 'Serve',
-                actionIcon: Check,
-                onAction: () => serveOrder(o.id),
-              }))}
-            />
-            <AlertsSection
-              title="Tables calling a waiter"
-              icon={Bell}
-              emptyText="No active waiter calls."
-              pageLabel="calls"
-              items={activeWaiterCalls.map(call => ({
-                id: call.id,
-                title: `Table ${call.table}`,
-                subtitle: new Date(call.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                actionLabel: 'Resolve',
-                onAction: () => resolveWaiterCall(call.id),
-              }))}
-            />
-            <AlertsSection
-              title="Deliveries out"
-              icon={Truck}
-              emptyText="No active deliveries."
-              pageLabel="deliveries"
-              items={activeDeliveryOrders.map(o => ({
-                id: o.id,
-                title: `Delivery · ${o.customer?.name || o.id.split('-')[1]}`,
-                subtitle: `${formatKWD(o.total)} · ${o.status} · ${new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-                actionLabel: o.status === 'ready' ? 'Mark served' : 'View',
-                actionIcon: o.status === 'ready' ? Check : undefined,
-                onAction: () => { if (o.status === 'ready') serveOrder(o.id); },
-              }))}
-            />
-            <AlertsSection
-              title="Incoming — need admin approval"
-              icon={Bell}
-              emptyText="No incoming orders waiting."
-              pageLabel="incoming"
-              items={placedOrders.filter(o => o.status === 'awaiting_admin').map(o => ({
-                id: o.id,
-                title: `${orderLabel(o)}${o.customer?.name ? ' · ' + o.customer.name : ''}`,
-                subtitle: `${formatKWD(o.total)} · ${o.items.reduce((s, i) => s + i.qty, 0)} items · waiting approval`,
-                actionLabel: 'View',
-                onAction: () => { /* notification only — admin approves it */ },
-              }))}
-            />
-          </div>
-        ) : (
-        <>
-        {/* ============ MAIN LAYOUT — menu+ticket side by side on desktop ============ */}
-        <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'menu' ? 'lg:flex-row' : ''} gap-4`}>
-
-          {/* LEFT: tables + kitchen feed */}
-          <aside className={`w-full gap-4 min-h-0 overflow-y-auto custom-scrollbar pr-1 pb-20 lg:pb-20 ${activeTab !== 'tables' ? 'hidden' : 'flex flex-col lg:grid lg:grid-cols-2'}`}>
-            {/* Tables */}
-            <div className={`${cardBase} p-4`}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
-                  <Hash size={14} className="text-brand-red" /> Floor Tables
-                </h3>
-                <div className="flex gap-1 bg-brand-sand p-1 rounded-full">
-                  {(['all', 'occupied'] as const).map(f => (
-                    <button
-                      key={f}
-                      onClick={() => setTableFilter(f)}
-                      className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.14em] transition-colors ${tableFilter === f ? 'bg-brand-wine text-brand-gold-light' : 'text-brand-ink/50 hover:text-brand-ink'}`}
-                    >
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                {tableNumbers
-                  .filter(t => (tableFilter === 'occupied' ? tablesStatus[t] === 'occupied' : true))
-                  .map(t => {
-                    const status = tablesStatus[t] || 'available';
-                    const isSelected = activeTable === t;
-                    const activeCount = placedOrders.filter(o => o.table === t && o.mode !== 'standing' && o.mode !== 'takeaway' && o.status !== 'served').length;
-                    const hasReady = placedOrders.some(o => o.table === t && o.mode !== 'standing' && o.status === 'ready');
-                    const isCalling = calledTables.has(t);
-                    return (
-                      <button
-                        key={t}
-                        onClick={() => selectTable(t)}
-                        className={`aspect-square rounded-full flex flex-col items-center justify-center gap-0.5 transition-all font-semibold relative border ${
-                          isSelected
-                            ? 'bg-brand-wine text-brand-gold-light border-brand-gold shadow-md scale-[1.03]'
-                            : isCalling
-                            ? 'bg-red-50 text-brand-red border-red-300 animate-pulse'
-                            : hasReady
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                            : status === 'occupied'
-                            ? 'bg-brand-sand text-brand-ink border-brand-gold/40'
-                            : 'bg-white text-brand-ink/70 border-brand-gold/20 hover:border-brand-red/40'
-                        }`}
-                      >
-                        <span className={`text-[9px] font-bold ${isSelected ? 'text-brand-gold-light/80' : 'text-brand-ink/40'}`}>TBL</span>
-                        <span className="font-wordmark text-2xl leading-none">{t}</span>
-                        {isCalling && (
-                          <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand-red text-white flex items-center justify-center border-2 border-white">
-                            <Bell size={10} />
-                          </span>
-                        )}
-                        {activeCount > 0 && (
-                          <span className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-brand-ink text-white text-[10px] font-semibold flex items-center justify-center border-2 border-white">
-                            {activeCount}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-              </div>
-
-              {/* Standing / walk-in */}
-              <button
-                onClick={() => selectTable('standing')}
-                className={`mt-3 w-full rounded-full border px-5 py-3 flex items-center gap-2.5 font-medium text-sm transition-all ${
-                  activeTable === 'standing'
-                    ? 'bg-brand-wine text-brand-gold-light border-brand-gold shadow-md'
-                    : 'bg-white text-brand-ink border-dashed border-brand-gold/50 hover:border-brand-red/50'
-                }`}
-              >
-                <PersonStanding size={18} className={activeTable === 'standing' ? 'text-white' : 'text-brand-red'} />
-                <span className="flex-1 text-left leading-tight">
-                  Standing / Walk-in
-                  <span className={`block text-[10px] font-medium ${activeTable === 'standing' ? 'text-brand-gold-light/80' : 'text-brand-ink/45'}`}>
-                    No table — customer stands & eats
-                  </span>
-                </span>
-                {standingActiveCount > 0 && (
-                  <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${activeTable === 'standing' ? 'bg-white/20' : 'bg-brand-red/10 text-brand-red'}`}>
-                    {standingActiveCount}
-                  </span>
-                )}
-              </button>
-
-              {canBill && activeTable !== 'standing' && (
-                <div className="mt-4">
-                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Hash size={11} /> Table {activeTable} Actions</p>
-                  <div className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/[0.03] p-3.5 flex flex-col gap-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Table {activeTable}</h4>
-                        <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{activeOrdersForActiveTable.length} order{activeOrdersForActiveTable.length !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}</span></p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <button
-                        onClick={() => setActiveTab('menu')}
-                        className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
-                      >
-                        <Plus size={14} /> Add Items
-                      </button>
-                      <button
-                        onClick={() => setBillingSessionId(currentSessionId || null)}
-                        className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
-                      >
-                        <Banknote size={14} /> Bill
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeStandingSessions.length > 0 && (
-                <div className="mt-2.5">
-                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Users size={11} /> Active Standing Sessions</p>
-                  <div className="flex flex-col gap-1.5">
-                    {activeStandingSessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">{s.label}</h4>
-                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount > 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <button
-                            onClick={() => { setActiveTable('standing'); setStandingLabel(s.label); setActiveTab('menu'); triggerToast(`Resumed: ${s.label}`); }}
-                            className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
-                          >
-                            <Plus size={14} /> Add Items
-                          </button>
-                          <button
-                            onClick={() => setBillingSessionId(s.sessionId)}
-                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
-                          >
-                            <Banknote size={14} /> Bill
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTableSessions.length > 0 && (
-                <div className="mt-2.5">
-                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><Hash size={11} /> Active Floor Tables</p>
-                  <div className="flex flex-col gap-1.5">
-                    {activeTableSessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Table {s.table}</h4>
-                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <button
-                            onClick={() => { setActiveTable(s.table); setActiveTab('menu'); }}
-                            className="btn btn-outline flex-1 px-3 py-3 text-[10px]"
-                          >
-                            <Plus size={14} /> Add Items
-                          </button>
-                          <button
-                            onClick={() => setBillingSessionId(s.sessionId)}
-                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
-                          >
-                            <Banknote size={14} /> Bill
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTakeawaySessions.length > 0 && (
-                <div className="mt-2.5">
-                  <p className="text-[10px] font-medium text-brand-gold-dark uppercase tracking-[0.2em] mb-2 flex items-center gap-1"><ShoppingBag size={11} /> Active Takeaway Orders</p>
-                  <div className="flex flex-col gap-1.5">
-                    {activeTakeawaySessions.map(s => (
-                      <div key={s.sessionId} className="w-full rounded-2xl border border-brand-gold/30 bg-brand-cream/50 p-3.5 flex flex-col gap-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">Takeaway #{s.id}</h4>
-                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">{s.orderCount} order{s.orderCount !== 1 ? 's' : ''} · <span className="font-bold text-brand-red">{formatKWD(s.total)}</span></p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <button
-                            onClick={() => setBillingSessionId(s.sessionId)}
-                            className="btn btn-wine flex-1 px-3 py-3 text-[10px]"
-                          >
-                            <Banknote size={14} /> Bill
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Delivery queue — admin-approved orders waiting for the
-                  driver / pickup handoff. One card per order (no sessions). */}
-              {activeDeliveryOrders.length > 0 && (
-                <div className="mt-2.5">
-                  <p className="text-[10px] font-medium text-brand-red uppercase tracking-[0.2em] mb-2 flex items-center gap-1">
-                    <ShoppingBag size={11} /> Deliveries Out
-                  </p>
-                  <div className="flex flex-col gap-1.5">
-                    {activeDeliveryOrders.map(o => (
-                      <div key={o.id} className="w-full rounded-2xl border border-brand-red/30 bg-brand-red/5 p-3.5 flex flex-col gap-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-wordmark text-xl uppercase tracking-[0.012em] leading-none text-brand-wine truncate">
-                              Delivery · {o.customer?.name || `#${o.id.split('-')[1]}`}
-                            </h4>
-                            <p className="text-[11px] font-medium text-brand-ink/50 mt-0.5">
-                              {o.customer?.phone ? `${o.customer.phone} · ` : ''}
-                              <span className="font-bold text-brand-red">{formatKWD(o.total)}</span>
-                            </p>
-                            {o.deliveryAddress && (
-                              <p className="text-[11px] text-brand-ink/55 mt-1 leading-relaxed">
-                                {[
-                                  o.deliveryAddress.governorate,
-                                  o.deliveryAddress.area,
-                                  o.deliveryAddress.street && `St ${o.deliveryAddress.street}`,
-                                  o.deliveryAddress.building && `Bldg ${o.deliveryAddress.building}`,
-                                ].filter(Boolean).join(' · ')}
-                              </p>
-                            )}
-                          </div>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${
-                            o.status === 'ready' ? 'bg-emerald-500/15 text-emerald-700' :
-                            o.status === 'cooking' ? 'bg-brand-red/15 text-brand-red' :
-                            'bg-gray-500/15 text-gray-700'
-                          }`}>
-                            {o.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Kitchen live feed */}
-            <KitchenFeedCard
-              cardClass={cardBase}
-              tickets={placedOrders.filter(o => o.status !== 'served')}
-              onServe={serveOrder}
-            />
-          </aside>
-
-          {/* CENTER: menu */}
-          <main className={`flex-1 ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab !== 'menu' ? 'hidden' : 'flex'}`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-brand-gold/20 shrink-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-wordmark text-3xl uppercase tracking-[0.012em] leading-none text-brand-wine">Menu</h2>
-                <span className="text-[10px] px-3 py-1.5 rounded-full bg-brand-sand text-brand-wine font-medium uppercase tracking-[0.16em] flex items-center gap-1">
-                  {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
-                </span>
-                {activeOrdersForActiveTable.length > 0 && (
-                  <span className="text-[10px] px-3 py-1.5 rounded-full bg-brand-red/10 text-brand-red font-medium uppercase tracking-[0.16em]">
-                    {activeOrdersForActiveTable.length} in · {formatKWD(activeOrdersForActiveTable.reduce((s, o) => s + o.total, 0))}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1">
-                {['All', ...MENU_CATEGORIES].map(cat => {
-                  const isActive = activeCategory === cat;
-                  const count = cat === 'All' ? menu.length : menu.filter(m => m.category === cat).length;
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => setActiveCategory(cat)}
-                      className={`px-4 py-2 rounded-full text-[10px] font-medium uppercase tracking-[0.18em] whitespace-nowrap flex items-center gap-1.5 border transition-all ${
-                        isActive
-                          ? 'bg-brand-wine text-brand-gold-light border-brand-wine shadow-sm'
-                          : 'bg-white text-brand-ink/60 hover:text-brand-ink border-brand-gold/25'
-                      }`}
-                    >
-                      {cat}
-                      <span className={`text-[10px] px-1.5 rounded-full font-semibold ${isActive ? 'bg-white/20' : 'bg-brand-sand text-brand-ink/50'}`}>{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-20 lg:pb-20">
-              {filteredMenu.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-brand-ink/30 py-12">
-                  <Search size={44} className="mb-3 opacity-40" />
-                  <p className="font-bold text-sm">No items found</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                  {filteredMenu.map(item => {
-                    const currentQty = order[item.id] || 0;
-                    return (
-                      <div
-                        key={item.id}
-                        className={`flex items-stretch gap-2.5 rounded-xl border p-2 transition-all ${
-                          currentQty > 0 ? 'border-brand-red/50 bg-brand-red/[0.04] shadow-[0_14px_30px_-22px_rgba(176,30,40,0.55)]' : 'border-brand-gold/25 bg-white hover:border-brand-red/40 hover:shadow-[0_14px_30px_-24px_rgba(74,21,21,0.45)]'
-                        }`}
-                      >
-                        {/* Thumbnail — small square so the text can breathe. */}
-                        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-brand-sand sm:h-[72px] sm:w-[72px]">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="h-full w-full object-cover"
-                            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                          />
-                        </div>
-
-                        {/* Main: name + price + a tiny meta row + add button. */}
-                        <div className="flex min-w-0 flex-1 flex-col justify-between gap-1.5">
-                          <div className="min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <h4
-                                className="min-w-0 flex-1 truncate font-wordmark text-[14px] uppercase leading-tight tracking-[0.012em] text-brand-wine sm:text-[15px]"
-                                style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
-                              >{item.name}</h4>
-                              <span
-                                className="shrink-0 font-wordmark text-[14px] leading-none text-brand-red sm:text-[16px]"
-                                style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom right', display: 'inline-block' }}
-                              >{formatKWD(item.price)}</span>
-                            </div>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                              {item.isChefSpecial && (
-                                <span className="rounded-full bg-brand-gold px-1.5 py-[1px] font-body text-[8px] font-semibold uppercase tracking-[0.12em] text-brand-ink">Chef</span>
-                              )}
-                              {item.isSpicy && (
-                                <span className="rounded-full bg-brand-red px-1.5 py-[1px] font-body text-[8px] font-semibold uppercase tracking-[0.12em] text-white">Spicy</span>
-                              )}
-                              <span className="font-body text-[8.5px] font-medium uppercase tracking-[0.16em] text-brand-ink/45">{item.prepTime}</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-end">
-                            {currentQty > 0 ? (
-                              <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
-                                <button onClick={() => removeFromOrder(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-red shadow-sm transition-transform hover:scale-105 active:scale-95"><Minus size={13} /></button>
-                                <span
-                                  className="w-5 text-center font-wordmark text-base text-brand-wine"
-                                  style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}
-                                >{currentQty}</span>
-                                <button onClick={() => addToOrder(item.id)} aria-label={`Add one ${item.name}`} className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95"><Plus size={13} /></button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => addToOrder(item.id)}
-                                className="btn btn-wine h-8 min-w-[64px] gap-1 px-3 text-[10px] transition-transform hover:scale-[1.03] active:scale-95"
-                              >
-                                <Plus size={13} strokeWidth={2.2} /> Add
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </main>
-
-          {/* RIGHT: current ticket — visible alongside menu on desktop */}
-          <aside className={`w-full ${activeTab === 'menu' ? 'lg:w-[25%] lg:min-w-[320px] lg:shrink-0' : 'max-w-2xl mx-auto'} ${cardBase} p-4 sm:p-5 flex-col overflow-hidden ${activeTab === 'ticket' ? 'flex' : activeTab === 'menu' ? 'hidden lg:flex' : 'hidden'}`}>
-            <div className="flex items-center justify-between mb-3 pb-3 border-b border-brand-gold/20 shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center">
-                  <Receipt size={20} />
-                </div>
-                <div>
-                  <h2 className="font-wordmark text-2xl uppercase tracking-[0.012em] leading-none text-brand-wine">Current Ticket</h2>
-                  <p className="text-xs text-brand-ink/50 flex items-center gap-1">
-                    {activeTable === 'standing' ? <PersonStanding size={12} /> : <Hash size={12} />} {activeLabel}
-                  </p>
-                </div>
-              </div>
-              {orderItemCount > 0 && (
-                <button onClick={clearOrder} title="Clear ticket" className="p-2 text-brand-ink/40 hover:text-brand-red hover:bg-brand-red/10 rounded-lg transition-colors">
-                  <Trash2 size={16} />
-                </button>
-              )}
-            </div>
-
-            {activeTable === 'standing' && (
-              <div className="mb-3 shrink-0">
-                <label className="text-[11px] font-bold text-brand-ink/50 mb-1 block">Walk-in name/tag (optional)</label>
-                <input
-                  type="text"
-                  value={standingLabel}
-                  onChange={(e) => setStandingLabel(e.target.value)}
-                  placeholder={`e.g. Ahmed, Family of 4 — defaults to "Walk-in #${standingEverCount + 1}"`}
-                  className="w-full bg-brand-cream/60 text-sm px-4 py-2.5 rounded-full border border-brand-gold/30 focus:outline-none focus:border-brand-red transition-all"
-                />
-              </div>
-            )}
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-2.5 min-h-[180px] pb-4">
-              {Object.keys(order).length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/35 p-8 text-center border-2 border-dashed border-brand-gold/30 rounded-2xl">
-                  <Utensils size={40} className="mb-3 opacity-40" />
-                  <p className="font-bold text-sm text-brand-ink/50">No items yet</p>
-                  <p className="text-xs text-brand-ink/40 mt-1">Tap “Add” on any dish</p>
-                </div>
-              ) : (
-                Object.entries(order).map(([id, qty]) => {
-                  const item = menu.find(m => m.id === id);
-                  if (!item) return null;
-                  const hasNote = Boolean(itemNotes[id]);
-                  return (
-                    <div key={id} className="bg-brand-cream/50 p-2.5 rounded-2xl border border-brand-gold/25 flex flex-col gap-2">
-                      <div className="flex items-center gap-2.5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.image} alt={item.name} className="w-11 h-11 rounded-lg object-cover shrink-0 bg-brand-sand" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-wordmark text-lg uppercase tracking-[0.012em] leading-tight text-brand-wine truncate">{item.name}</h5>
-                          <p className="font-wordmark text-base text-brand-red">{formatKWD(item.price * qty)}</p>
-                        </div>
-                        <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-brand-gold/25 shrink-0">
-                          <button onClick={() => removeFromOrder(id)} className="w-7 h-7 rounded-md bg-brand-cream text-brand-red flex items-center justify-center hover:bg-brand-red/10 active:scale-95"><Minus size={13} /></button>
-                          <span className="font-semibold text-xs w-5 text-center">{qty}</span>
-                          <button onClick={() => addToOrder(id)} className="btn btn-wine h-7 w-7 p-0"><Plus size={13} /></button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-brand-gold/15">
-                        {editingNoteFor === id ? (
-                          <div className="flex items-center gap-1.5 w-full">
-                            <input
-                              type="text"
-                              placeholder="e.g. extra sauce, no nuts…"
-                              value={itemNotes[id] || ''}
-                              onChange={(e) => setItemNotes({ ...itemNotes, [id]: e.target.value })}
-                              className="flex-1 bg-white text-xs px-2 py-1 rounded border border-brand-red/40 focus:outline-none"
-                              autoFocus
-                            />
-                            <button onClick={() => setEditingNoteFor(null)} className="px-3 py-1 bg-brand-wine text-white font-medium rounded-full text-[10px] uppercase tracking-[0.14em]">Done</button>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-brand-ink/50 truncate max-w-[180px]">{hasNote ? `Note: ${itemNotes[id]}` : 'No note'}</span>
-                            <button onClick={() => setEditingNoteFor(id)} className="text-brand-red font-bold text-[10px] flex items-center gap-0.5 shrink-0">
-                              <FileText size={10} /> {hasNote ? 'Edit' : 'Add note'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="mt-3 pt-3 border-t border-brand-gold/20 shrink-0">
-              <div className="space-y-1.5 mb-3 text-xs font-medium text-brand-ink/60">
-                <div className="flex justify-between"><span>Subtotal</span><span className="text-brand-ink font-bold">{formatKWD(subtotal)}</span></div>
-                <div className="flex justify-between items-center pt-2 border-t border-brand-gold/20 text-base">
-                  <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Total</span>
-                  <span className="font-wordmark text-3xl text-brand-red">{formatKWD(orderTotal)}</span>
-                </div>
-              </div>
-              <button
-                onClick={submitOrder}
-                disabled={orderItemCount === 0}
-                className="btn btn-wine w-full py-5 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Send size={18} /> Fire to Kitchen ({orderItemCount})
-              </button>
-              {canBill && activeTable !== 'standing' && (
-                <button
-                  onClick={() => setBillingSessionId(currentSessionId || null)}
-                  className="btn btn-outline w-full mt-2 py-4"
-                >
-                  <Banknote size={18} /> Close Bill · Table {activeTable}
-                </button>
-              )}
-            </div>
-          </aside>
         </div>
-        </>
+      </header>
+
+      <main className="mx-auto w-full max-w-[1500px] flex-1 px-3 py-4 sm:px-5">
+        {lane === 'tables' && (
+          <TablesLane
+            tables={tables}
+            tabByTable={tabByTable}
+            callingTables={callingTables}
+            standingTabs={standingTabs}
+            now={now}
+            onOpenTable={openTable}
+            onOpenTab={openTab}
+            onStartWalkIn={startWalkIn}
+          />
         )}
-      </div>
 
-      {/* Mobile quick bar (menu tab, items selected) */}
-      {orderItemCount > 0 && activeTab === 'menu' && (
-        <div className="lg:hidden fixed bottom-[70px] left-3 right-3 bg-brand-wine text-white rounded-full border border-brand-gold/40 p-2 pl-3 shadow-xl shadow-black/30 flex items-center justify-between z-40">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-brand-gold-light/25 flex items-center justify-center font-wordmark text-lg">{orderItemCount}</div>
-            <div>
-              <p className="text-xs font-bold opacity-90">{activeLabel}</p>
-              <p className="font-wordmark text-xl text-brand-gold-light leading-none">{formatKWD(orderTotal)}</p>
-            </div>
-          </div>
-          <button onClick={() => setActiveTab('ticket')} className="btn btn-gold px-5 py-3 text-[10px]">
-            Review <ChevronRight size={15} />
-          </button>
-        </div>
-      )}
+        {lane === 'takeaway' && (
+          <HomeLane mode="takeaway" tabs={takeawayTabs} now={now} onOpen={openTab} onHandOver={handOver} />
+        )}
 
-      {/* Billing modal */}
-      {billingSessionId && (
-        <BillingModal
-          sessionOrders={sessionOrders}
-          sessionId={billingSessionId}
-          onClose={() => setBillingSessionId(null)}
-          onConfirm={() => {
-            billSession(billingSessionId);
-            setBillingSessionId(null);
-            triggerToast('Bill closed — table is now free');
-            setActiveTab('tables');
-          }}
+        {lane === 'delivery' && (
+          <HomeLane mode="delivery" tabs={deliveryTabs} now={now} onOpen={openTab} onHandOver={handOver} />
+        )}
+      </main>
+
+      {/* ── Detail panel ───────────────────────────────────────────────────── */}
+      {panel && !pickerOpen && (
+        <TabDetail
+          target={panel}
+          tab={activeTab}
+          now={now}
+          onClose={() => setTarget(null)}
+          onAddItems={() => setPickerOpen(true)}
+          onServe={serve}
+          onHandOver={handOver}
+          onBill={() => activeTab && setBillingFor(activeTab)}
         />
       )}
 
-      {/* Section nav — floating pill, centered at the bottom on every size.
-          Compact on mobile so the menu and ticket get the room. */}
-      <nav className="fixed left-1/2 -translate-x-1/2 bottom-3 lg:bottom-4 rounded-full border border-brand-gold/35 bg-[#4f070c]/95 backdrop-blur-md flex items-center gap-0.5 lg:gap-1 px-1.5 lg:px-3 py-1.5 z-50 shadow-[0_14px_36px_-10px_rgba(35,0,4,0.55)]">
-        {([
-          { key: 'tables', icon: Hash, label: 'Tables', badge: 0 },
-          { key: 'menu', icon: Utensils, label: 'Menu', badge: 0 },
-          { key: 'ticket', icon: Receipt, label: 'Ticket', badge: orderItemCount },
-          { key: 'alerts', icon: Bell, label: 'Alerts', badge: activeWaiterCalls.length + readyOrders.length + activeDeliveryOrders.length + placedOrders.filter(o => o.status === 'awaiting_admin').length },
-        ] as const).map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`relative flex flex-col items-center gap-0.5 px-3 lg:px-5 py-1 lg:py-1.5 rounded-full transition-all ${
-              tab.key === 'ticket' ? 'lg:hidden ' : ''
-            }${
-              activeTab === tab.key ? 'text-brand-gold-light bg-white/10' : 'text-white/55 hover:text-white'
-            }`}
-          >
-            <tab.icon size={16} className="lg:[&]:w-5 lg:[&]:h-5" />
-            <span className="text-[8px] lg:text-[9px] uppercase tracking-[0.18em] font-medium">{tab.label}</span>
-            {tab.badge > 0 && (
-              <span className="absolute -top-0.5 right-1.5 lg:right-3 w-3.5 h-3.5 lg:w-4 lg:h-4 bg-brand-gold text-brand-wine text-[9px] lg:text-[10px] font-semibold rounded-full flex items-center justify-center animate-pulse">
-                {tab.badge}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* ── Item picker ────────────────────────────────────────────────────── */}
+      {panel && pickerOpen && (
+        <ItemPicker
+          menu={menu}
+          target={panel}
+          onCancel={() => setPickerOpen(false)}
+          onFire={fireOrder}
+        />
+      )}
+
+      {billingFor && (
+        <BillSheet tab={billingFor} onClose={() => setBillingFor(null)} onConfirm={() => askAdminToBill(billingFor)} />
+      )}
+
+      {/* ── Alerts + kitchen feed, one drawer, reachable from every tab ───── */}
+      {alertsOpen && (
+        <AlertsSheet
+          calls={openCalls}
+          ready={readyOrders}
+          handover={handoverOrders}
+          tickets={kitchenTickets}
+          onClose={() => setAlertsOpen(false)}
+          onResolve={(id) => { resolveWaiterCall(id); showToast('Call cleared'); }}
+          onServe={serve}
+          onHandOver={handOverOrder}
+        />
+      )}
+
+      {/* ── Bottom nav ─────────────────────────────────────────────────────── */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-brand-gold/25 bg-[#4f070c]/97 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+        <div className="mx-auto flex max-w-md items-stretch">
+          {([
+            { key: 'tables', icon: Hash, label: 'Tables', badge: dineInTabs.length + standingTabs.length, urgent: false },
+            { key: 'takeaway', icon: ShoppingBag, label: 'Takeaway', badge: takeawayTabs.length, urgent: takeawayTabs.some(t => t.readyToHandOver) },
+            { key: 'delivery', icon: Truck, label: 'Delivery', badge: deliveryTabs.length, urgent: deliveryTabs.some(t => t.readyToHandOver) },
+          ] as const).map(t => (
+            <button
+              key={t.key}
+              onClick={() => { setLane(t.key); setTarget(null); }}
+              aria-current={lane === t.key}
+              className={`relative flex flex-1 flex-col items-center gap-1 py-3 transition-colors ${
+                lane === t.key ? 'text-brand-gold-light' : 'text-white/55'
+              }`}
+            >
+              <t.icon size={20} />
+              <span className="text-[9.5px] font-bold uppercase tracking-[0.18em]">{t.label}</span>
+              {t.badge > 0 && (
+                <span className={`absolute right-[22%] top-1.5 min-w-[18px] rounded-full px-1 text-[10px] font-bold leading-[18px] ${
+                  t.urgent ? 'bg-brand-green text-white' : 'bg-brand-gold text-brand-wine'
+                }`}>
+                  {t.badge}
+                </span>
+              )}
+              {lane === t.key && <span className="absolute inset-x-6 top-0 h-[3px] rounded-b-full bg-brand-gold" />}
+            </button>
+          ))}
+        </div>
       </nav>
     </div>
   );
 }
 
-function KitchenFeedCard({
-  cardClass,
-  tickets,
-  onServe,
+/* ════════════════════════════════════════════════════════════════════════════
+   Tables lane — the floor plan and every open tab
+   ════════════════════════════════════════════════════════════════════════ */
+
+function TablesLane({
+  tables, tabByTable, callingTables, standingTabs,
+  now, onOpenTable, onOpenTab, onStartWalkIn,
 }: {
-  cardClass: string;
-  tickets: Order[];
-  onServe: (id: string) => void;
+  tables: { id: string; number: number; label: string; seats: number; zone: string }[];
+  tabByTable: Map<number, Tab>;
+  callingTables: Set<number>;
+  standingTabs: Tab[];
+  now: number;
+  onOpenTable: (n: number) => void;
+  onOpenTab: (t: Tab) => void;
+  onStartWalkIn: () => void;
 }) {
-  // 6 tickets per page keeps the card at a predictable height on desktop and
-  // gives the pagination a reason to appear once the kitchen gets busy.
-  const pager = usePagination(tickets, 6, `kitchen|${tickets.length}`);
+  const busy = tables.filter(t => tabByTable.has(t.number)).length;
+
   return (
-    <div className={`${cardClass} p-4 flex-1 flex flex-col overflow-hidden min-h-[240px]`}>
-      <div className="flex items-center justify-between mb-3 pb-2 border-b border-brand-gold/20">
-        <h3 className="text-[10.5px] font-medium text-brand-gold-dark uppercase tracking-[0.24em] flex items-center gap-1.5">
-          <Coffee size={14} className="text-brand-red" /> Kitchen Feed
-        </h3>
-        <span className="px-3 py-1 rounded-full bg-brand-red/10 text-brand-red text-[10px] font-medium uppercase tracking-[0.16em]">
-          {tickets.length} active
-        </span>
-      </div>
-      {tickets.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-brand-ink/30 p-6 text-center">
-          <Coffee size={36} className="mb-2 opacity-40" />
-          <p className="text-xs font-bold">No active tickets</p>
+    <div className="flex flex-col gap-5">
+      <Hint>Tap a table to see what they ordered, add more items, or close their bill. Takeaway and delivery have their own tabs below.</Hint>
+
+      <section className={`${card} p-4 sm:p-5`}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className={sectionTitle}><Hash size={14} className="text-brand-red" /> Floor plan</h2>
+          <span className="rounded-full bg-brand-sand px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-wine">
+            {busy} of {tables.length} busy
+          </span>
         </div>
-      ) : (
-        <>
-          <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-3">
-            {pager.items.map(ticket => (
-              <div
-                key={ticket.id}
-                className={`p-3.5 rounded-2xl border transition-all ${
-                  ticket.priority === 'high'
-                    ? 'border-brand-red/40 bg-brand-red/5'
-                    : ticket.status === 'ready'
-                    ? 'border-emerald-300 bg-emerald-50'
-                    : 'border-brand-gold/20 bg-brand-cream/40'
-                }`}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-wordmark text-xl uppercase tracking-[0.012em] text-brand-wine">{orderLabel(ticket)}</span>
-                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-brand-ink/5 text-brand-ink/50 font-mono">#{ticket.id.split('-')[1]}</span>
-                      {ticket.source === 'customer' && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-plum/10 text-brand-plum font-bold uppercase">Self</span>
-                      )}
-                    </div>
-                    <span className="text-xs text-brand-ink/45 flex items-center gap-1 mt-0.5">
-                      <Clock size={12} /> {new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  {ticket.priority === 'high' && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red text-white shrink-0">
-                      <Flame size={11} /> Rush
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-brand-ink/70 space-y-1 mb-2.5">
-                  {ticket.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between gap-2">
-                      <span className="truncate">{item.name}{item.notes ? ` · ${item.notes}` : ''}</span>
-                      <span className="font-bold text-brand-red">×{item.qty}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[10px] font-medium uppercase tracking-[0.16em] ${
-                    ticket.status === 'ready' ? 'bg-emerald-100 text-emerald-700'
-                    : ticket.status === 'cooking' ? 'bg-brand-red/10 text-brand-red'
-                    : 'bg-brand-ink/5 text-brand-ink/50'
-                  }`}>
-                    {ticket.status === 'ready' ? <PackageCheck size={12} /> : <Coffee size={12} />}
-                    {ticket.status === 'pending' ? 'waiting' : ticket.status}
+
+        {tables.length === 0 ? (
+          <Empty icon={Hash} text="No tables yet. The admin adds them under Table Management." />
+        ) : (
+          <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8">
+            {tables.map(t => {
+              const tab = tabByTable.get(t.number);
+              const calling = callingTables.has(t.number);
+              const tone = calling
+                ? 'border-brand-red bg-brand-red text-white'
+                : tab?.hasReady
+                ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                : tab?.billRequested
+                ? 'border-brand-gold bg-brand-gold/20 text-brand-wine'
+                : tab
+                ? 'border-brand-wine/40 bg-brand-sand text-brand-wine'
+                : 'border-brand-gold/25 bg-white text-brand-ink/55';
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => onOpenTable(t.number)}
+                  className={`relative flex min-h-[96px] flex-col items-center justify-center gap-0.5 rounded-2xl border-2 p-2 transition-transform active:scale-[0.97] ${tone}`}
+                >
+                  <span className="text-[9px] font-bold uppercase tracking-[0.16em] opacity-60">
+                    {t.label?.trim() ? t.label : 'Table'}
                   </span>
-                  {ticket.status === 'ready' && (
-                    <button
-                      onClick={() => onServe(ticket.id)}
-                      className="btn bg-brand-green text-white px-4 py-2.5 text-[10px] hover:brightness-110"
-                    >
-                      <Check size={13} /> Serve
-                    </button>
+                  <span className="font-wordmark text-[30px] leading-none">{t.number}</span>
+                  <span className="text-[10px] font-bold">
+                    {tab ? formatKWD(tab.total) : 'Free'}
+                  </span>
+                  {calling && (
+                    <span className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-brand-red text-white">
+                      <Bell size={11} />
+                    </span>
                   )}
-                </div>
-              </div>
-            ))}
+                  {!calling && tab?.hasReady && (
+                    <span className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full border-2 border-white bg-emerald-500 text-white">
+                      <PackageCheck size={11} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-          <Pagination p={pager} label="tickets" />
-        </>
-      )}
+        )}
+
+        <Legend />
+      </section>
+
+      <TabGroup
+        title="Walk-ins (standing)"
+        icon={PersonStanding}
+        tabs={standingTabs}
+        now={now}
+        onOpen={onOpenTab}
+        empty="No walk-in guests right now."
+        action={{ label: 'New walk-in', onClick: onStartWalkIn }}
+      />
+
     </div>
   );
 }
 
-function AlertsSection({
-  title,
-  icon: Icon,
-  items,
-  emptyText,
-  pageSize = 9,
-  pageLabel = 'alerts',
+/* ════════════════════════════════════════════════════════════════════════════
+   Takeaway / Delivery lane — orders the admin has accepted, nothing to edit
+   ════════════════════════════════════════════════════════════════════════ */
+
+function HomeLane({
+  mode, tabs, now, onOpen, onHandOver,
 }: {
-  title: string;
-  icon: typeof Bell;
-  emptyText: string;
-  items: { id: string; title: string; subtitle: string; actionLabel: string; actionIcon?: typeof Check; onAction: () => void }[];
-  pageSize?: number;
-  pageLabel?: string;
+  mode: 'takeaway' | 'delivery';
+  tabs: Tab[];
+  now: number;
+  onOpen: (t: Tab) => void;
+  onHandOver: (t: Tab) => void;
 }) {
-  // Reset to page 1 when the list length changes (ticket served / call
-  // resolved) so stale deep pages don't look empty.
-  const pager = usePagination(items, pageSize, `${title}|${items.length}`);
+  const isDelivery = mode === 'delivery';
+  const LaneIcon = isDelivery ? Truck : ShoppingBag;
+  // Billed and ready to leave first, then cooked and waiting for the bill,
+  // then the rest — oldest first inside each group.
+  const sorted = useMemo(
+    () =>
+      [...tabs].sort(
+        (a, b) =>
+          Number(b.readyToHandOver) - Number(a.readyToHandOver) ||
+          Number(b.allReady) - Number(a.allReady) ||
+          a.openedAt - b.openedAt,
+      ),
+    [tabs]
+  );
+  const goingOut = sorted.filter(t => t.readyToHandOver);
+  const waitingForBill = sorted.filter(t => !t.readyToHandOver && t.allReady);
+
   return (
-    <div className="bg-white rounded-[1.75rem] border border-brand-gold/25 shadow-[0_24px_50px_-34px_rgba(74,21,21,0.45)] p-4 sm:p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Icon size={20} className="text-brand-red" />
-        <h3 className="font-wordmark text-2xl uppercase tracking-[0.012em] leading-none text-brand-wine">{title}</h3>
-        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.16em] bg-brand-red/10 text-brand-red rounded-full px-3 py-1.5">{items.length}</span>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-brand-ink/40 font-medium py-6 text-center">{emptyText}</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-3">
-            {pager.items.map(item => (
-              <div key={item.id} className="flex items-center justify-between gap-3 bg-brand-cream border border-brand-gold/40 rounded-2xl px-4 py-3.5">
-                <div className="min-w-0">
-                  <p className="font-wordmark text-xl uppercase tracking-[0.012em] leading-tight text-brand-wine truncate">{item.title}</p>
-                  <p className="text-xs text-brand-ink/50 mt-0.5">{item.subtitle}</p>
-                </div>
+    <div className="flex flex-col gap-4">
+      <Hint>
+        {isDelivery
+          ? 'Deliveries the admin has accepted. Green means the admin has billed it and it can go to the driver.'
+          : 'Takeaway bags the admin has accepted. Green means the admin has billed it and the customer can take it.'}
+        {' '}You can&rsquo;t add items to these, and the admin closes the bill.
+      </Hint>
+
+      {goingOut.length > 0 && (
+        <section className="rounded-3xl border-2 border-emerald-400 bg-emerald-50 p-4 sm:p-5">
+          <h2 className={`${sectionTitle} mb-3 !text-emerald-800`}>
+            <BellRing size={14} /> {isDelivery ? 'Billed — ready to go out' : 'Billed — ready to hand over'} · {goingOut.length}
+          </h2>
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            {goingOut.map(tab => (
+              <div key={tab.sessionId} className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-300 bg-white px-4 py-3.5">
+                <button onClick={() => onOpen(tab)} className="min-w-0 flex-1 text-left">
+                  {/* You call out a name at the counter, not a number. */}
+                  <p className="truncate font-display text-[17px] font-semibold leading-tight text-brand-wine">
+                    {tab.guest || 'Guest'}
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-[12px] font-bold text-brand-ink/60">
+                    {tab.guestPhone || 'no number'}
+                  </p>
+                  <p className="mt-0.5 truncate text-[11.5px] text-brand-ink/50">
+                    #{tab.orderNo} · {tab.itemCount} item{tab.itemCount === 1 ? '' : 's'} · {formatKWD(tab.total)}
+                  </p>
+                  {tab.note && (
+                    <p className="mt-1 truncate text-[11.5px] font-semibold italic text-brand-gold-dark">“{tab.note}”</p>
+                  )}
+                </button>
                 <button
-                  onClick={item.onAction}
-                  className="btn shrink-0 bg-brand-green text-white px-5 py-3 text-[10px] hover:brightness-110"
+                  onClick={() => onHandOver(tab)}
+                  className="btn shrink-0 bg-brand-green px-4 py-3 text-[10px] text-white"
                 >
-                  {item.actionIcon ? <item.actionIcon size={15} /> : null} {item.actionLabel}
+                  <Check size={14} /> {isDelivery ? 'Driver took it' : 'Handed over'}
                 </button>
               </div>
             ))}
           </div>
-          <Pagination p={pager} label={pageLabel} />
-        </>
+        </section>
       )}
+
+      {waitingForBill.length > 0 && (
+        <section className="rounded-3xl border-2 border-brand-gold bg-brand-gold/10 p-4 sm:p-5">
+          <h2 className={`${sectionTitle} mb-1.5`}>
+            <Receipt size={14} /> Cooked — waiting for the bill · {waitingForBill.length}
+          </h2>
+          <p className="mb-3 text-[11.5px] font-medium text-brand-ink/60">
+            The kitchen is done. Nothing for you to do yet: the admin bills it and sends the invoice, then it turns green here.
+          </p>
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            {waitingForBill.map(tab => (
+              <button
+                key={tab.sessionId}
+                onClick={() => onOpen(tab)}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-brand-gold/50 bg-white px-4 py-3.5 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  <p className="font-wordmark text-2xl uppercase leading-none text-brand-wine">#{tab.orderNo}</p>
+                  <p className="mt-1 truncate text-[11.5px] text-brand-ink/55">
+                    {tab.guest || 'Guest'} · {tab.itemCount} item{tab.itemCount === 1 ? '' : 's'}
+                  </p>
+                </span>
+                <Pill tone="gold"><Clock size={10} /> Not billed</Pill>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className={`${card} p-4 sm:p-5`}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className={sectionTitle}><LaneIcon size={14} className="text-brand-red" /> {isDelivery ? 'All deliveries' : 'All takeaway orders'}</h2>
+          <span className="rounded-full bg-brand-sand px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-wine">{sorted.length}</span>
+        </div>
+
+        {sorted.length === 0 ? (
+          <Empty
+            icon={LaneIcon}
+            text={isDelivery
+              ? 'No deliveries right now. Accepted ones appear here the moment the admin lets them through.'
+              : 'No takeaway orders right now. Accepted ones appear here the moment the admin lets them through.'}
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+            {sorted.map(tab => (
+              <button
+                key={tab.sessionId}
+                onClick={() => onOpen(tab)}
+                className={`flex items-start justify-between gap-3 rounded-2xl border-2 p-3.5 text-left transition-colors active:scale-[0.99] ${
+                  tab.readyToHandOver ? 'border-emerald-400 bg-emerald-50'
+                  : tab.allReady ? 'border-brand-gold bg-brand-gold/10'
+                  : tab.hasCooking ? 'border-brand-gold/50 bg-brand-gold/5'
+                  : 'border-brand-gold/25 bg-white'
+                }`}
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-display text-[16px] font-semibold leading-tight text-brand-wine">{tab.guest || 'Guest'}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11.5px] font-bold text-brand-ink/55">
+                    #{tab.orderNo}{tab.guestPhone ? ` · ${tab.guestPhone}` : ''}
+                  </p>
+                  <p className="mt-0.5 text-[11.5px] text-brand-ink/50">
+                    {tab.itemCount} item{tab.itemCount === 1 ? '' : 's'} · {sinceLabel(tab.openedAt, now)} ago
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {tab.readyToHandOver
+                      ? <Pill tone="green"><PackageCheck size={10} /> {isDelivery ? 'Give to driver' : 'Ready to hand over'}</Pill>
+                      : tab.allReady
+                        ? <Pill tone="gold"><Receipt size={10} /> Cooked · not billed</Pill>
+                        : tab.hasCooking
+                          ? <Pill tone="red"><Flame size={10} /> In the kitchen</Pill>
+                          : <Pill tone="grey"><Clock size={10} /> Waiting</Pill>}
+                  </div>
+                </div>
+                <span className="shrink-0 font-wordmark text-2xl text-brand-red">{formatKWD(tab.total)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
-function BillingModal({
-  sessionOrders,
-  sessionId,
-  onClose,
-  onConfirm,
-}: {
-  sessionOrders: Order[];
-  sessionId: string;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  const grandTotal = sessionOrders.reduce((s, o) => s + o.total, 0);
-  const grandSubtotal = sessionOrders.reduce((s, o) => s + o.subtotal, 0);
-  const grandTax = sessionOrders.reduce((s, o) => s + o.tax, 0);
-  const grandDiscount = sessionOrders.reduce((s, o) => s + (o.discount || 0), 0);
-  const label = sessionOrders[0] ? orderLabel(sessionOrders[0]) : 'Session';
-
+function Legend() {
+  const dots: [string, string][] = [
+    ['bg-white border-brand-gold/40', 'Free'],
+    ['bg-brand-sand border-brand-wine/40', 'Has orders'],
+    ['bg-emerald-50 border-emerald-400', 'Food ready'],
+    ['bg-brand-gold/20 border-brand-gold', 'Asked for bill'],
+    ['bg-brand-red border-brand-red', 'Ringing for you'],
+  ];
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-[#2a0a0a]/45 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-brand-cream rounded-[2rem] border border-brand-gold/30 w-full max-w-md max-h-[90vh] overflow-y-auto p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-full bg-brand-red/10 text-brand-red flex items-center justify-center"><Banknote size={20} /></div>
-            <div>
-              <h2 className="font-wordmark text-3xl uppercase tracking-[0.012em] leading-none text-brand-wine">Close Bill</h2>
-              <p className="text-xs text-brand-ink/50">{label} · {sessionOrders.length} ticket{sessionOrders.length > 1 ? 's' : ''}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-black/5"><X size={18} /></button>
-        </div>
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-brand-gold/20 pt-3">
+      {dots.map(([cls, label]) => (
+        <span key={label} className="flex items-center gap-1.5 text-[10.5px] font-semibold text-brand-ink/55">
+          <span className={`h-3 w-3 rounded-[5px] border-2 ${cls}`} /> {label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
-        <div className="flex flex-col gap-3 mb-5">
-          {sessionOrders.map(o => (
-            <div key={o.id} className="bg-white border border-brand-gold/25 rounded-2xl p-3.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-brand-ink/50">#{o.id}</span>
-                <span className="text-xs text-brand-ink/40">{new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
-              {o.items.map((item, i) => (
-                <div key={i} className="flex justify-between text-sm py-0.5">
-                  <span className="truncate">{item.qty}× {item.name}</span>
-                  <span className="font-bold shrink-0 ml-2">{formatKWD(item.price * item.qty)}</span>
+function TabGroup({
+  title, icon: Icon, tabs, now, onOpen, empty, action,
+}: {
+  title: string;
+  icon: typeof Bell;
+  tabs: Tab[];
+  now: number;
+  onOpen: (t: Tab) => void;
+  empty: string;
+  action?: { label: string; onClick: () => void };
+}) {
+  return (
+    <section className={`${card} p-4 sm:p-5`}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className={sectionTitle}><Icon size={14} className="text-brand-red" /> {title}</h2>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-brand-sand px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-wine">{tabs.length}</span>
+          {action && (
+            <button onClick={action.onClick} className="btn btn-outline h-9 px-3.5 text-[10px]">
+              <Plus size={14} /> {action.label}
+            </button>
+          )}
+        </div>
+      </div>
+      {tabs.length === 0 ? (
+        <Empty icon={Icon} text={empty} />
+      ) : (
+        <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+          {tabs.map(t => (
+            <button
+              key={t.sessionId}
+              onClick={() => onOpen(t)}
+              className="flex items-center justify-between gap-3 rounded-2xl border border-brand-gold/30 bg-brand-cream/60 p-3.5 text-left transition-colors hover:border-brand-red/40 active:scale-[0.99]"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">{t.title}</p>
+                <p className="mt-1 text-[11.5px] font-medium text-brand-ink/55">
+                  {t.itemCount} item{t.itemCount === 1 ? '' : 's'} · open {sinceLabel(t.openedAt, now)}
+                </p>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {t.hasReady && <Pill tone="green"><PackageCheck size={10} /> Ready</Pill>}
+                  {t.billRequested && <Pill tone="gold"><Receipt size={10} /> Wants bill</Pill>}
+                  {t.waitingApproval && <Pill tone="grey"><Clock size={10} /> Awaiting admin</Pill>}
                 </div>
-              ))}
-              <div className="flex justify-between mt-1.5 pt-1.5 border-t border-brand-gold/15 text-sm font-bold">
-                <span>Ticket total</span>
-                <span className="text-brand-red">{formatKWD(o.total)}</span>
               </div>
-            </div>
+              <span className="shrink-0 font-wordmark text-2xl text-brand-red">{formatKWD(t.total)}</span>
+            </button>
           ))}
         </div>
+      )}
+    </section>
+  );
+}
 
-        <div className="bg-brand-sand/60 rounded-2xl p-4 space-y-2 mb-5">
-          <div className="flex justify-between text-sm"><span className="text-brand-ink/50">Subtotal</span><span className="font-bold">{formatKWD(grandSubtotal)}</span></div>
-          {grandDiscount > 0 && (
-            <div className="flex justify-between text-sm"><span className="text-brand-red font-bold">Discount</span><span className="text-brand-red font-semibold">−{formatKWD(grandDiscount)}</span></div>
+/* ════════════════════════════════════════════════════════════════════════════
+   Detail panel — what this guest ordered, and the two things you can do
+   ════════════════════════════════════════════════════════════════════════ */
+
+function TabDetail({
+  target, tab, now, onClose, onAddItems, onServe, onHandOver, onBill,
+}: {
+  target: Target;
+  tab: Tab | null;
+  now: number;
+  onClose: () => void;
+  onAddItems: () => void;
+  onServe: (id: string) => void;
+  onHandOver: (t: Tab) => void;
+  onBill: () => void;
+}) {
+  const lines = useMemo(() => (tab ? mergeItems(tab.orders) : []), [tab]);
+  const home = !!tab?.home;
+  const ready = (home ? [] : tab?.orders.filter(o => o.status === 'ready')) ?? [];
+
+  return (
+    <Sheet onClose={onClose} title={target.title} subtitle={tab ? `Open ${sinceLabel(tab.openedAt, now)}` : target.subtitle}>
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 sm:px-5">
+        {(tab?.guest || tab?.guestPhone) && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-sand px-3 py-1.5 text-[11px] font-bold text-brand-wine">
+              <UserRound size={12} /> {tab.guest || 'Guest'}
+            </span>
+            {tab.guestPhone && (
+              <a
+                href={`tel:${tab.guestPhone}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-brand-gold/40 px-3 py-1.5 font-mono text-[11px] font-bold text-brand-wine"
+              >
+                {tab.guestPhone}
+              </a>
+            )}
+          </div>
+        )}
+
+        {tab?.note && (
+          <div className="mb-4 rounded-2xl border border-brand-gold/50 bg-brand-gold/10 px-3.5 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-gold-dark">Customer&rsquo;s remark</p>
+            <p className="mt-1 text-[12.5px] font-medium text-brand-ink/80">{tab.note}</p>
+          </div>
+        )}
+
+        {home && tab && tab.readyToHandOver && (
+          <div className="mb-4 rounded-2xl border-2 border-emerald-400 bg-emerald-50 p-3.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800">
+              <BellRing size={13} /> Billed — {target.mode === 'delivery' ? 'ready for the driver' : 'ready to hand over'}
+            </p>
+            <p className="mt-1 text-[11.5px] font-medium text-brand-ink/60">
+              The invoice has gone to the customer. Give it out and tap below — it then leaves every screen.
+            </p>
+            <button onClick={() => onHandOver(tab)} className="btn mt-2.5 w-full bg-brand-green py-3.5 text-[11px] text-white">
+              <Check size={15} /> {target.mode === 'delivery' ? 'Driver took it' : 'Handed over'}
+            </button>
+          </div>
+        )}
+
+        {home && tab && !tab.readyToHandOver && tab.allReady && (
+          <div className="mb-4 rounded-2xl border border-brand-gold bg-brand-gold/10 p-3.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-gold-dark">
+              <Receipt size={13} /> Cooked — waiting for the bill
+            </p>
+            <p className="mt-1 text-[11.5px] font-medium text-brand-ink/65">
+              The kitchen is done. The admin closes the bill and sends the invoice; this turns green the moment that happens.
+            </p>
+          </div>
+        )}
+
+        {ready.length > 0 && (
+          <div className="mb-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800">
+              <BellRing size={13} />
+              {target.mode === 'delivery' ? 'Ready for the driver' : target.mode === 'takeaway' ? 'Ready to hand over' : 'Ready to take over'}
+            </p>
+            <div className="mt-2.5 flex flex-col gap-2">
+              {ready.map(o => (
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2">
+                  <span className="min-w-0 truncate text-[12.5px] text-brand-ink/75">
+                    {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
+                  </span>
+                  <button onClick={() => onServe(o.id)} className="btn shrink-0 bg-brand-green px-4 py-2.5 text-[10px] text-white">
+                    <Check size={13} /> {target.mode === 'delivery' ? 'To driver' : target.mode === 'takeaway' ? 'Handed over' : 'Served'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <h3 className={`${sectionTitle} mb-2.5`}><Utensils size={13} className="text-brand-red" /> What they ordered</h3>
+
+        {lines.length === 0 ? (
+          <Empty icon={Utensils} text="Nothing ordered yet. Tap “Add items” to start this tab." />
+        ) : (
+          <ul className="divide-y divide-brand-gold/20 overflow-hidden rounded-2xl border border-brand-gold/25 bg-white">
+            {lines.map((l, i) => (
+              <li key={`${l.name}-${i}`} className="flex items-start gap-3 px-3.5 py-3">
+                <span className="mt-0.5 grid h-7 min-w-7 shrink-0 place-items-center rounded-lg bg-brand-red/10 px-1.5 text-[12px] font-bold text-brand-red">
+                  {l.qty}×
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13.5px] font-semibold leading-tight text-brand-wine">{l.name}</p>
+                  {l.notes && <p className="mt-0.5 text-[11.5px] italic text-brand-ink/55">{l.notes}</p>}
+                  {l.byStaff && (
+                    <span className="mt-1 inline-block rounded-full bg-brand-gold/15 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-brand-gold-dark">
+                      Added by staff
+                    </span>
+                  )}
+                </div>
+                <span className="shrink-0 text-[13px] font-bold text-brand-ink/70">{formatKWD(l.lineTotal)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {tab && tab.orders.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1.5 rounded-2xl bg-brand-sand/60 p-4">
+            <div className="flex items-center justify-between text-[12px] font-semibold text-brand-ink/60">
+              <span>{tab.itemCount} item{tab.itemCount === 1 ? '' : 's'} · {tab.orders.length} ticket{tab.orders.length === 1 ? '' : 's'}</span>
+              <span>{timeOf(tab.openedAt)}</span>
+            </div>
+            <div className="flex items-end justify-between border-t border-brand-wine/15 pt-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-wine">Total</span>
+              <span className="font-wordmark text-[34px] leading-none text-brand-red">{formatKWD(tab.total)}</span>
+            </div>
+          </div>
+        )}
+
+        {target.readOnly && (
+          <p className="mt-3 flex items-start gap-2 rounded-2xl border border-brand-gold/40 bg-brand-gold/10 px-3.5 py-3 text-[12px] font-medium text-brand-wine">
+            <Info size={14} className="mt-0.5 shrink-0" />
+            {target.mode === 'delivery'
+              ? 'A driver takes this one out. Nothing can be added, and the admin closes the bill and sends the invoice.'
+              : 'The customer ordered exactly this. Nothing can be added, and the admin closes the bill and sends the invoice.'}
+          </p>
+        )}
+      </div>
+
+      {!target.readOnly && (
+        <div className="shrink-0 border-t border-brand-gold/25 bg-white p-3.5 pb-[max(14px,env(safe-area-inset-bottom))] sm:p-4">
+          <div className="flex gap-2.5">
+            <button onClick={onAddItems} className="btn btn-outline flex-1 py-4 text-[11px]">
+              <Plus size={16} /> Add items
+            </button>
+            <button
+              onClick={onBill}
+              disabled={!tab}
+              className="btn btn-wine flex-1 py-4 text-[11px] disabled:opacity-40"
+            >
+              <Banknote size={16} /> Close bill
+            </button>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Item picker — pick from the inventory and fire to the kitchen
+   ════════════════════════════════════════════════════════════════════════ */
+
+function ItemPicker({
+  menu, target, onCancel, onFire,
+}: {
+  menu: MenuItem[];
+  target: Target;
+  onCancel: () => void;
+  onFire: (items: OrderItem[], rush: boolean, standingLabel?: string) => void;
+}) {
+  const [qty, setQty] = useState<Record<string, number>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState('All');
+  const [rush, setRush] = useState(false);
+  const [walkInName, setWalkInName] = useState(target.standingLabel ?? '');
+  const [reviewing, setReviewing] = useState(false);
+
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set(menu.map(m => m.category).filter(Boolean)))],
+    [menu]
+  );
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return menu.filter(m => {
+      if (cat !== 'All' && m.category !== cat) return false;
+      if (!q) return true;
+      return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
+    });
+  }, [menu, cat, query]);
+
+  const chosen = useMemo(
+    () => Object.entries(qty)
+      .filter(([, n]) => n > 0)
+      .map(([id, n]) => {
+        const m = menu.find(x => x.id === id);
+        return m ? { id, name: m.name, price: m.price, qty: n, notes: notes[id]?.trim() || undefined } : null;
+      })
+      .filter(Boolean) as OrderItem[],
+    [qty, notes, menu]
+  );
+
+  const count = chosen.reduce((a, i) => a + i.qty, 0);
+  const total = round3(chosen.reduce((a, i) => a + i.price * i.qty, 0));
+
+  const bump = (id: string, by: number) =>
+    setQty(cur => {
+      const next = Math.max(0, (cur[id] ?? 0) + by);
+      const copy = { ...cur };
+      if (next === 0) { delete copy[id]; setNotes(n => { const c = { ...n }; delete c[id]; return c; }); }
+      else copy[id] = next;
+      return copy;
+    });
+
+  /** Out of stock means out of stock — don't let the kitchen get a ticket for it. */
+  const soldOut = (m: MenuItem) => m.stock != null && m.stock <= 0;
+
+  return (
+    <Sheet
+      onClose={onCancel}
+      title={reviewing ? 'Check the order' : 'Add items'}
+      subtitle={target.title}
+      onBack={reviewing ? () => setReviewing(false) : undefined}
+    >
+      {reviewing ? (
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 sm:px-5">
+          {target.mode === 'standing' && !target.sessionId && (
+            <label className="mb-4 block">
+              <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.2em] text-brand-ink/55">
+                Name this walk-in (optional)
+              </span>
+              <input
+                value={walkInName}
+                onChange={e => setWalkInName(e.target.value)}
+                placeholder="e.g. Ahmed, family of 4"
+                className="w-full rounded-2xl border border-brand-gold/35 bg-white px-4 py-3 text-[14px] outline-none focus:border-brand-red"
+              />
+            </label>
           )}
-          <div className="flex justify-between items-center pt-2 mt-1 border-t-2 border-black/10">
-            <span className="text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">Grand Total</span>
-            <span className="font-wordmark text-4xl text-brand-red">{formatKWD(grandTotal)}</span>
+
+          <ul className="divide-y divide-brand-gold/20 overflow-hidden rounded-2xl border border-brand-gold/25 bg-white">
+            {chosen.map(i => (
+              <li key={i.id} className="px-3.5 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13.5px] font-semibold text-brand-wine">{i.name}</p>
+                    <p className="text-[11.5px] text-brand-ink/50">{formatKWD(i.price)} each</p>
+                  </div>
+                  <Stepper qty={i.qty} onMinus={() => bump(i.id, -1)} onPlus={() => bump(i.id, 1)} />
+                  <span className="w-[72px] shrink-0 text-right text-[13px] font-bold text-brand-red">
+                    {formatKWD(i.price * i.qty)}
+                  </span>
+                </div>
+                {noteFor === i.id ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={notes[i.id] ?? ''}
+                      onChange={e => setNotes(n => ({ ...n, [i.id]: e.target.value }))}
+                      placeholder="e.g. no nuts, extra syrup"
+                      className="flex-1 rounded-xl border border-brand-red/40 bg-white px-3 py-2 text-[12.5px] outline-none"
+                    />
+                    <button onClick={() => setNoteFor(null)} className="btn btn-wine h-9 px-4 text-[10px]">Done</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setNoteFor(i.id)}
+                    className="mt-1.5 text-[11px] font-bold text-brand-red"
+                  >
+                    {notes[i.id] ? `Note: ${notes[i.id]} · edit` : '+ Note for the kitchen'}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          <button
+            onClick={() => setRush(r => !r)}
+            className={`mt-4 flex w-full items-center gap-3 rounded-2xl border-2 p-3.5 text-left transition-colors ${
+              rush ? 'border-brand-red bg-brand-red/10' : 'border-brand-gold/30 bg-white'
+            }`}
+          >
+            <Flame size={20} className={rush ? 'text-brand-red' : 'text-brand-ink/35'} />
+            <span className="flex-1">
+              <span className="block text-[13px] font-bold text-brand-wine">Rush this order</span>
+              <span className="block text-[11.5px] text-brand-ink/50">The kitchen puts it at the front</span>
+            </span>
+            <span className={`h-6 w-11 rounded-full p-0.5 transition-colors ${rush ? 'bg-brand-red' : 'bg-brand-ink/15'}`}>
+              <span className={`block h-5 w-5 rounded-full bg-white transition-transform ${rush ? 'translate-x-5' : ''}`} />
+            </span>
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="shrink-0 space-y-2.5 border-b border-brand-gold/20 bg-white px-4 pb-3 pt-3 sm:px-5">
+            <div className="relative">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-ink/35" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search the inventory…"
+                className="w-full rounded-full border border-brand-gold/35 bg-brand-cream/60 py-3 pl-10 pr-10 text-[14px] outline-none focus:border-brand-red"
+              />
+              {query && (
+                <button onClick={() => setQuery('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-brand-ink/40">
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 no-scrollbar">
+              {categories.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setCat(c)}
+                  className={`shrink-0 rounded-full border px-4 py-2 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors ${
+                    cat === c ? 'border-brand-wine bg-brand-wine text-brand-gold-light' : 'border-brand-gold/30 bg-white text-brand-ink/60'
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 sm:px-5">
+            {visible.length === 0 ? (
+              <Empty icon={Search} text="Nothing matches that search." />
+            ) : (
+              // One column on purpose: this grid lives inside a ~600px drawer,
+              // and Tailwind's breakpoints measure the VIEWPORT, so `md:` would
+              // split the drawer in two and chop every dish name in half.
+              <div className="flex flex-col gap-2">
+                {visible.map(m => {
+                  const n = qty[m.id] ?? 0;
+                  const out = soldOut(m);
+                  const low = !out && m.stock != null && m.lowStockThreshold != null && m.stock <= m.lowStockThreshold;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex items-center gap-3 rounded-2xl border p-2.5 transition-colors ${
+                        out ? 'border-brand-gold/20 bg-brand-sand/30 opacity-60'
+                        : n > 0 ? 'border-brand-red/50 bg-brand-red/[0.05]'
+                        : 'border-brand-gold/25 bg-white'
+                      }`}
+                    >
+                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-brand-sand">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={m.image}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13.5px] font-semibold leading-tight text-brand-wine">{m.name}</p>
+                        <p className="text-[13px] font-bold text-brand-red">{formatKWD(m.price)}</p>
+                        {out && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-ink/50">Out of stock</span>}
+                        {low && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-gold-dark">Only {m.stock} left</span>}
+                      </div>
+                      {out ? (
+                        <span className="shrink-0 px-2 text-brand-ink/30"><CircleAlert size={18} /></span>
+                      ) : n > 0 ? (
+                        <Stepper qty={n} onMinus={() => bump(m.id, -1)} onPlus={() => bump(m.id, 1)} />
+                      ) : (
+                        <button onClick={() => bump(m.id, 1)} className="btn btn-wine h-10 shrink-0 px-4 text-[10px]">
+                          <Plus size={14} /> Add
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Sticky footer — the running ticket, always visible */}
+      <div className="shrink-0 border-t border-brand-gold/25 bg-white p-3.5 pb-[max(14px,env(safe-area-inset-bottom))] sm:p-4">
+        {count === 0 ? (
+          <p className="py-1.5 text-center text-[12px] font-medium text-brand-ink/45">
+            Pick the dishes the guest asked for — they appear here.
+          </p>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-ink/50">
+                {count} item{count === 1 ? '' : 's'}
+              </p>
+              <p className="font-wordmark text-[26px] leading-none text-brand-red">{formatKWD(total)}</p>
+            </div>
+            {reviewing ? (
+              <>
+                <button onClick={() => setQty({})} aria-label="Clear" className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-brand-gold/35 text-brand-ink/50">
+                  <Trash2 size={17} />
+                </button>
+                <button
+                  onClick={() => onFire(chosen, rush, walkInName)}
+                  className="btn btn-wine shrink-0 px-6 py-4 text-[11px]"
+                >
+                  <Send size={16} /> Send to kitchen
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setReviewing(true)} className="btn btn-wine shrink-0 px-6 py-4 text-[11px]">
+                Review <Receipt size={16} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Alerts drawer — what needs a waiter now, and what the kitchen is doing.
+   One drawer instead of two tabs: a waiter opens it while looking at a table,
+   deals with it, and is back where they were.
+   ════════════════════════════════════════════════════════════════════════ */
+
+function AlertsSheet({
+  calls, ready, handover, tickets, onClose, onResolve, onServe, onHandOver,
+}: {
+  calls: WaiterCall[];
+  ready: Order[];
+  handover: Order[];
+  tickets: Order[];
+  onClose: () => void;
+  onResolve: (id: string) => void;
+  onServe: (id: string) => void;
+  onHandOver: (o: Order) => void;
+}) {
+  const [view, setView] = useState<'alerts' | 'kitchen'>('alerts');
+  const nothing = calls.length === 0 && ready.length === 0 && handover.length === 0;
+
+  return (
+    <Sheet onClose={onClose} title="Alerts" subtitle="Tables ringing, food ready, and the kitchen feed">
+      <div className="shrink-0 border-b border-brand-gold/25 bg-brand-sand/50 px-4 py-2.5 sm:px-5">
+        <div className="flex gap-1.5 rounded-full border border-brand-gold/30 bg-white p-1">
+          {([
+            { key: 'alerts', label: 'Needs you', n: calls.length + ready.length },
+            { key: 'kitchen', label: 'Kitchen feed', n: tickets.length },
+          ] as const).map(v => (
+            <button
+              key={v.key}
+              onClick={() => setView(v.key)}
+              className={`flex flex-1 items-center justify-center gap-1.5 rounded-full py-2.5 text-[10.5px] font-bold uppercase tracking-[0.14em] transition-colors ${
+                view === v.key ? 'bg-brand-wine text-white' : 'text-brand-ink/55'
+              }`}
+            >
+              {v.label}
+              {v.n > 0 && (
+                <span className={`min-w-[18px] rounded-full px-1 text-[10px] leading-[18px] ${view === v.key ? 'bg-brand-gold text-brand-wine' : 'bg-brand-sand text-brand-wine'}`}>
+                  {v.n}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 sm:px-5">
+        {view === 'alerts' ? (
+          nothing ? (
+            <div className="py-10"><Empty icon={Check} text="All clear. Nothing needs you right now." /></div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {calls.length > 0 && (
+                <section>
+                  <h2 className={`${sectionTitle} mb-2.5`}><Bell size={14} className="text-brand-red" /> Tables ringing for you</h2>
+                  <div className="flex flex-col gap-2.5">
+                    {calls.map(c => (
+                      <div key={c.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 border-brand-red/40 bg-brand-red/5 px-4 py-3.5">
+                        <div>
+                          <p className="font-wordmark text-2xl uppercase leading-none text-brand-wine">Table {c.table}</p>
+                          <p className="mt-1 text-[11.5px] text-brand-ink/55">Rang at {timeOf(c.createdAt)}</p>
+                        </div>
+                        <button onClick={() => onResolve(c.id)} className="btn shrink-0 bg-brand-green px-5 py-3 text-[10px] text-white">
+                          <Check size={14} /> Handled
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {handover.length > 0 && (
+                <section>
+                  <h2 className={`${sectionTitle} mb-2.5`}><PackageCheck size={14} className="text-brand-green" /> Billed — ready to go out</h2>
+                  <div className="flex flex-col gap-2.5">
+                    {handover.map(o => (
+                      <div key={o.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 border-emerald-400 bg-emerald-50 px-4 py-3.5">
+                        <div className="min-w-0">
+                          <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">
+                            {o.mode === 'delivery' ? 'Delivery' : 'Takeaway'} #
+                            {resolveOrderNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })}
+                          </p>
+                          <p className="mt-1 truncate text-[11.5px] text-brand-ink/55">
+                            {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
+                          </p>
+                          {o.note && <p className="mt-0.5 truncate text-[11px] italic text-brand-gold-dark">{o.note}</p>}
+                        </div>
+                        <button onClick={() => onHandOver(o)} className="btn shrink-0 bg-brand-green px-5 py-3 text-[10px] text-white">
+                          <Check size={14} /> {o.mode === 'delivery' ? 'To driver' : 'Handed over'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {ready.length > 0 && (
+                <section>
+                  <h2 className={`${sectionTitle} mb-2.5`}><BellRing size={14} className="text-brand-red" /> Cooked — carry it out</h2>
+                  <div className="flex flex-col gap-2.5">
+                    {ready.map(o => (
+                      <div key={o.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 border-emerald-300 bg-emerald-50 px-4 py-3.5">
+                        <div className="min-w-0">
+                          <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">
+                            {o.mode === 'takeaway' || o.mode === 'delivery'
+                              ? `${o.mode === 'delivery' ? 'Delivery' : 'Takeaway'} #${resolveOrderNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })}`
+                              : orderLabel(o)}
+                          </p>
+                          <p className="mt-1 truncate text-[11.5px] text-brand-ink/55">
+                            {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
+                          </p>
+                        </div>
+                        <button onClick={() => onServe(o.id)} className="btn shrink-0 bg-brand-green px-5 py-3 text-[10px] text-white">
+                          <Check size={14} /> {o.mode === 'delivery' ? 'To driver' : o.mode === 'takeaway' ? 'Handed over' : 'Served'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )
+        ) : tickets.length === 0 ? (
+          <div className="py-10"><Empty icon={Coffee} text="Kitchen is clear — no active tickets." /></div>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {tickets.map(t => (
+              <article
+                key={t.id}
+                className={`rounded-2xl border-2 p-3.5 ${
+                  t.status === 'ready' ? 'border-emerald-400 bg-emerald-50'
+                  : t.mode === 'delivery' ? 'border-violet-300 bg-violet-50'
+                  : t.mode === 'takeaway' ? 'border-sky-300 bg-sky-50'
+                  : t.priority === 'high' ? 'border-brand-red/50 bg-brand-red/5'
+                  : 'border-brand-gold/25 bg-white'
+                }`}
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">{orderLabel(t)}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-brand-ink/50">
+                      <Clock size={11} /> {timeOf(t.createdAt)}
+                      <span className="font-mono opacity-60">#{t.id.split('-')[1]}</span>
+                    </p>
+                  </div>
+                  {t.priority === 'high' && <Pill tone="red"><Flame size={10} /> Rush</Pill>}
+                </div>
+
+                <ul className="mb-3 space-y-1">
+                  {t.items.map((i, idx) => (
+                    <li key={idx} className="flex justify-between gap-2 text-[13px] text-brand-ink/75">
+                      <span className="truncate">{i.name}{i.notes ? ` · ${i.notes}` : ''}</span>
+                      <span className="shrink-0 font-bold text-brand-red">×{i.qty}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex items-center justify-between gap-2">
+                  <Pill tone={t.status === 'ready' ? 'green' : t.status === 'cooking' ? 'red' : 'grey'}>
+                    {t.status === 'ready' ? <PackageCheck size={10} /> : <Coffee size={10} />}
+                    {t.status === 'pending' ? 'Waiting' : t.status === 'cooking' ? 'Cooking' : 'Ready'}
+                  </Pill>
+                  {t.status === 'ready' && (
+                    t.mode === 'delivery' || t.mode === 'takeaway' ? (
+                      <Pill tone="gold"><Receipt size={10} /> Admin bills it</Pill>
+                    ) : (
+                      <button onClick={() => onServe(t.id)} className="btn bg-brand-green px-4 py-2.5 text-[10px] text-white">
+                        <Check size={13} /> Served
+                      </button>
+                    )
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Bill sheet
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* The waiter cannot take money. This sheet shows the table what they owe and
+   sends the admin a "ready to pay" alert — the admin raises the bill, takes the
+   payment and sends the invoice. That is the only way an order completes. */
+function BillSheet({ tab, onClose, onConfirm }: { tab: Tab; onClose: () => void; onConfirm: () => void }) {
+  const lines = useMemo(() => mergeItems(tab.orders), [tab.orders]);
+  const subtotal = round3(tab.orders.reduce((s, o) => s + o.subtotal, 0));
+  const discount = round3(tab.orders.reduce((s, o) => s + (o.discount ?? 0), 0));
+  const already = tab.billRequested;
+
+  return (
+    <Sheet onClose={onClose} title="Ready to pay" subtitle={tab.title}>
+      <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 sm:px-5">
+        <ul className="divide-y divide-brand-gold/20 overflow-hidden rounded-2xl border border-brand-gold/25 bg-white">
+          {lines.map((l, i) => (
+            <li key={`${l.name}-${i}`} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-[13px]">
+              <span className="min-w-0 truncate text-brand-ink/75"><b>{l.qty}×</b> {l.name}</span>
+              <span className="shrink-0 font-bold text-brand-ink/70">{formatKWD(l.lineTotal)}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-3 space-y-1.5 rounded-2xl bg-brand-sand/60 p-4 text-[13px]">
+          <div className="flex justify-between text-brand-ink/60"><span>Subtotal</span><span className="font-bold text-brand-ink">{formatKWD(subtotal)}</span></div>
+          {discount > 0 && (
+            <div className="flex justify-between text-brand-red"><span className="font-bold">Discount</span><span className="font-bold">−{formatKWD(discount)}</span></div>
+          )}
+          <div className="flex items-end justify-between border-t border-brand-wine/15 pt-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-brand-wine">Running total</span>
+            <span className="font-wordmark text-[36px] leading-none text-brand-red">{formatKWD(tab.total)}</span>
           </div>
         </div>
 
+        <p className="mt-4 flex items-start gap-2 rounded-2xl border border-brand-gold/40 bg-brand-gold/10 px-3.5 py-3 text-[12px] font-medium text-brand-wine">
+          <Info size={14} className="mt-0.5 shrink-0" />
+          {already
+            ? 'The admin already knows this table wants to pay. They take the payment and send the invoice — nothing else for you to do here.'
+            : 'This tells the admin the table is ready to pay. The admin takes the money and sends the invoice; the discount and the final amount are theirs to set.'}
+        </p>
+      </div>
+
+      <div className="shrink-0 border-t border-brand-gold/25 bg-white p-3.5 pb-[max(14px,env(safe-area-inset-bottom))] sm:p-4">
         <button
           onClick={onConfirm}
-          className="btn w-full py-5 bg-brand-green text-white shadow-[0_14px_30px_-12px_rgba(63,143,58,0.7)] hover:brightness-110"
+          disabled={already}
+          className="btn w-full bg-brand-wine py-5 text-[12px] text-white disabled:opacity-45"
         >
-          <Check size={20} /> Confirm Payment & Close
+          <Receipt size={18} /> {already ? 'Admin already told' : 'Tell the admin — ready to pay'}
         </button>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Shared bits
+   ════════════════════════════════════════════════════════════════════════ */
+
+/** Full-screen on a phone, right-hand drawer from tablet up. */
+function Sheet({
+  title, subtitle, onClose, onBack, children,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  onBack?: () => void;
+  children: React.ReactNode;
+}) {
+  // Escape closes, and the page behind must not scroll while this is up.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[80] flex bg-[#2a0a0a]/45 backdrop-blur-sm" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={e => e.stopPropagation()}
+        className="ml-auto flex h-full w-full flex-col bg-brand-cream shadow-2xl sm:max-w-xl sm:border-l sm:border-brand-gold/30 lg:max-w-2xl"
+      >
+        <div className="flex shrink-0 items-center gap-3 border-b border-brand-gold/25 bg-white px-3.5 py-3 sm:px-5">
+          <button
+            onClick={onBack ?? onClose}
+            aria-label={onBack ? 'Back' : 'Close'}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-brand-gold/30 text-brand-wine"
+          >
+            {onBack ? <ChevronLeft size={18} /> : <X size={18} />}
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-wordmark text-2xl uppercase leading-none text-brand-wine">{title}</p>
+            {subtitle && <p className="mt-0.5 truncate text-[11.5px] font-medium text-brand-ink/50">{subtitle}</p>}
+          </div>
+        </div>
+        {children}
       </div>
     </div>
   );
+}
+
+function Stepper({ qty, onMinus, onPlus }: { qty: number; onMinus: () => void; onPlus: () => void }) {
+  return (
+    <div className="flex shrink-0 items-center gap-1 rounded-full border border-brand-gold/40 bg-white p-1">
+      <button onClick={onMinus} aria-label="Remove one" className="grid h-9 w-9 place-items-center rounded-full bg-brand-cream text-brand-red active:scale-95">
+        <Minus size={15} />
+      </button>
+      <span className="w-6 text-center font-wordmark text-lg text-brand-wine">{qty}</span>
+      <button onClick={onPlus} aria-label="Add one" className="grid h-9 w-9 place-items-center rounded-full bg-brand-wine text-brand-gold-light active:scale-95">
+        <Plus size={15} />
+      </button>
+    </div>
+  );
+}
+
+function Pill({ tone, children }: { tone: 'green' | 'red' | 'gold' | 'grey'; children: React.ReactNode }) {
+  const tones = {
+    green: 'bg-emerald-100 text-emerald-700',
+    red: 'bg-brand-red text-white',
+    gold: 'bg-brand-gold/20 text-brand-gold-dark',
+    grey: 'bg-brand-ink/8 text-brand-ink/55',
+  } as const;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[9.5px] font-bold uppercase tracking-[0.12em] ${tones[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function Empty({ icon: Icon, text }: { icon: typeof Bell; text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-brand-ink/35">
+      <Icon size={30} className="opacity-50" />
+      <p className="max-w-xs text-[12.5px] font-semibold">{text}</p>
+    </div>
+  );
+}
+
+function Hint({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-start gap-2 rounded-2xl border border-brand-gold/30 bg-brand-sand/50 px-3.5 py-2.5 text-[12px] font-medium text-brand-wine/80">
+      <Info size={14} className="mt-0.5 shrink-0 text-brand-gold-dark" />
+      {children}
+    </p>
+  );
+}
+
+/** Chime once when an id appears that wasn't in the list before. */
+function useChimeOnNew(ids: string[], chime: () => void) {
+  const known = useRef<Set<string> | null>(null);
+  const key = ids.join('|');
+  useEffect(() => {
+    const current = new Set(ids);
+    if (known.current === null) { known.current = current; return; }
+    let fresh = false;
+    current.forEach(id => { if (!known.current!.has(id)) fresh = true; });
+    known.current = current;
+    if (fresh) chime();
+    // `key` is the stable stringified id list — `ids` is a new array each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, chime]);
 }

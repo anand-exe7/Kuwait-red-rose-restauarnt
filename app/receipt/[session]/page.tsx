@@ -9,7 +9,7 @@
 import React, { use, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Printer, ChevronLeft, Phone, MapPin, Mail } from 'lucide-react';
+import { Printer, ChevronLeft, Phone, MapPin, Mail, User } from 'lucide-react';
 import {
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, type OrderItem, orderLabel,
 } from '../../lib/orderStore';
@@ -21,7 +21,8 @@ import {
 } from '../../lib/billStore';
 import { formatKWD } from '../../lib/currency';
 import { BRAND } from '../../lib/brand';
-import { invoiceNumber } from '../../lib/invoice';
+import { resolveInvoiceNo } from '../../lib/invoice';
+import { shopOwner } from '../../lib/shop';
 import { landingFonts } from '../../fonts';
 
 /** Shop WhatsApp/phone, prettified for the invoice header. */
@@ -60,7 +61,7 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
   const resolvedSessionId = React.useMemo(() => {
     if (sessions.some(s => s.id === sessionId) || orders.some(o => o.sessionId === sessionId)) return sessionId;
     const byBill = bills.find(b => b.id === sessionId);
-    if (byBill) return byBill.sessionId;
+    if (byBill && byBill.sessionId) return byBill.sessionId;
     const byOrder = orders.find(o => o.id === sessionId);
     return byOrder?.sessionId ?? sessionId;
   }, [sessionId, sessions, orders, bills]);
@@ -77,7 +78,7 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
   const lines = React.useMemo(() => {
     const map = new Map<string, OrderItem & { lineTotal: number; byAdmin: boolean }>();
     for (const o of tabOrders) {
-      const byAdmin = o.source === 'waiter';
+      const byAdmin = o.source === 'waiter' || o.source === 'admin';
       for (const it of o.items) {
         const k = `${it.name}@@${it.price}@@${byAdmin ? 'a' : 'c'}`;
         const cur = map.get(k);
@@ -97,9 +98,14 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
   const customerPhone = session?.customerPhone || tabOrders[0]?.customer?.phone || '';
   const customerEmail = tabOrders[0]?.customer?.email || '';
   const when = bill?.createdAt ?? session?.closedAt ?? tabOrders[0]?.createdAt;
-  const invoiceNo = invoiceNumber(bill?.id ?? resolvedSessionId, when);
+  // Session-keyed: the guest sees the same number before and after staff
+  // close the bill. A number persisted on the bill always wins.
+  const invoiceNo = resolveInvoiceNo(
+    { invoiceNo: bill?.invoiceNo, sessionId: resolvedSessionId, id: bill?.id, createdAt: when },
+  );
   const where = tabOrders[0] ? orderLabel(tabOrders[0]) : (session?.tableNumber != null ? `Table ${session.tableNumber}` : 'Counter');
   const phone = shopPhone();
+  const owner = shopOwner();
 
   // Stores hydrate from realtime a tick after mount (and at different times), so
   // give them a short grace window before deciding the invoice doesn't exist —
@@ -189,10 +195,11 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
                   <p className="font-wordmark text-[26px] uppercase leading-none tracking-[0.015em] text-brand-red" style={{ transform: 'scaleY(1.08)', display: 'inline-block' }}>
                     {BRAND.fullName}
                   </p>
-                  <p className="mt-1.5 font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-gold-dark">Pastry · {BRAND.city}</p>
+                  <p className="mt-1.5 font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-gold-dark">Pastry · {BRAND.area}</p>
                   <div className="mt-2 flex flex-col gap-0.5 font-body text-[11px] text-brand-wine/60">
-                    <span className="inline-flex items-center gap-1.5"><MapPin size={11} /> Salmiya, {BRAND.city}</span>
+                    <span className="inline-flex items-center gap-1.5"><MapPin size={11} /> {BRAND.address}</span>
                     {phone && <span className="inline-flex items-center gap-1.5"><Phone size={11} /> {phone}</span>}
+                    {owner && <span className="inline-flex items-center gap-1.5"><User size={11} /> Prop. {owner}</span>}
                   </div>
                 </div>
               </div>
@@ -361,7 +368,7 @@ function ThermalReceipt(props: {
         <img src={BRAND.logo} alt={BRAND.fullName} className="mx-auto mb-1 h-12 w-12 rounded-full object-cover" />
         <p className="font-bold uppercase tracking-wide" style={{ fontSize: 14 }}>{BRAND.fullName}</p>
         <p className="uppercase" style={{ fontSize: 10 }}>Pastry · {BRAND.city}</p>
-        <p style={{ fontSize: 10 }}>Salmiya, {BRAND.city}</p>
+        <p style={{ fontSize: 10 }}>{BRAND.address}</p>
         {shopPhone && <p style={{ fontSize: 10 }}>{shopPhone}</p>}
       </div>
 
