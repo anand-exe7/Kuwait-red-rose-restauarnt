@@ -175,10 +175,7 @@ export default function StockPage() {
       {!rows.length ? (
         <Empty icon="list" title={ledgerMissing ? "No stock ledger yet" : "Nothing moved in this period"}>
           {ledgerMissing ? (
-            <>
-              Apply <code className="rounded bg-slate-100 px-1 py-0.5">supabase/stock_movements.sql</code> in the Supabase SQL
-              editor and every order, restock and correction from then on is recorded here.
-            </>
+            <>Stock movements aren&rsquo;t being recorded yet. Once they are, every sale, restock and correction shows up here.</>
           ) : (
             <>Widen the dates, or clear the filters.</>
           )}
@@ -195,7 +192,6 @@ export default function StockPage() {
                     <th className="py-2 pr-3">Movement</th>
                     <th className="py-2 pr-3 text-right">Qty</th>
                     <th className="py-2 pr-3 text-right">Stock</th>
-                    <th className="py-2 pr-3">Why</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -211,16 +207,6 @@ export default function StockPage() {
                       </td>
                       <td className="adm-num whitespace-nowrap py-2 pr-3 text-right text-slate-500">
                         {m.beforeQty === null ? "—" : `${m.beforeQty} → ${m.afterQty}`}
-                      </td>
-                      <td className="py-2 pr-3 text-slate-500">
-                        {m.orderId ? (
-                          <Link href={`/admin/orders?q=${encodeURIComponent(m.orderId)}`} className="font-semibold text-red-600 hover:underline">
-                            {m.orderId}
-                          </Link>
-                        ) : (
-                          m.reason || "—"
-                        )}
-                        <span className="ml-1 text-[11px] text-slate-400">· {m.actor}</span>
                       </td>
                     </tr>
                   ))}

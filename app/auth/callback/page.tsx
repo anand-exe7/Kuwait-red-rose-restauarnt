@@ -46,7 +46,7 @@ export default function AuthCallbackPage() {
 
       const sb = getSupabase();
       if (!sb) {
-        setError('Supabase env vars are missing on this deploy.');
+        setError('Sign-in isn\u2019t available right now. Please try again later.');
         setMessage('Sign-in is not configured. Redirecting…');
         setTimeout(() => (window.location.href = next), 1600);
         return;
@@ -64,7 +64,7 @@ export default function AuthCallbackPage() {
         session = (await sb.auth.getSession()).data.session;
       }
       if (!session) {
-        setError('No session was established. Check Supabase redirect URL config.');
+        setError('We couldn\u2019t finish signing you in. Please try again.');
         setMessage('Sign-in failed — redirecting back.');
         setTimeout(() => (window.location.href = next), 2200);
         return;

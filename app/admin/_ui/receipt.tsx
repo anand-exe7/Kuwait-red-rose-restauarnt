@@ -7,15 +7,25 @@ import { shopIdentity } from "../../lib/shop";
 
 const PAY = { cash: "Cash", upi: "UPI", card: "Card", split: "Cash + Card", none: "—" } as const;
 
-/* Shop identity shown on every receipt — name, branch, owner, phone, address.
-   All of it comes from NEXT_PUBLIC_SHOP_* so the owner can change a number or
-   move branch without a code change (see app/lib/shop.ts). */
+/* How the food left the shop, in the customer's words. A delivery must say
+   "Delivery" on the paper even when the delivery itself was free, so this
+   comes off the bill's `mode` rather than off the delivery fee. */
+const MODE = { table: "Dine-in", standing: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" } as const;
+export function orderTypeLabel(b: Bill): string {
+  const m = MODE[b.mode as keyof typeof MODE];
+  if (m) return m;
+  return b.source === "tab" ? "Customer tab" : "Counter";
+}
+
+/* Shop identity shown on every receipt — name, address and telephone. All of
+   it comes from NEXT_PUBLIC_SHOP_* so the owner can change a number or move
+   branch without a code change (see app/lib/shop.ts). The proprietor's name
+   is deliberately NOT printed: the customer wants the shop and a number to
+   call, not who owns it. */
 const SHOP = shopIdentity();
 export const SHOP_ADDRESS = SHOP.address || BRAND.city;
-/** "Owner: Janakiraman Sampath · 55568759" — blank when neither is configured. */
-export const SHOP_CONTACT = [SHOP.owner && `Prop. ${SHOP.owner}`, SHOP.phone && `Tel ${SHOP.phone}`]
-  .filter(Boolean)
-  .join(" · ");
+/** "Tel 55568759" — blank when no number is configured. */
+export const SHOP_CONTACT = SHOP.phone ? `Tel ${SHOP.phone}` : "";
 
 /** Short, public link to the invoice page — reads the bill back from the
  *  realtime store by invoice number. No URL blob. */
@@ -39,6 +49,7 @@ export function billText(b: Bill, shop: string, publicUrl = "") {
   if (b.manualDiscount > 0) L.push(`Discount: -${rupee(b.manualDiscount)}`);
   if (b.deliveryFee > 0) L.push(`Delivery: ${rupee(b.deliveryFee)}`);
   if (b.extra > 0) L.push(`Extra: ${rupee(b.extra)}`);
+  if (b.isGst && b.gstAmount > 0) L.push(`VAT (${b.gstPercent}%): ${rupee(b.gstAmount)}`);
   L.push(
     `💰 Total: *${rupee(b.total)}*`,
     `💳 Paid by ${PAY[b.payment]}`,
@@ -87,15 +98,43 @@ export function Receipt({ b, shop, fmt = DEFAULT_FORMAT }: { b: Bill; shop: stri
   );
 }
 
-/** Full-page invoice for A3 / A4 / A5 — elegant layout with logo, customer
- *  block, itemised table and a totals rail. Scales by paper via inv--a{n}. */
+/**
+ * Every money line that can appear on a bill, in the order they are read:
+ * what the goods cost, what came off, what went on, then the tax. A line is
+ * on the paper whenever it applies — a delivery, a coupon, a hand-written
+ * discount, an extra charge, VAT — and silent when it does not, so no printed
+ * total can ever be an unexplained jump from the subtotal.
+ */
+function moneyLines(b: Bill): { label: string; value: string; minus?: boolean }[] {
+  const L: { label: string; value: string; minus?: boolean }[] = [];
+  if (b.couponDiscount > 0) {
+    L.push({
+      label: `Coupon${b.couponCode ? ` ${b.couponCode}` : ""}${b.couponPercent > 0 ? ` (${b.couponPercent}%)` : ""}`,
+      value: rupee(b.couponDiscount),
+      minus: true,
+    });
+  }
+  if (b.manualDiscount > 0) L.push({ label: "Discount", value: rupee(b.manualDiscount), minus: true });
+  // A delivery says so even when it was free, so the customer can see the
+  // delivery was part of the order and simply cost nothing.
+  if (b.deliveryFee > 0) L.push({ label: "Delivery charge", value: rupee(b.deliveryFee) });
+  else if (b.mode === "delivery") L.push({ label: "Delivery charge", value: "Free" });
+  if (b.extra > 0) L.push({ label: "Extra charges", value: rupee(b.extra) });
+  if (b.isGst && b.gstAmount > 0) {
+    L.push({ label: `VAT (${b.gstPercent}%) on ${rupee(b.taxableAmount)}`, value: rupee(b.gstAmount) });
+  }
+  return L;
+}
+
+/** Full-page invoice for A3 / A4 / A5 — shop name, customer block, itemised
+ *  table and a totals rail. No logo: a plain, typographic letterhead prints
+ *  cleanly on any office printer. Scales by paper via inv--a{n}. */
 export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: string; size: "A3" | "A4" | "A5"; hideSize?: boolean }) {
+  const lines = moneyLines(b);
   return (
     <div className={`inv ${hideSize ? "" : `inv--${size.toLowerCase()}`}`}>
       <header className="inv__head">
         <div className="inv__brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/finallogo.jpeg" alt="" className="inv__logo" />
           <div>
             <h1>{shop}</h1>
             <p>{SHOP_ADDRESS}</p>
@@ -103,7 +142,7 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
           </div>
         </div>
         <div className="inv__meta">
-          <h2>{b.isGst ? "Tax invoice" : "Invoice"}</h2>
+          <h2>{b.isGst && b.gstAmount > 0 ? "Tax invoice" : "Invoice"}</h2>
           <p className="inv__no"><b>{b.invoiceNo}</b></p>
           <p>{fmtDateTime(b.createdAt)}</p>
         </div>
@@ -117,7 +156,7 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
         </div>
         <div className="inv__r">
           <span>Order type</span>
-          <b>{b.source === "tab" ? "Customer tab" : "Counter"}</b>
+          <b>{orderTypeLabel(b)}</b>
           <p>Paid by {PAY[b.payment]}</p>
         </div>
       </section>
@@ -150,24 +189,12 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
           <dt>Subtotal ({b.itemCount} items)</dt>
           <dd>{rupee(b.subtotal)}</dd>
         </div>
-        {b.couponDiscount > 0 && (
-          <div>
-            <dt>Coupon {b.couponCode} ({b.couponPercent}%)</dt>
-            <dd>-{rupee(b.couponDiscount)}</dd>
+        {lines.map((l, k) => (
+          <div key={k}>
+            <dt>{l.label}</dt>
+            <dd>{l.minus ? `-${l.value}` : l.value}</dd>
           </div>
-        )}
-        {b.manualDiscount > 0 && (
-          <div><dt>Discount</dt><dd>-{rupee(b.manualDiscount)}</dd></div>
-        )}
-        {b.deliveryFee > 0 && (
-          <div><dt>Delivery charge</dt><dd>{rupee(b.deliveryFee)}</dd></div>
-        )}
-        {b.extra > 0 && (
-          <div><dt>Extra charges</dt><dd>{rupee(b.extra)}</dd></div>
-        )}
-        {b.isGst && (
-          <div><dt>GST ({b.gstPercent}%) on {rupee(b.taxableAmount)}</dt><dd>{rupee(b.gstAmount)}</dd></div>
-        )}
+        ))}
         <div className="inv__tot">
           <dt>Grand total</dt>
           <dd>{rupee(b.total)}</dd>
@@ -191,15 +218,17 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
   );
 }
 
+/** 2-inch and 3-inch thermal rolls. No logo — a photo prints as a grey smear
+ *  on a thermal head, and the shop name, address and telephone are what the
+ *  customer actually needs off the top of the slip. */
 function Thermal({ b, shop, roll }: { b: Bill; shop: string; roll: 2 | 3 }) {
+  const lines = moneyLines(b);
   return (
     <div className={`rcpt rcpt--${roll}`} style={{ width: `${ROLL_MM[roll][1]}mm` }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/finallogo.jpeg" alt="" className="rcpt__logo" />
       <h1>{shop}</h1>
       <p className="c rcpt__addr">{SHOP_ADDRESS}</p>
       {SHOP_CONTACT && <p className="c rcpt__addr">{SHOP_CONTACT}</p>}
-      {b.isGst && <p className="c rcpt__tag">Tax invoice</p>}
+      {b.isGst && b.gstAmount > 0 && <p className="c rcpt__tag">Tax invoice</p>}
 
       <div className="rcpt__meta">
         <div className="row">
@@ -212,12 +241,18 @@ function Thermal({ b, shop, roll }: { b: Bill; shop: string; roll: 2 | 3 }) {
         </div>
         <div className="row">
           <span>Type</span>
-          <span>{b.source === "tab" ? "Customer tab" : "Counter"}</span>
+          <span>{orderTypeLabel(b)}</span>
         </div>
         {b.customerName && (
           <div className="row">
             <span>Guest</span>
             <span>{b.customerName}</span>
+          </div>
+        )}
+        {b.customerPhone && (
+          <div className="row">
+            <span>Phone</span>
+            <span>{b.customerPhone}</span>
           </div>
         )}
       </div>
@@ -249,21 +284,12 @@ function Thermal({ b, shop, roll }: { b: Bill; shop: string; roll: 2 | 3 }) {
           <span>Subtotal ({b.itemCount})</span>
           <span>{rupee(b.subtotal)}</span>
         </div>
-        {b.couponDiscount > 0 && (
-          <div className="row"><span>Coupon {b.couponCode}</span><span>-{rupee(b.couponDiscount)}</span></div>
-        )}
-        {b.manualDiscount > 0 && (
-          <div className="row"><span>Discount</span><span>-{rupee(b.manualDiscount)}</span></div>
-        )}
-        {b.deliveryFee > 0 && (
-          <div className="row"><span>Delivery</span><span>{rupee(b.deliveryFee)}</span></div>
-        )}
-        {b.extra > 0 && (
-          <div className="row"><span>Extra</span><span>{rupee(b.extra)}</span></div>
-        )}
-        {b.isGst && (
-          <div className="row"><span>GST ({b.gstPercent}%)</span><span>{rupee(b.gstAmount)}</span></div>
-        )}
+        {lines.map((l, k) => (
+          <div className="row" key={k}>
+            <span>{l.label}</span>
+            <span>{l.minus ? `-${l.value}` : l.value}</span>
+          </div>
+        ))}
         <div className="row rcpt__total">
           <span>Total</span>
           <span>{rupee(b.total)}</span>

@@ -42,6 +42,8 @@ import {
   addMenuItem as rrAddMenuItem,
   updateMenuItem as rrUpdateMenuItem,
   deleteMenuItem as rrDeleteMenuItem,
+  menuSchemaIsOutdated,
+  MENU_MIGRATION_HINT,
   type MenuItem,
 } from "../../lib/menuStore";
 import {
@@ -74,6 +76,15 @@ import {
 } from "../../lib/billStore";
 import { invoiceNumber, issueInvoiceNumber, resolveInvoiceNo } from "../../lib/invoice";
 import { recordStockChange } from "../../lib/stockStore";
+import {
+  subscribeToCategories,
+  getCategoriesSnapshot,
+  getCategoriesServerSnapshot,
+  categoriesFrom,
+  addCategory as rrAddCategory,
+  renameCategory as rrRenameCategory,
+  deleteCategory as rrDeleteCategory,
+} from "../../lib/categoryStore";
 import {
   subscribeToExpenses,
   getExpensesSnapshot,
@@ -151,7 +162,13 @@ interface Ctx {
   base: string;
   now: number;
   floor: FloorTab[];
+  /** Every category the shop has — saved ones plus any a product still uses. */
+  categories: string[];
 }
+
+/** The landing page has room for exactly four best sellers. One number, used
+ *  by the admin form, by this store and by both pages that render them. */
+export const BEST_SELLER_SLOTS = 4;
 
 export const whoIs = (x: { customerName: string; customerPhone: string }) =>
   x.customerName || x.customerPhone || "Guest";
@@ -168,22 +185,32 @@ export function useAdmin() {
 // -----------------------------------------------------------------------------
 
 function toProduct(m: MenuItem): Product {
+  const variants = m.variants ?? [];
+  /* With sizes on it, the product's own price and stock stop being things
+     anybody sets: the price is what the cheapest size costs ("from KD 4.500")
+     and the stock is every size added up. Showing the old single-product
+     numbers next to a list of sizes is how a shelf count goes wrong. */
+  const price = variants.length ? Math.min(...variants.map((v) => v.price)) : m.price;
+  const tracked = variants.filter((v) => v.stock != null);
+  const stock = variants.length
+    ? (tracked.length ? tracked.reduce((a, v) => a + (v.stock ?? 0), 0) : null)
+    : (m.stock ?? null);
   return {
     id: m.id,
     name: m.name,
     category: m.category,
-    price: m.price,
-    stock: m.stock ?? null,
+    price,
+    stock,
+    variants,
     weightGrams: m.weightGrams ?? null,
     lowAt: m.lowStockThreshold ?? 5,
     description: m.description ?? "",
     image: m.image ?? "",
     eggless: false,
-    tags: [
-      ...(m.isPopular ? ["popular"] : []),
-      ...(m.isChefSpecial ? ["chef"] : []),
-      ...(m.isBestSeller ? ["bestseller"] : []),
-    ],
+    /* "Best seller" is the only tag the shop uses. Popular and Chef's pick
+       were decoration that nothing chose deliberately — a product picked them
+       up on its own and then wore a badge the owner never asked for. */
+    tags: m.isBestSeller ? ["bestseller"] : [],
     active: (m.status ?? "active") === "active",
     createdAt: m.createdAt ?? Date.now(),
   };
@@ -482,6 +509,15 @@ export function AdminProvider({
   const rrBills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
   const rrCoupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
   const rrExpenses = useSyncExternalStore(subscribeToExpenses, getExpensesSnapshot, getExpensesServerSnapshot);
+  const rrCategoryRows = useSyncExternalStore(subscribeToCategories, getCategoriesSnapshot, getCategoriesServerSnapshot);
+  /* Saved categories first, then anything a product still carries that isn't
+     in the saved list — so nothing disappears from the pickers if the settings
+     row is missing or a product was filed under an old name. */
+  const savedCategories = useMemo(() => categoriesFrom(rrCategoryRows), [rrCategoryRows]);
+  const categories = useMemo(() => {
+    const used = menu.map((m) => m.category).filter(Boolean);
+    return [...new Set([...savedCategories, ...used])];
+  }, [savedCategories, menu]);
 
   /* Bills the admin has just completed in this session. Red Rose's `bills`
      table stores the thin, session-settling record; the admin's billing panel
@@ -677,23 +713,55 @@ export function AdminProvider({
           case "product.save": {
             const p = args as Partial<Product> & { id?: string };
             const wantStock = p.stock === null || p.stock === undefined ? null : Number(p.stock);
+            // The form's tag chips are the only way to set these flags, and
+            // they were never mapped back onto the product — so "best seller"
+            // looked like it saved and never did.
+            const tags = Array.isArray(p.tags) ? p.tags : [];
+            const wantsBestSeller = tags.includes("bestseller");
+            if (wantsBestSeller) {
+              const others = menu.filter((m) => m.isBestSeller && m.id !== p.id).length;
+              if (others >= BEST_SELLER_SLOTS) {
+                return {
+                  ok: false,
+                  error: `The landing page shows ${BEST_SELLER_SLOTS} best sellers. Take one off before adding another.`,
+                };
+              }
+            }
+            /* Sizes are the source of truth once a product has any, so the
+               single price saved on the product becomes the cheapest size —
+               what the menu shows as "from". The per-size stock lives in the
+               sizes themselves and is never copied to menu_items.stock, or
+               the two counts drift. */
+            const variants = Array.isArray(p.variants) ? p.variants : [];
             const payload: Partial<MenuItem> = {
               name: p.name,
               category: p.category ?? "Other",
-              price: p.price ?? 0,
+              price: variants.length ? Math.min(...variants.map((v) => v.price)) : p.price ?? 0,
+              variants,
               description: p.description ?? "",
               image: p.image ?? "",
               lowStockThreshold: p.lowAt ?? undefined,
               weightGrams: p.weightGrams == null ? undefined : Number(p.weightGrams),
+              isBestSeller: wantsBestSeller,
+              // Never set on save, and cleared on every edit, so an old
+              // product stops wearing a badge nobody chose.
+              isPopular: false,
+              isChefSpecial: false,
               status: p.active === false ? "inactive" : "active",
             };
             if (p.id) {
               const before = menu.find((m) => m.id === p.id)?.stock ?? null;
+              // With sizes, there is no single count to adjust — each size
+              // carries its own, saved inside `variants`.
+              if (variants.length) payload.stock = undefined;
               // Switching tracking off (or on) is a product change; a changed
               // count is a stock movement and goes through /api/stock so the
               // ledger records who corrected it and by how much.
               if (wantStock === null) payload.stock = undefined;
-              rrUpdateMenuItem(p.id, payload);
+              // Awaited: the toast must not say "saved" before the database
+              // has agreed, or the change reappears undone a moment later.
+              const up = await rrUpdateMenuItem(p.id, payload);
+              if (up.error) return { ok: false, error: up.error.message };
               if (wantStock !== null && wantStock !== before) {
                 const r = await recordStockChange({
                   productId: p.id,
@@ -703,20 +771,29 @@ export function AdminProvider({
                 });
                 if (!r.ok) return { ok: false, error: r.error ?? "Saved, but the stock count didn't change." };
               }
-            } else {
-              // New products start empty and the opening count is booked in as
-              // a movement, so the ledger balances from day one.
-              const created = rrAddMenuItem({ ...(payload as MenuItem), stock: 0 });
-              if (wantStock !== null && wantStock > 0) {
-                await recordStockChange({
-                  productId: created.id,
-                  kind: "restock",
-                  set: wantStock,
-                  reason: "Opening stock",
-                });
-              }
+              if (wantsBestSeller && menuSchemaIsOutdated()) return { ok: false, error: MENU_MIGRATION_HINT };
+              const saved = menu.find((m) => m.id === p.id);
+              return { ok: true, result: toProduct({ ...(saved as MenuItem), ...payload } as MenuItem) as unknown as T };
             }
-            return { ok: true, result: undefined as T };
+            // New products start empty and the opening count is booked in as
+            // a movement, so the ledger balances from day one.
+            const { item: created, saved: landed } = rrAddMenuItem({ ...(payload as MenuItem), stock: 0 });
+            const res = await landed;
+            if (res.error) return { ok: false, error: res.error.message };
+            // A product with sizes books no opening stock of its own: the
+            // counts are per size and were saved with the sizes.
+            if (!variants.length && wantStock !== null && wantStock > 0) {
+              // Only now — the row has to exist before /api/stock can find it.
+              const r = await recordStockChange({
+                productId: created.id,
+                kind: "restock",
+                set: wantStock,
+                reason: "Opening stock",
+              });
+              if (!r.ok) return { ok: false, error: r.error ?? "Added, but the opening stock didn't save." };
+            }
+            if (wantsBestSeller && menuSchemaIsOutdated()) return { ok: false, error: MENU_MIGRATION_HINT };
+            return { ok: true, result: toProduct({ ...created, stock: wantStock ?? undefined }) as unknown as T };
           }
           case "coupon.save": {
             const c = args as Partial<Coupon> & { id?: string };
@@ -750,6 +827,21 @@ export function AdminProvider({
             if (!r.ok) return { ok: false, error: r.error ?? "Could not delete that expense." };
             return { ok: true, result: undefined as T };
           }
+          case "category.create": {
+            const r = await rrAddCategory(String(args.name ?? ""), savedCategories);
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not create that category." };
+            return { ok: true, result: undefined as T };
+          }
+          case "category.delete": {
+            const name = String(args.name ?? "");
+            const inUse = menu.filter((m) => m.category === name).length;
+            if (inUse > 0) {
+              return { ok: false, error: `${inUse} product${inUse === 1 ? " is" : "s are"} still in "${name}". Move them first.` };
+            }
+            const r = await rrDeleteCategory(name, savedCategories);
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not delete that category." };
+            return { ok: true, result: undefined as T };
+          }
           case "category.rename": {
             // Categories aren't a table of their own — they are whatever the
             // products say they are, so renaming one re-tags every product in
@@ -757,9 +849,13 @@ export function AdminProvider({
             const from = String(args.from ?? "");
             const to = String(args.to ?? "").trim();
             if (!from || !to) return { ok: false, error: "Give the category a name." };
-            const hits = menu.filter((m) => m.category === from);
-            if (!hits.length) return { ok: false, error: "No products in that category." };
-            for (const m of hits) rrUpdateMenuItem(m.id, { category: to });
+            // Rename it in the saved list AND re-tag every product in it, so a
+            // category with no products yet can still be renamed.
+            const r = await rrRenameCategory(from, to, savedCategories);
+            if (!r.ok) return { ok: false, error: r.error ?? "Could not rename that category." };
+            for (const m of menu.filter((x) => x.category === from)) {
+              await rrUpdateMenuItem(m.id, { category: to });
+            }
             return { ok: true, result: undefined as T };
           }
           case "coupon.delete": {
@@ -787,10 +883,13 @@ export function AdminProvider({
             const deliveryFee = Math.max(0, Number(args.deliveryFee ?? 0) || 0);
             const isGst = Boolean(args.isGst);
             const gstPercent = Number(args.gstPercent ?? 0);
-            const base = Math.max(0, subtotal - discount) + deliveryFee;
-            const taxable = isGst ? Math.round((base / (1 + gstPercent / 100)) * 1000) / 1000 : base;
-            const gstAmount = isGst ? Math.round((base - taxable) * 1000) / 1000 : 0;
-            const total = Math.round((base + extra) * 1000) / 1000;
+            /* Must match computeBill() in money.ts exactly, or the number the
+               admin sees while taking the money is not the number on the
+               invoice. Discount first, VAT on what is left, delivery on top
+               (a service fee, not goods). */
+            const taxable = Math.max(0, Math.round((subtotal - discount) * 1000) / 1000);
+            const gstAmount = isGst ? Math.round((taxable * gstPercent) / 100 * 1000) / 1000 : 0;
+            const total = Math.round((taxable + gstAmount + deliveryFee + extra) * 1000) / 1000;
             const payment = (args.payment as Bill["payment"]) ?? "cash";
             const received = Number(args.received ?? total);
             const cashAmount = payment === "split" ? Number(args.cashAmount ?? 0) : payment === "cash" ? total : 0;
@@ -927,10 +1026,21 @@ export function AdminProvider({
               price: i.price,
               qty: i.qty,
             }));
+            // A takeaway or delivery is one order spread over several tickets.
+            // The ticket we are about to write has to carry the same identity
+            // and the same address as the first one, or the chef prints a
+            // delivery with nowhere to send it and the driver gets half an
+            // address. The ORDER's mode wins over the session's for the same
+            // reason it does everywhere else: sessions opened before delivery
+            // had its own mode were all filed as 'takeaway'.
+            const prior = rrOrders
+              .filter((o) => o.sessionId === sessionId)
+              .sort((a, b) => a.createdAt - b.createdAt);
+            const origin = prior[0];
             rrAddOrder({
               table: sess.tableNumber ?? 0,
               standingLabel: sess.standingLabel ?? undefined,
-              mode: sess.mode,
+              mode: origin?.mode ?? sess.mode,
               items: rrItems,
               priority: "normal",
               subtotal,
@@ -939,7 +1049,10 @@ export function AdminProvider({
               source: "admin",
               status: "pending",
               sessionId,
-              customer: {
+              // The delivery charge was already billed on the first ticket —
+              // adding a samosa does not mean paying for the van twice.
+              deliveryAddress: origin?.deliveryAddress,
+              customer: origin?.customer ?? {
                 name: sess.customerName ?? "",
                 phone: sess.customerPhone ?? "",
               },
@@ -956,13 +1069,13 @@ export function AdminProvider({
             return { ok: true, result: undefined as T };
           }
           default:
-            return { ok: false, error: `This panel is read-only on Red Rose — "${op}" isn't wired up.` };
+            return { ok: false, error: "That action isn't available here." };
         }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
       }
     },
-    [menu, rrCoupons, rrSessions]
+    [menu, rrCoupons, rrOrders, rrSessions, savedCategories]
   );
 
   const refresh = useCallback(async () => {
@@ -990,6 +1103,7 @@ export function AdminProvider({
         base,
         now,
         floor,
+        categories,
       }}
     >
       {children}

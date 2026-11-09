@@ -4,7 +4,7 @@ import { SESSION_COOKIE, verifySessionToken, type Role } from '../../lib/session
 import { getServerSupabase } from '../../lib/supabaseServer';
 import { HttpError, bad, deny, throttle, isObj, str, int, money, round3, clientIp } from '../../lib/server/http';
 import { priceItems, checkCoupon, consumeCoupon, TAX_RATE } from '../../lib/server/pricing';
-import { applySaleForOrder, reverseSaleForOrder } from '../../lib/server/stock';
+import { applySaleForBill, applySaleForOrder, reverseSaleForOrder } from '../../lib/server/stock';
 import { feeForAreaName } from '../../lib/delivery/server';
 
 // Single guarded door for every database WRITE made by the browser.
@@ -26,7 +26,7 @@ interface Body { table?: string; op?: Op; values?: Values; match?: Match }
 
 const COLUMNS: Record<string, string[]> = {
   menu_items: ['id', 'name', 'category', 'price', 'description', 'image', 'prep_time', 'status', 'is_popular',
-    'is_chef_special', 'is_best_seller', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'weight_grams', 'created_at'],
+    'is_chef_special', 'is_best_seller', 'is_spicy', 'stock', 'low_stock_threshold', 'sku', 'cost', 'weight_grams', 'variants', 'created_at'],
   coupons: ['id', 'code', 'discount_percent', 'min_order', 'expiry', 'usage_limit', 'used_count', 'active', 'created_at',
     'targeted_only', 'sent_phones'],
   app_settings: ['id', 'value'],
@@ -61,7 +61,7 @@ const DROPPABLE: Record<string, string[]> = {
   orders: ['note', 'handed_over_at', 'delivery_fee', 'user_id', 'customer_name', 'customer_phone', 'customer_email', 'delivery_address'],
   bills: ['invoice_no', 'payload'],
   coupons: ['targeted_only', 'sent_phones'],
-  menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold', 'weight_grams'],
+  menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold', 'weight_grams', 'variants'],
 };
 
 /** The column name out of a PostgREST "missing column" error, if that's what it is. */
@@ -336,9 +336,15 @@ async function billsWrite(ctx: Ctx, op: Op, v: Values) {
   const invoiceNo = typeof v.invoice_no === 'string' ? v.invoice_no.slice(0, 40) : null;
   const payload = v.payload && typeof v.payload === 'object' ? v.payload : null;
   const sessionIdRaw = v.session_id;
+  // The lines the bill actually charges for. A counter sale never becomes a
+  // kitchen ticket, so this is the ONLY record that it left the shelf — the
+  // stock has to come off here or it never comes off at all.
+  const billLines = Array.isArray((payload as { items?: unknown } | null)?.items)
+    ? ((payload as { items: unknown[] }).items as { productId?: string | null; qty?: number | null }[])
+    : [];
   // Counter walk-in bills have no session — trust the payload for amounts.
   if (sessionIdRaw === null || sessionIdRaw === undefined || sessionIdRaw === '') {
-    return insertTolerant(ctx.sb, 'bills', {
+    const res = await insertTolerant(ctx.sb, 'bills', {
       id, session_id: null,
       subtotal: money(v.subtotal ?? 0, 'subtotal'),
       tax: money(v.tax ?? 0, 'tax'),
@@ -350,6 +356,8 @@ async function billsWrite(ctx: Ctx, op: Op, v: Values) {
       payload,
       created_at: Date.now(),
     });
+    if (!res.error) await applySaleForBill(ctx.sb, { id, sessionId: null, items: billLines });
+    return res;
   }
   const sessionId = str(sessionIdRaw, 60, 'session');
   // Amounts come from the session's real orders, not from the client.
@@ -358,7 +366,7 @@ async function billsWrite(ctx: Ctx, op: Op, v: Values) {
   if (error) throw new HttpError(500, 'Order lookup failed');
   if (!orders || orders.length === 0) throw bad('Nothing to bill for this session');
   const sum = (k: 'subtotal' | 'tax' | 'discount' | 'total') => round3(orders.reduce((s, o) => s + (Number(o[k]) || 0), 0));
-  return insertTolerant(ctx.sb, 'bills', {
+  const res = await insertTolerant(ctx.sb, 'bills', {
     id, session_id: sessionId,
     subtotal: sum('subtotal'), tax: sum('tax'), discount: sum('discount'), total: sum('total'),
     coupon_code: orders.find((o) => o.coupon_code)?.coupon_code ?? null,
@@ -367,6 +375,10 @@ async function billsWrite(ctx: Ctx, op: Op, v: Values) {
     payload,
     created_at: Date.now(),
   });
+  // The tickets already moved their own stock; this only catches lines the
+  // admin typed straight onto the bill, which never were a ticket.
+  if (!res.error) await applySaleForBill(ctx.sb, { id, sessionId, items: billLines });
+  return res;
 }
 
 async function waiterCallsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {

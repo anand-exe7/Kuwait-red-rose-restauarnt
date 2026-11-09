@@ -88,10 +88,14 @@ export function computeBill(input: BillInputs): BillComputed {
         ? round2(manualValue)
         : 0;
   const discount = round2(couponDiscount + manualDiscount);
-  const base = round2(Math.max(0, round2(subtotal - discount)) + deliveryFee);
-  const taxable = gst ? round2(base / (1 + gstPercent / 100)) : base;
-  const gstAmount = gst ? round2(base - taxable) : 0;
-  const total = round2(base + extra);
+  /* VAT in Kuwait is charged ON TOP of what the customer actually pays for the
+     goods, and the discount comes off FIRST. So a KD 7 cake with KD 1 off is
+     KD 6 of goods, and 5% VAT on that is KD 0.300 — never 5% of 7, and never
+     carved back out of the 6. The delivery charge is a service fee, not part
+     of the goods, so it is added after the VAT rather than taxed. */
+  const taxable = Math.max(0, round2(subtotal - discount));
+  const gstAmount = gst ? round2((taxable * gstPercent) / 100) : 0;
+  const total = round2(taxable + gstAmount + deliveryFee + extra);
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
   return {
     subtotal,

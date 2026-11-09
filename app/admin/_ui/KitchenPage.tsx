@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import type { AdminState, OrderItem, OrderMode, OrderSource, Product } from "./types";
 import { rupee } from "./money";
 import { useAdmin, whoIs } from "./Store";
-import Catalog from "./Catalog";
+import Catalog, { type Pick as CatalogPick } from "./Catalog";
 import { Badge, Btn, Empty, Icon, Page, PageHead, cx, fmtTime } from "./kit";
 import { resolveOrderNo } from "../../lib/invoice";
 
@@ -135,18 +135,14 @@ export default function KitchenPage() {
   const selected = selId ? tabs.find((t) => t.session.id === selId) ?? null : tabs[0] ?? null;
   const activeId = selected?.session.id ?? null;
 
-  const addItems = async (picks: { productId: string; qty: number }[]) => {
+  const addItems = async (picks: CatalogPick[]) => {
     if (!selected) return false;
-    if (selected.home) {
-      toast({ kind: "err", title: "A takeaway or delivery order can't have items added to it." });
-      return false;
-    }
-    const items: OrderItem[] = [];
-    for (const pick of picks) {
-      const p = s.products.find((x) => x.id === pick.productId);
-      if (!p) continue;
-      items.push({ productId: p.id, name: p.name, price: p.price, qty: pick.qty });
-    }
+    /* The pick carries its own name and price. A size ("…::v-1kg") is not a
+       row in s.products, so looking it up there would silently drop it — and
+       that is exactly the line the kitchen needs. */
+    const items: OrderItem[] = picks
+      .filter((pick) => pick.qty > 0 && pick.name)
+      .map((pick) => ({ productId: pick.productId, name: pick.name, price: pick.price, qty: pick.qty }));
     if (!items.length) return false;
     setBusy(true);
     const r = await act("session.addItems", { sessionId: selected.session.id, items });
@@ -227,7 +223,7 @@ export default function KitchenPage() {
                         Ready — bill now
                       </span>
                     )}
-                    {t.fresh > 0 && !t.home && (
+                    {t.fresh > 0 && (
                       <span className="adm-pulse rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
                         New · {t.fresh}
                       </span>
@@ -325,7 +321,7 @@ function TabDetail({
             </span>
             {tabTitle(tab)}
             <span className={cx("rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide", skin.chip)}>{skin.label}</span>
-            {fresh > 0 && !home && (
+            {fresh > 0 && (
               <span className="adm-pulse inline-flex rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
                 New · {fresh}
               </span>
@@ -336,13 +332,14 @@ function TabDetail({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {/* A home order is exactly what the customer ordered and paid for —
-              there is no table to walk back to with an extra plate, so nothing
-              can be added to it here. */}
-          {/* Once the guest has asked for the bill the tab is closed to new
+          {/* Takeaway and delivery take extra items the same way a table does:
+              the customer rings back, or asks for one more at the counter. The
+              new line joins THIS tab, so it is cooked on the same ticket run
+              and settled on the same invoice — never a second bill.
+              Once the guest has asked for the bill the tab is closed to new
               items — on their phone, on the waiter's board and here. What they
               are charged has to be what they agreed to pay. */}
-          {!home && !billRequested && (
+          {!billRequested && (
             <Btn kind="soft" icon="plus" disabled={busy} onClick={onAddItems}>
               Add items from inventory
             </Btn>
@@ -385,7 +382,9 @@ function TabDetail({
           {readyToBill
             ? "Cooked and packed. Bill it now — closing the bill issues the invoice number and sends it to the customer."
             : "The kitchen is still working on this one. It can be billed once every item is marked ready."}{" "}
-          Items can&apos;t be added to a {skin.label.toLowerCase()} order.
+          {billRequested
+            ? "The customer has asked for the bill, so nothing more can go on it."
+            : `Anything you add goes to the kitchen on this same ${skin.label.toLowerCase()} order and onto the same invoice.`}
         </p>
       )}
 
@@ -457,9 +456,9 @@ function TabDetail({
         </dl>
       )}
 
-      {!home && !billRequested && (
+      {!billRequested && (
         <p className="mt-4 text-[11.5px] text-slate-400">
-          Adding items saves to the tab — it doesn&apos;t close it. Hit &ldquo;Complete in Billing&rdquo; when the guest is ready to pay.
+          Adding items saves to the tab — it doesn&apos;t close it. Hit &ldquo;{home ? "Bill & send invoice" : "Complete in Billing"}&rdquo; when the guest is ready to pay.
         </p>
       )}
     </div>

@@ -6,54 +6,6 @@ import { useEffect, useState } from "react";
 import { useAdmin } from "./Store";
 import { Btn, Icon, Modal, cx, type IconName } from "./kit";
 import { BRAND } from "../../lib/brand";
-import { publicBaseUrl, publicLinkIsLocalOnly } from "../../lib/publicUrl";
-
-/* Every link the shop sends — the invoice, a coupon — is built from the public
-   address of the site. On a laptop that address is http://localhost:3000, which
-   exists only on that laptop: tapped from WhatsApp on a phone it either fails
-   to resolve or (in a browser that forces HTTPS) dies with
-   ERR_SSL_PROTOCOL_ERROR. Nothing in the code can fix that — the site has to be
-   reachable — so we say so where the person sending the links will see it. */
-function LocalLinkWarning({ publicUrl }: { publicUrl: string }) {
-  const [hidden, setHidden] = useState(false);
-  const [base, setBase] = useState("");
-  useEffect(() => {
-    // window.location and sessionStorage only exist in the browser, so this
-    // has to read them after mount rather than during render.
-    /* eslint-disable react-hooks/set-state-in-effect */
-    if (publicLinkIsLocalOnly(publicUrl)) setBase(publicBaseUrl(publicUrl));
-    try {
-      setHidden(sessionStorage.getItem("adm-local-link-ok") === "1");
-    } catch {}
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [publicUrl]);
-  if (!base || hidden) return null;
-  return (
-    <div className="mb-4 flex flex-wrap items-start gap-3 rounded-2xl border-2 border-amber-300 bg-amber-50 px-4 py-3">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-500 text-white">
-        <Icon name="alert" size={16} />
-      </span>
-      <div className="min-w-0 flex-1 text-[12.5px] leading-snug text-amber-900">
-        <b className="block text-[13px]">Invoice and coupon links will not open on a customer&rsquo;s phone.</b>
-        This computer is serving the site at <code className="font-mono">{base}</code>, which only exists here — that is why a link
-        you send comes back as &ldquo;can&rsquo;t provide a secure connection&rdquo;. Put the public address of the live site in{" "}
-        <code className="font-mono">.env</code> as <code className="font-mono">NEXT_PUBLIC_SITE_URL=https://your-site.com</code> and restart the server.
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          setHidden(true);
-          try {
-            sessionStorage.setItem("adm-local-link-ok", "1");
-          } catch {}
-        }}
-        className="shrink-0 rounded-lg px-2 py-1 text-[11.5px] font-bold uppercase tracking-wide text-amber-700 hover:bg-amber-100"
-      >
-        Dismiss
-      </button>
-    </div>
-  );
-}
 
 type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[] };
 
@@ -70,6 +22,7 @@ const NAV: Nav[] = [
   { href: "/admin/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
   { href: "/admin/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
   { href: "/admin/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
+  { href: "/admin/media", label: "Images & videos", icon: "image", roles: ["admin"] },
   { href: "/admin/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
 ];
 
@@ -237,7 +190,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
         <div className={cx("flex flex-1 flex-col min-w-0 transition-[padding] duration-200", rail ? "lg:pl-[76px]" : "lg:pl-[248px]")}>
           <main className="mx-auto w-full min-w-0 max-w-[1480px] flex-1 p-3 sm:p-6">
-            <LocalLinkWarning publicUrl={s.settings.publicUrl} />
             {children}
           </main>
           <footer className="mx-auto flex w-full max-w-[1480px] flex-col items-center gap-3 border-t border-slate-200 px-4 py-7 text-[10.5px] font-bold uppercase tracking-[0.14em] text-slate-500 sm:flex-row sm:justify-between sm:px-6">

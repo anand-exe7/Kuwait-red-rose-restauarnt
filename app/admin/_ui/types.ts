@@ -1,5 +1,6 @@
 import { shopName } from "../../lib/shop";
 import type { DeliveryAddress, OrderMode, OrderStatus as LiveOrderStatus } from "../../lib/orderStore";
+import type { MenuVariant } from "../../lib/menuStore";
 
 export type { DeliveryAddress, OrderMode };
 /** The real order lifecycle, as the kitchen and the customer see it. The
@@ -37,6 +38,10 @@ export interface Product {
   eggless: boolean;
   tags: string[];
   active: boolean;
+  /** Sizes this product is sold in (500 g, 1 kg…). Empty = sold as one thing.
+   *  When it is not empty, `price` and `stock` above are summaries of the
+   *  sizes, not figures anyone edits directly. */
+  variants: MenuVariant[];
   createdAt: number;
 }
 
@@ -44,8 +49,8 @@ export interface Session {
   id: string;
   status: SessionStatus;
   /** Where this visit happens — a table, a walk-in, a takeaway or a delivery.
-   *  Home orders (takeaway/delivery) are billed like a tab but can never have
-   *  items added to them, so every surface needs to be able to tell them apart. */
+   *  Home orders (takeaway/delivery) take extra items like any other tab, but
+   *  only the admin bills them, so every surface needs to tell them apart. */
   mode: OrderMode;
   tableNumber: number | null;
   standingLabel: string;

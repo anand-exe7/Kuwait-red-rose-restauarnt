@@ -76,8 +76,8 @@ export default function OrdersPage() {
 
   /* The bills on screen as an Excel workbook with real columns. */
   const exportRows = (): (string | number)[][] => [
-    ["Invoice", "Channel", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Delivery", "Extra", "Bill type", "GST %", "Taxable amount", "GST amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
-    ...bills.map((b) => [b.invoiceNo, CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.deliveryFee, b.extra, b.isGst ? "GST" : "Non-GST", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
+    ["Invoice", "Channel", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Delivery", "Extra", "Bill type", "VAT %", "Taxable amount", "VAT amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
+    ...bills.map((b) => [b.invoiceNo, CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.deliveryFee, b.extra, b.isGst ? "VAT" : "No VAT", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
   ];
   const stamp = () => new Date().toISOString().slice(0, 10);
   const exportExcel = () => downloadExcel(`bills-${stamp()}.xlsx`, [{ name: "Bills", rows: exportRows() }]);
@@ -337,13 +337,13 @@ export default function OrdersPage() {
               )}
               {bill.isGst ? (
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">GST ({bill.gstPercent}%) on {rupee(bill.taxableAmount)}</dt>
+                  <dt className="text-slate-500">VAT ({bill.gstPercent}%) on {rupee(bill.taxableAmount)}</dt>
                   <dd>{rupee(bill.gstAmount)}</dd>
                 </div>
               ) : (
                 <div className="flex justify-between text-slate-400">
-                  <dt>Non-GST bill</dt>
-                  <dd>GST not applicable</dd>
+                  <dt>No VAT</dt>
+                  <dd>Not charged on this bill</dd>
                 </div>
               )}
               <div className="flex justify-between pt-2 text-[17px]">
