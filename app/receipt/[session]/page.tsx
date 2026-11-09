@@ -9,7 +9,7 @@
 import React, { use, useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Printer, ChevronLeft, Phone, MapPin, Mail, User } from 'lucide-react';
+import { Printer, ChevronLeft, Phone, MapPin, Mail } from 'lucide-react';
 import {
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders, type OrderItem, orderLabel,
 } from '../../lib/orderStore';
@@ -22,7 +22,6 @@ import {
 import { formatKWD } from '../../lib/currency';
 import { BRAND } from '../../lib/brand';
 import { resolveInvoiceNo } from '../../lib/invoice';
-import { shopOwner } from '../../lib/shop';
 import { landingFonts } from '../../fonts';
 
 /** Shop WhatsApp/phone, prettified for the invoice header. */
@@ -105,7 +104,6 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
   );
   const where = tabOrders[0] ? orderLabel(tabOrders[0]) : (session?.tableNumber != null ? `Table ${session.tableNumber}` : 'Counter');
   const phone = shopPhone();
-  const owner = shopOwner();
 
   // Stores hydrate from realtime a tick after mount (and at different times), so
   // give them a short grace window before deciding the invoice doesn't exist —
@@ -199,7 +197,6 @@ export default function ReceiptPage({ params }: { params: Promise<{ session: str
                   <div className="mt-2 flex flex-col gap-0.5 font-body text-[11px] text-brand-wine/60">
                     <span className="inline-flex items-center gap-1.5"><MapPin size={11} /> {BRAND.address}</span>
                     {phone && <span className="inline-flex items-center gap-1.5"><Phone size={11} /> {phone}</span>}
-                    {owner && <span className="inline-flex items-center gap-1.5"><User size={11} /> Prop. {owner}</span>}
                   </div>
                 </div>
               </div>
@@ -364,8 +361,6 @@ function ThermalReceipt(props: {
     >
       {/* Header */}
       <div className="text-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={BRAND.logo} alt={BRAND.fullName} className="mx-auto mb-1 h-12 w-12 rounded-full object-cover" />
         <p className="font-bold uppercase tracking-wide" style={{ fontSize: 14 }}>{BRAND.fullName}</p>
         <p className="uppercase" style={{ fontSize: 10 }}>Pastry · {BRAND.city}</p>
         <p style={{ fontSize: 10 }}>{BRAND.address}</p>

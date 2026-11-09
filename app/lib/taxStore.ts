@@ -14,7 +14,8 @@ export interface TaxSettings {
   inclusive: boolean; // true = price already includes tax; false = added on top
 }
 
-export const DEFAULT_TAX: TaxSettings = { enabled: false, rate: 0, label: 'GST', inclusive: false };
+/* Kuwait charges 5% VAT, added on top of the discounted price. */
+export const DEFAULT_TAX: TaxSettings = { enabled: true, rate: 5, label: 'VAT', inclusive: false };
 
 interface Row { id: string; enabled: boolean; rate: number; label: string; inclusive: boolean }
 
@@ -24,7 +25,7 @@ function fromRow(r: Record<string, unknown>): Row {
     id: String(r.id),
     enabled: !!v.enabled,
     rate: Number(v.rate ?? 0),
-    label: (v.label as string) || 'GST',
+    label: (v.label as string) || 'VAT',
     inclusive: !!v.inclusive,
   };
 }

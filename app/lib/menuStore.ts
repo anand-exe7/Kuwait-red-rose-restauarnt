@@ -18,6 +18,77 @@ export type MenuCategory = string;
 
 export const MENU_CATEGORIES: MenuCategory[] = ['Arabic Sweets', 'Cakes', 'Pastries', 'Drinks'];
 
+/* ── Sub-products (sizes) ──────────────────────────────────────────────────
+   A cake is not one thing for sale: it is a 500 g, a 1 kg and a 1.5 kg, each
+   with its own price and its own count on the shelf. Those are sub-products.
+
+   Units are deliberately a closed set. "1/2 kilo", "half", "500 grams" and
+   "500g" typed by four different people are four different products as far as
+   a computer is concerned, and the stock for each one drifts apart. The admin
+   picks from this list and types a number; nothing else is accepted. */
+export type MenuUnit = 'g' | 'kg' | 'ml' | 'l';
+
+export const MENU_UNITS: { v: MenuUnit; label: string; kind: 'weight' | 'volume' }[] = [
+  { v: 'g', label: 'g', kind: 'weight' },
+  { v: 'kg', label: 'kg', kind: 'weight' },
+  { v: 'ml', label: 'ml', kind: 'volume' },
+  { v: 'l', label: 'L', kind: 'volume' },
+];
+
+export interface MenuVariant {
+  id: string;
+  /** How much of the unit, e.g. 500 with unit 'g', or 1.5 with 'kg'. */
+  amount: number;
+  unit: MenuUnit;
+  price: number;
+  /** Count on the shelf for THIS size. null = not tracked. */
+  stock: number | null;
+}
+
+/** How a size is written everywhere a human reads it: 500g, 1kg, 1.5kg, 250ml, 1L.
+ *  One function, so the kitchen ticket, the waiter's board, the bill and the
+ *  customer's basket cannot disagree about what was ordered. */
+export function variantLabel(v: Pick<MenuVariant, 'amount' | 'unit'>): string {
+  const n = Number(v.amount);
+  if (!Number.isFinite(n)) return '';
+  // 1.5 keeps its half; 1.0 does not become "1.0".
+  const amount = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
+  return `${amount}${v.unit === 'l' ? 'L' : v.unit}`;
+}
+
+/** "Black Forest Cake (1kg)" — the name that goes on the ticket and the bill. */
+export function variantName(productName: string, v: Pick<MenuVariant, 'amount' | 'unit'> | null | undefined): string {
+  const label = v ? variantLabel(v) : '';
+  return label ? `${productName} (${label})` : productName;
+}
+
+/** Normalise whatever came out of the database into real variants. */
+function variantsFrom(raw: unknown): MenuVariant[] {
+  if (!Array.isArray(raw)) return [];
+  const units = new Set(MENU_UNITS.map((u) => u.v));
+  return raw
+    .map((x, i) => {
+      const o = (x ?? {}) as Record<string, unknown>;
+      const unit = String(o.unit ?? '') as MenuUnit;
+      const amount = Number(o.amount);
+      if (!units.has(unit) || !Number.isFinite(amount) || amount <= 0) return null;
+      return {
+        id: String(o.id ?? `v${i}`),
+        amount,
+        unit,
+        price: Number(o.price) || 0,
+        stock: o.stock == null ? null : Number(o.stock),
+      } satisfies MenuVariant;
+    })
+    .filter((v): v is MenuVariant => v !== null);
+}
+
+/** A product with sizes is sold out only when EVERY size is. */
+export function variantsSoldOut(variants: MenuVariant[]): boolean {
+  if (variants.length === 0) return false;
+  return variants.every((v) => v.stock != null && v.stock <= 0);
+}
+
 export interface MenuItem {
   id: string;
   name: string;
@@ -39,6 +110,10 @@ export interface MenuItem {
   /** What ONE of these weighs, in grams. Delivery is priced by the weight of
    *  the basket, so this is what decides the fee (see delivery weight tiers). */
   weightGrams?: number;
+  /** Sizes this product is sold in. Empty = sold as one thing, at `price`
+   *  with `stock`. Non-empty = the customer must choose one, and the price
+   *  and the stock both come from the size they chose. */
+  variants?: MenuVariant[];
   createdAt: number;
 }
 
@@ -61,6 +136,7 @@ function fromRow(r: Record<string, unknown>): MenuItem {
     sku: (r.sku as string) ?? undefined,
     cost: r.cost == null ? undefined : Number(r.cost),
     weightGrams: r.weight_grams == null ? undefined : Number(r.weight_grams),
+    variants: variantsFrom(r.variants),
     createdAt: Number(r.created_at),
   };
 }
@@ -84,6 +160,7 @@ function toRow(m: Partial<MenuItem>): Record<string, unknown> {
   if (m.sku !== undefined) row.sku = m.sku;
   if (m.cost !== undefined) row.cost = m.cost;
   if (m.weightGrams !== undefined) row.weight_grams = m.weightGrams;
+  if (m.variants !== undefined) row.variants = m.variants;
   if (m.createdAt !== undefined) row.created_at = m.createdAt;
   return row;
 }
@@ -101,16 +178,29 @@ function stripNewMenuColumns(row: Record<string, unknown>): Record<string, unkno
   const clean = { ...row };
   delete clean.is_best_seller;
   delete clean.weight_grams;
+  delete clean.variants;
   return clean;
 }
+/** True once the database has told us a newer column is missing. The admin
+ *  needs to know: a "best seller" that is silently dropped looks like a bug in
+ *  the button, not a migration nobody has run. */
+export function menuSchemaIsOutdated(): boolean {
+  return menuSchemaIsLegacy;
+}
+
+export const MENU_MIGRATION_HINT =
+  'Saved — but "best seller", the product weight and the sizes could not be stored. Everything else ' +
+  'was saved; ask your administrator to enable those fields.';
+
 async function writeMenu(op: 'insert' | 'update' | 'delete', values: Record<string, unknown>, match?: Record<string, string>) {
   const payload = menuSchemaIsLegacy ? stripNewMenuColumns(values) : values;
   const res = await write({ table: 'menu_items', op, values: payload, match });
   if (res.error && isMissingColumnError(res.error.message || '')) {
     menuSchemaIsLegacy = true;
     console.warn(
-      '[menu] a newer column is missing — apply supabase/best_seller.sql (best sellers) and ' +
-      'supabase/delivery_weight_tiers.sql (product weight). Saving without them for now.',
+      '[menu] a newer column is missing — apply supabase/best_seller.sql (best sellers), ' +
+      'supabase/delivery_weight_tiers.sql (product weight) and supabase/product_variants.sql ' +
+      '(sizes). Saving without them for now.',
     );
     return write({ table: 'menu_items', op, values: stripNewMenuColumns(values), match });
   }
@@ -132,7 +222,7 @@ const DEMO_MENU: MenuItem[] = [
     category: 'Arabic Sweets', price: 2.5,
     description: 'Flaky filo layers, Aleppo pistachios, orange-blossom syrup.',
     image: img('photo-1619221882266-6f2f93f6dc9b'), prepTime: '8 min',
-    status: 'active', isPopular: true, stock: 40, createdAt: now(),
+    status: 'active', stock: 40, createdAt: now(),
   },
   {
     id: 'demo-maamoul', name: 'Date Maamoul',
@@ -146,14 +236,14 @@ const DEMO_MENU: MenuItem[] = [
     category: 'Arabic Sweets', price: 3.25,
     description: 'Spun kataifi, molten cheese, finished with rose syrup and crushed pistachio.',
     image: img('photo-1587314168485-3236d6710814'), prepTime: '12 min',
-    status: 'active', isChefSpecial: true, stock: 25, createdAt: now(),
+    status: 'active', stock: 25, createdAt: now(),
   },
   {
     id: 'demo-red-rose', name: 'Red Rose Signature',
     category: 'Cakes', price: 18.0,
     description: 'Our hallmark — rose cream, raspberry coulis, candied petals.',
     image: img('photo-1565958011703-44f9829ba187'), prepTime: '20 min',
-    status: 'active', isPopular: true, isChefSpecial: true, stock: 6, createdAt: now(),
+    status: 'active', stock: 6, createdAt: now(),
   },
   {
     id: 'demo-saffron', name: 'Saffron & Pistachio Cake',
@@ -167,14 +257,14 @@ const DEMO_MENU: MenuItem[] = [
     category: 'Cakes', price: 16.75,
     description: 'Flourless 72% chocolate, salted caramel heart.',
     image: img('photo-1551024601-bec78aea704b'), prepTime: '18 min',
-    status: 'active', isPopular: true, stock: 8, createdAt: now(),
+    status: 'active', stock: 8, createdAt: now(),
   },
   {
     id: 'demo-croissant', name: 'Butter Croissant',
     category: 'Pastries', price: 1.25,
     description: 'Laminated with Normandy butter, 36-hour cold proof.',
     image: img('photo-1555507036-ab1f4038808a'), prepTime: '3 min',
-    status: 'active', isPopular: true, stock: 48, createdAt: now(),
+    status: 'active', stock: 48, createdAt: now(),
   },
   {
     id: 'demo-almond-tart', name: 'Almond Berry Tart',
@@ -195,7 +285,7 @@ const DEMO_MENU: MenuItem[] = [
     category: 'Drinks', price: 0.9,
     description: 'Spiced black tea simmered with evaporated milk and cardamom.',
     image: img('photo-1546069901-ba9599a7e63c'), prepTime: '4 min',
-    status: 'active', isPopular: true, stock: 100, createdAt: now(),
+    status: 'active', stock: 100, createdAt: now(),
   },
   {
     id: 'demo-arabic-coffee', name: 'Arabic Coffee',
@@ -241,26 +331,50 @@ export function getMenuServerSnapshot(): MenuItem[] {
   return store.getServerSnapshot();
 }
 
-export function addMenuItem(input: Omit<MenuItem, 'id' | 'createdAt'>): MenuItem {
+/**
+ * Add a product.
+ *
+ * Returns the item AND the promise that settles when the database has actually
+ * taken it. Callers that show a "saved" toast must await `saved` — otherwise
+ * they congratulate the user on a write that then fails, the optimistic copy is
+ * dropped by the next refetch, and the product silently disappears from the
+ * list a second later. That is exactly what was happening.
+ */
+export function addMenuItem(
+  input: Omit<MenuItem, 'id' | 'createdAt'>,
+): { item: MenuItem; saved: Promise<{ error: { message: string } | null }> } {
   const item: MenuItem = { ...input, id: `p${Date.now().toString(36)}`, createdAt: Date.now() };
   store.patchLocal((cur) => [item, ...cur]);
-  void writeMenu('insert', toRow(item)).then(({ error }) => {
-    if (error) console.error('[menu] add failed', error.message);
+  const saved = writeMenu('insert', toRow(item)).then((res) => {
+    if (res.error) {
+      console.error('[menu] add failed', res.error.message);
+      // Take the optimistic row back out: leaving it there is what made a
+      // product look added and then vanish on the next sync.
+      store.patchLocal((cur) => cur.filter((i) => i.id !== item.id));
+    }
+    return res;
   });
-  return item;
+  return { item, saved };
 }
 
 export function updateMenuItem(
   id: string,
   patch: Partial<Omit<MenuItem, 'id' | 'createdAt'>>,
   opts?: { localOnly?: boolean },
-) {
+): Promise<{ error: { message: string } | null }> {
+  const before = store.get().find((i) => i.id === id);
   store.patchLocal((cur) => cur.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   // localOnly: the server already made this change (e.g. /api/stock wrote the
   // new stock count), so we only refresh what this device shows.
-  if (opts?.localOnly) return;
-  void writeMenu('update', toRow(patch), { id: id }).then(({ error }) => {
-    if (error) console.error('[menu] update failed', error.message);
+  if (opts?.localOnly) return Promise.resolve({ error: null });
+  return writeMenu('update', toRow(patch), { id: id }).then((res) => {
+    if (res.error) {
+      console.error('[menu] update failed', res.error.message);
+      // Put the old values back so the screen never shows a change the
+      // database refused.
+      if (before) store.patchLocal((cur) => cur.map((i) => (i.id === id ? before : i)));
+    }
+    return res;
   });
 }
 

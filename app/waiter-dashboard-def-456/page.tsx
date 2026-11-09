@@ -19,8 +19,10 @@
 //
 // A takeaway or delivery order only appears here once the ADMIN has accepted
 // it (Admin → Online orders). Before that it is not the shop's problem yet.
-// Nothing can be added to one either: the customer ordered what they ordered,
-// and the admin settles the bill.
+// Items CAN be added to one — the customer rings back, or asks for one more
+// while they wait — and the extra goes to the kitchen as another ticket on the
+// SAME session, so it lands on the same bill and the same invoice number. What
+// the waiter still cannot do is close it: the admin settles every home order.
 //
 // Tables, open tabs and their items all come from the same Supabase-backed
 // stores the admin portal reads (tableStore / sessionStore / orderStore), so
@@ -34,6 +36,7 @@ import {
   Truck, ChevronLeft, Utensils, CircleAlert, Info, UserRound,
 } from 'lucide-react';
 import type { Order, OrderMode, OrderItem } from '../lib/orderStore';
+import { variantName } from '../lib/menuStore';
 import {
   addOrder, updateOrderStatus, orderLabel, markHandedOver, isHomeMode,
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders,
@@ -66,8 +69,11 @@ interface Target {
   standingLabel?: string;
   title: string;
   subtitle?: string;
-  /** Deliveries are the driver's job — the waiter can look but not touch. */
-  readOnly?: boolean;
+  /** Takeaway and delivery are settled by the admin, never by the waiter —
+   *  but the waiter CAN still put more items on them (the customer rings back,
+   *  or asks for one more at the counter). So the panel hides "Close bill"
+   *  without hiding "Add items". */
+  billedByAdmin?: boolean;
 }
 
 /** One open tab: a session plus the orders sitting on it. */
@@ -393,9 +399,9 @@ export default function WaiterDashboard() {
       standingLabel: tab.standingLabel,
       title: tab.title,
       subtitle: `Open ${sinceLabel(tab.openedAt, now)}`,
-      // Takeaway and delivery are fixed orders settled by the admin — the
-      // waiter hands them over, but never edits or bills them.
-      readOnly: tab.mode === 'delivery' || tab.mode === 'takeaway',
+      // Takeaway and delivery are settled by the admin — the waiter adds to
+      // them and hands them over, but never closes the bill.
+      billedByAdmin: tab.mode === 'delivery' || tab.mode === 'takeaway',
     });
   };
 
@@ -407,6 +413,12 @@ export default function WaiterDashboard() {
   const fireOrder = (items: OrderItem[], rush: boolean, standingLabel?: string) => {
     if (!target || items.length === 0) return;
     const subtotal = round3(items.reduce((a, i) => a + i.price * i.qty, 0));
+    // Adding to a takeaway or a delivery writes another ticket on the SAME
+    // session, which is what keeps it on one bill and one invoice number. It
+    // has to carry the customer and the address of the original, or the chef
+    // prints a delivery with nowhere to send it. The delivery charge is NOT
+    // repeated — that was paid on the first ticket.
+    const origin = activeTab?.orders[0];
     const placed = addOrder({
       table: target.table ?? 0,
       mode: target.mode,
@@ -420,6 +432,8 @@ export default function WaiterDashboard() {
         ? (standingLabel?.trim() || target.standingLabel || `Walk-in #${standingEverCount + 1}`)
         : undefined,
       sessionId: target.sessionId,
+      customer: isHomeMode(target.mode) ? origin?.customer : undefined,
+      deliveryAddress: target.mode === 'delivery' ? origin?.deliveryAddress : undefined,
     });
     setPickerOpen(false);
     // Stay on the tab we just added to, so the waiter sees the new lines land.
@@ -945,6 +959,14 @@ function TabDetail({
   const lines = useMemo(() => (tab ? mergeItems(tab.orders) : []), [tab]);
   const home = !!tab?.home;
   const ready = (home ? [] : tab?.orders.filter(o => o.status === 'ready')) ?? [];
+  /* Takeaway and delivery take extra items right up until the admin closes
+     the bill: the customer rings back for one more box, or asks at the
+     counter while they wait. The new line is a fresh kitchen ticket on the
+     SAME tab, so it is cooked straight away and settled on the same invoice.
+     After the bill is closed the invoice has already gone to the customer —
+     nothing more can go on it. A guest who has asked to pay is closed off for
+     the same reason. */
+  const canAdd = !tab?.billRequested && !(home && !!tab?.billed);
 
   return (
     <Sheet onClose={onClose} title={target.title} subtitle={tab ? `Open ${sinceLabel(tab.openedAt, now)}` : target.subtitle}>
@@ -1073,17 +1095,19 @@ function TabDetail({
           </div>
         )}
 
-        {target.readOnly && (
+        {target.billedByAdmin && (
           <p className="mt-3 flex items-start gap-2 rounded-2xl border border-brand-gold/40 bg-brand-gold/10 px-3.5 py-3 text-[12px] font-medium text-brand-wine">
             <Info size={14} className="mt-0.5 shrink-0" />
-            {target.mode === 'delivery'
-              ? 'A driver takes this one out. Nothing can be added, and the admin closes the bill and sends the invoice.'
-              : 'The customer ordered exactly this. Nothing can be added, and the admin closes the bill and sends the invoice.'}
+            {canAdd
+              ? `Anything you add is cooked on this same order and goes on the same invoice — no second bill. ${
+                  target.mode === 'delivery' ? 'The admin closes the bill before the driver takes it out.' : 'The admin closes the bill and sends the invoice.'
+                }`
+              : 'Billed and on its way out — nothing more can go on this one.'}
           </p>
         )}
       </div>
 
-      {!target.readOnly && (
+      {(canAdd || tab?.billRequested) && (
         <div className="shrink-0 border-t border-brand-gold/25 bg-white p-3.5 pb-[max(14px,env(safe-area-inset-bottom))] sm:p-4">
           {/* Once the guest has asked for the bill, nothing else goes on the
               tab — not from their phone, not from here. */}
@@ -1096,13 +1120,17 @@ function TabDetail({
               <button onClick={onAddItems} className="btn btn-outline flex-1 py-4 text-[11px]">
                 <Plus size={16} /> Add items
               </button>
-              <button
-                onClick={onBill}
-                disabled={!tab}
-                className="btn btn-wine flex-1 py-4 text-[11px] disabled:opacity-40"
-              >
-                <Banknote size={16} /> Close bill
-              </button>
+              {/* The waiter never takes the money on a takeaway or a delivery
+                  — the admin closes those and sends the invoice. */}
+              {!target.billedByAdmin && (
+                <button
+                  onClick={onBill}
+                  disabled={!tab}
+                  className="btn btn-wine flex-1 py-4 text-[11px] disabled:opacity-40"
+                >
+                  <Banknote size={16} /> Close bill
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1137,24 +1165,50 @@ function ItemPicker({
     [menu]
   );
 
+  /* A product sold in sizes is several things the waiter can ring up, not
+     one: the 500 g and the 1 kg have their own price and their own shelf. The
+     list is built from sizes so the ticket always carries a weight. */
+  const sellable = useMemo(() => {
+    const out: { id: string; name: string; price: number; stock: number | null; lowStockThreshold: number | null; category: string; description: string; image: string }[] = [];
+    for (const m of menu) {
+      const variants = m.variants ?? [];
+      if (variants.length === 0) {
+        out.push({
+          id: m.id, name: m.name, price: m.price,
+          stock: m.stock ?? null, lowStockThreshold: m.lowStockThreshold ?? null,
+          category: m.category, description: m.description ?? '', image: m.image ?? '',
+        });
+        continue;
+      }
+      for (const v of variants) {
+        out.push({
+          id: `${m.id}::${v.id}`, name: variantName(m.name, v), price: v.price,
+          stock: v.stock ?? null, lowStockThreshold: m.lowStockThreshold ?? null,
+          category: m.category, description: m.description ?? '', image: m.image ?? '',
+        });
+      }
+    }
+    return out;
+  }, [menu]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return menu.filter(m => {
+    return sellable.filter(m => {
       if (cat !== 'All' && m.category !== cat) return false;
       if (!q) return true;
-      return m.name.toLowerCase().includes(q) || (m.description ?? '').toLowerCase().includes(q);
+      return m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q);
     });
-  }, [menu, cat, query]);
+  }, [sellable, cat, query]);
 
   const chosen = useMemo(
     () => Object.entries(qty)
       .filter(([, n]) => n > 0)
       .map(([id, n]) => {
-        const m = menu.find(x => x.id === id);
+        const m = sellable.find(x => x.id === id);
         return m ? { id, name: m.name, price: m.price, qty: n, notes: notes[id]?.trim() || undefined } : null;
       })
       .filter(Boolean) as OrderItem[],
-    [qty, notes, menu]
+    [qty, notes, sellable]
   );
 
   const count = chosen.reduce((a, i) => a + i.qty, 0);
@@ -1169,8 +1223,9 @@ function ItemPicker({
       return copy;
     });
 
-  /** Out of stock means out of stock — don't let the kitchen get a ticket for it. */
-  const soldOut = (m: MenuItem) => m.stock != null && m.stock <= 0;
+  /** Out of stock means out of stock — don't let the kitchen get a ticket for
+   *  it. For a sized product this is the count for THAT size. */
+  const soldOut = (m: { stock: number | null }) => m.stock != null && m.stock <= 0;
 
   return (
     <Sheet
@@ -1300,14 +1355,22 @@ function ItemPicker({
                         : 'border-brand-gold/25 bg-white'
                       }`}
                     >
-                      <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-brand-sand">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={m.image}
-                          alt=""
-                          className="h-full w-full object-cover"
-                          onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
-                        />
+                      <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-sand">
+                        {/* A product with no photo must not render src="" —
+                            the browser re-requests the whole page for it. */}
+                        {m.image ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={m.image}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                          />
+                        ) : (
+                          <span aria-hidden className="font-wordmark text-[20px] text-brand-gold-dark/60">
+                            {m.name.trim().charAt(0).toUpperCase() || '\u2022'}
+                          </span>
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13.5px] font-semibold leading-tight text-brand-wine">{m.name}</p>

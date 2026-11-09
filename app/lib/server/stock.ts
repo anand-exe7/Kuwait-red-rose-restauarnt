@@ -75,6 +75,140 @@ export async function logMovements(sb: SupabaseClient, rows: MovementInput[]): P
   console.error('[stock] movement insert failed', error.message);
 }
 
+
+/* ── Sizes ────────────────────────────────────────────────────────────────
+   A product sold in sizes keeps a separate count per size, inside
+   menu_items.variants. An order line for one of them is keyed
+   "<productId>::<sizeId>", so the stock has to come off that size's shelf and
+   not off a product-level count that does not exist. */
+function splitLineId(raw: string): { productId: string; variantId?: string } {
+  const i = raw.indexOf('::');
+  return i < 0 ? { productId: raw } : { productId: raw.slice(0, i), variantId: raw.slice(i + 2) };
+}
+
+interface VariantRow { id?: string; amount?: number; unit?: string; price?: number; stock?: number | null }
+
+function variantText(v: VariantRow | undefined): string {
+  if (!v || v.amount == null || !v.unit) return '';
+  const n = Number(v.amount);
+  const amount = Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
+  return `${amount}${v.unit === 'l' ? 'L' : v.unit}`;
+}
+
+/**
+ * Take `want` off the shelf and return the movements to log.
+ *
+ * Keys are either a product id or "<productId>::<sizeId>". Sizes are written
+ * back into the product's `variants` array; everything else moves the
+ * product's own `stock`. One product is read once even when several of its
+ * sizes sold, so the two writes cannot clobber each other.
+ */
+async function takeOffShelf(
+  sb: SupabaseClient,
+  want: Map<string, number>,
+  meta: { orderId: string; sessionId?: string | null; actor: string; reason: string },
+): Promise<MovementInput[]> {
+  // Group the wanted quantities by the product they belong to.
+  const byProduct = new Map<string, { variantId?: string; qty: number }[]>();
+  for (const [key, qty] of want) {
+    if (qty <= 0) continue;
+    const { productId, variantId } = splitLineId(key);
+    const list = byProduct.get(productId) ?? [];
+    list.push({ variantId, qty });
+    byProduct.set(productId, list);
+  }
+  if (byProduct.size === 0) return [];
+
+  const { data: products, error } = await sb
+    .from('menu_items')
+    .select('id,name,price,stock,variants')
+    .in('id', [...byProduct.keys()]);
+  if (error) {
+    console.error('[stock] product lookup failed', error.message);
+    return [];
+  }
+
+  const movements: MovementInput[] = [];
+  for (const p of products ?? []) {
+    const lines = byProduct.get(p.id as string) ?? [];
+    const variants: VariantRow[] = Array.isArray(p.variants) ? [...(p.variants as VariantRow[])] : [];
+    let variantsTouched = false;
+
+    for (const line of lines) {
+      if (line.variantId) {
+        const idx = variants.findIndex((v) => String(v?.id ?? '') === line.variantId);
+        if (idx < 0) {
+          // The size was deleted between ordering and billing. Record the sale
+          // so the ledger is honest; there is no shelf left to take it off.
+          movements.push({
+            productId: p.id as string,
+            productName: String(p.name ?? ''),
+            kind: 'sale',
+            qty: -line.qty,
+            beforeQty: null,
+            afterQty: null,
+            unitPrice: Number(p.price ?? 0),
+            orderId: meta.orderId,
+            sessionId: meta.sessionId ?? null,
+            actor: meta.actor,
+            reason: `${meta.reason} (size no longer listed)`,
+          });
+          continue;
+        }
+        const v = variants[idx];
+        const tracked = v.stock !== null && v.stock !== undefined;
+        const before = tracked ? Number(v.stock) : null;
+        const after = tracked ? Math.max(0, (before as number) - line.qty) : null;
+        if (tracked && after !== before) {
+          variants[idx] = { ...v, stock: after };
+          variantsTouched = true;
+        }
+        movements.push({
+          productId: p.id as string,
+          productName: `${String(p.name ?? '')} (${variantText(v)})`,
+          kind: 'sale',
+          qty: -line.qty,
+          beforeQty: before,
+          afterQty: after,
+          unitPrice: Number(v.price ?? p.price ?? 0),
+          orderId: meta.orderId,
+          sessionId: meta.sessionId ?? null,
+          actor: meta.actor,
+          reason: meta.reason,
+        });
+      } else {
+        const tracked = p.stock !== null && p.stock !== undefined;
+        const before = tracked ? Number(p.stock) : null;
+        const after = tracked ? Math.max(0, (before as number) - line.qty) : null;
+        if (tracked && after !== before) {
+          const { error: upErr } = await sb.from('menu_items').update({ stock: after }).eq('id', p.id);
+          if (upErr) console.error('[stock] could not reduce stock for', p.id, upErr.message);
+        }
+        movements.push({
+          productId: p.id as string,
+          productName: String(p.name ?? ''),
+          kind: 'sale',
+          qty: -line.qty,
+          beforeQty: before,
+          afterQty: after,
+          unitPrice: Number(p.price ?? 0),
+          orderId: meta.orderId,
+          sessionId: meta.sessionId ?? null,
+          actor: meta.actor,
+          reason: meta.reason,
+        });
+      }
+    }
+
+    // One write per product, after every size of it has been accounted for.
+    if (variantsTouched) {
+      const { error: upErr } = await sb.from('menu_items').update({ variants }).eq('id', p.id);
+      if (upErr) console.error('[stock] could not reduce size stock for', p.id, upErr.message);
+    }
+  }
+  return movements;
+}
+
 interface OrderRow {
   id: string;
   items?: unknown;
@@ -115,40 +249,12 @@ export async function applySaleForOrder(sb: SupabaseClient, order: OrderRow): Pr
   }
   if (want.size === 0) return;
 
-  const { data: products, error } = await sb
-    .from('menu_items')
-    .select('id,name,price,stock')
-    .in('id', [...want.keys()]);
-  if (error) {
-    console.error('[stock] product lookup failed', error.message);
-    return;
-  }
-
-  const movements: MovementInput[] = [];
-  for (const p of products ?? []) {
-    const qty = want.get(p.id as string) ?? 0;
-    if (qty <= 0) continue;
-    const tracked = p.stock !== null && p.stock !== undefined;
-    const before = tracked ? Number(p.stock) : null;
-    const after = tracked ? Math.max(0, (before as number) - qty) : null;
-    if (tracked && after !== before) {
-      const { error: upErr } = await sb.from('menu_items').update({ stock: after }).eq('id', p.id);
-      if (upErr) console.error('[stock] could not reduce stock for', p.id, upErr.message);
-    }
-    movements.push({
-      productId: p.id as string,
-      productName: String(p.name ?? ''),
-      kind: 'sale',
-      qty: -qty,
-      beforeQty: before,
-      afterQty: after,
-      unitPrice: Number(p.price ?? 0),
-      orderId: order.id,
-      sessionId: order.session_id ?? null,
-      actor: order.source === 'customer' ? 'customer' : order.source === 'waiter' ? 'waiter' : 'admin',
-      reason: 'Order accepted',
-    });
-  }
+  const movements = await takeOffShelf(sb, want, {
+    orderId: order.id,
+    sessionId: order.session_id ?? null,
+    actor: order.source === 'customer' ? 'customer' : order.source === 'waiter' ? 'waiter' : 'admin',
+    reason: 'Order accepted',
+  });
   await logMovements(sb, movements);
 }
 
@@ -187,5 +293,62 @@ export async function reverseSaleForOrder(sb: SupabaseClient, order: OrderRow, r
       reason,
     });
   }
+  await logMovements(sb, movements);
+}
+
+interface BillLine { productId?: string | null; id?: string | null; qty?: number | null }
+
+/**
+ * Take a BILL's quantities off the shelf.
+ *
+ * Orders already move stock when they reach the kitchen, so for a tab this
+ * only has to cover the difference: the lines the admin typed straight onto
+ * the bill in the Billing panel, which never existed as a kitchen ticket. For
+ * a counter sale there is no session and no order at all, so the whole bill is
+ * the difference — that is the case where stock silently never moved.
+ *
+ * Keyed on the bill id, so re-sending the same bill cannot double-count.
+ */
+export async function applySaleForBill(
+  sb: SupabaseClient,
+  bill: { id: string; sessionId?: string | null; items: BillLine[]; actor?: string },
+): Promise<void> {
+  const lines = Array.isArray(bill.items) ? bill.items : [];
+  if (lines.length === 0) return;
+  if (await alreadyApplied(sb, bill.id)) return;
+
+  // What the bill charges for, per product.
+  const want = new Map<string, number>();
+  for (const l of lines) {
+    const id = String(l?.productId ?? l?.id ?? '');
+    const qty = Number(l?.qty ?? 0);
+    if (!id || !Number.isFinite(qty) || qty <= 0) continue;
+    want.set(id, (want.get(id) ?? 0) + qty);
+  }
+  if (want.size === 0) return;
+
+  // What the session's tickets already took off the shelf.
+  if (bill.sessionId) {
+    const { data: orders } = await sb.from('orders').select('items').eq('session_id', bill.sessionId);
+    for (const o of orders ?? []) {
+      const items = Array.isArray(o.items) ? (o.items as Record<string, unknown>[]) : [];
+      for (const line of items) {
+        const id = String(line?.id ?? '');
+        const qty = Number(line?.qty ?? 0);
+        if (!id || !Number.isFinite(qty) || qty <= 0) continue;
+        const left = (want.get(id) ?? 0) - qty;
+        if (left > 0) want.set(id, left);
+        else want.delete(id);
+      }
+    }
+  }
+  if (want.size === 0) return;
+
+  const movements = await takeOffShelf(sb, want, {
+    orderId: bill.id,
+    sessionId: bill.sessionId ?? null,
+    actor: bill.actor ?? 'admin',
+    reason: bill.sessionId ? 'Added on the bill' : 'Counter sale',
+  });
   await logMovements(sb, movements);
 }

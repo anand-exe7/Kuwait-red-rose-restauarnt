@@ -24,8 +24,13 @@ import {
   subscribeToSessions, getSessionsSnapshot, getSessionsServerSnapshot,
   requestBill,
 } from '../lib/sessionStore';
-import { getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES } from '../lib/menuStore';
+import {
+  getMenuSnapshot, getMenuServerSnapshot, subscribeToMenu, MENU_CATEGORIES,
+  variantLabel, variantName, variantsSoldOut,
+  type MenuItem, type MenuVariant,
+} from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
+import PickupTime from '../components/PickupTime';
 import {
   validateCoupon,
   subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot,
@@ -81,9 +86,70 @@ type CheckoutMode = Exclude<OrderMode, 'standing'>; // 'table' | 'takeaway' | 'd
 const CART_STORAGE_KEY = 'rrs_menu_cart_v1';
 const RESUME_CHECKOUT_KEY = 'rrs_menu_resume_checkout';
 
+/* A product with no photo yet. Rendering <img src=""> makes the browser
+   re-request the whole page, so there is a real tile here instead — the
+   product's initial on the house sand colour. */
+function ImageFallback({ name, className = "" }: { name: string; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-full w-full items-center justify-center bg-brand-sand font-wordmark text-brand-gold-dark/60 ${className}`}
+    >
+      <span className="text-[clamp(18px,8cqw,44px)] leading-none">{name.trim().charAt(0).toUpperCase() || "\u2022"}</span>
+    </span>
+  );
+}
+
+/* ── Basket keys ───────────────────────────────────────────────────────────
+   A product sold in sizes is several things for sale, not one: a 500 g and a
+   1 kg have different prices and different shelves. So the basket is keyed by
+   "<productId>::<sizeId>", and by the bare product id for anything sold as a
+   single thing. Everything that reads the basket goes through resolveLine()
+   below, so there is exactly one place that knows about the "::". */
+const cartKey = (productId: string, variantId?: string | null) =>
+  variantId ? `${productId}::${variantId}` : productId;
+
+function splitKey(key: string): { id: string; variantId?: string } {
+  const i = key.indexOf('::');
+  return i < 0 ? { id: key } : { id: key.slice(0, i), variantId: key.slice(i + 2) };
+}
+
+/** What one basket key actually is: the product, the chosen size, and the
+ *  price / weight / stock that follow from that choice. */
+function resolveLine(key: string, menu: MenuItem[]) {
+  const { id, variantId } = splitKey(key);
+  const item = menu.find(m => m.id === id);
+  if (!item) return null;
+  const variant = variantId ? (item.variants ?? []).find(v => v.id === variantId) ?? null : null;
+  return {
+    item,
+    variant,
+    /** "Black Forest Cake (1kg)" — what the kitchen, the bill and the
+     *  customer's basket all call it. */
+    name: variantName(item.name, variant),
+    price: variant ? variant.price : item.price,
+    /** A 1 kg cake weighs a kilo. Falls back to the product's own weight for
+     *  anything sold as a single thing. */
+    grams: variant ? variantGrams(variant) : (item.weightGrams ?? 0),
+    stock: variant ? variant.stock : (item.stock ?? null),
+  };
+}
+
+/** A size in grams, for the delivery weight brackets. Volume is billed as if
+ *  1 ml weighs 1 g, which is close enough for syrup and juice. */
+function variantGrams(v: MenuVariant): number {
+  switch (v.unit) {
+    case 'kg': return v.amount * 1000;
+    case 'l': return v.amount * 1000;
+    default: return v.amount;
+  }
+}
+
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [cart, setCart] = useState<Record<string, number>>({});
+  /** The product whose size sheet is open, if any. */
+  const [sizingFor, setSizingFor] = useState<string | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [step, setStep] = useState<CheckoutStep>('browse');
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
@@ -237,22 +303,41 @@ export default function MenuPage() {
     [menu]
   );
   const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
-  const bestSellers = menu.filter(m => m.isBestSeller);
+  // The landing page has four best-seller slots; this strip mirrors it, so it
+  // shows the same four and never grows a fifth.
+  const bestSellers = menu.filter(m => m.isBestSeller).slice(0, 4);
 
   /* Stock is only "sold out" when the shop actually tracks it. A product with
-     no count is unlimited, which is how most of the drinks are set up. */
-  const stockLeft = (id: string): number | null => {
-    const item = allMenuItems.find(m => m.id === id);
-    return item?.stock === null || item?.stock === undefined ? null : item.stock;
+     no count is unlimited, which is how most of the drinks are set up. A
+     product sold in sizes has a count PER SIZE — the 1 kg can be gone while
+     the 500 g is still on the shelf. */
+  const stockLeft = (key: string): number | null => {
+    const line = resolveLine(key, allMenuItems);
+    if (!line) return null;
+    return line.stock ?? null;
   };
-  const isSoldOut = (id: string) => (stockLeft(id) ?? Infinity) <= 0;
+  /** A product (not a size) is only sold out when every size of it is. */
+  const isSoldOut = (key: string) => {
+    const { id, variantId } = splitKey(key);
+    const item = allMenuItems.find(m => m.id === id);
+    if (!item) return true;
+    const variants = item.variants ?? [];
+    if (variants.length && !variantId) return variantsSoldOut(variants);
+    return (stockLeft(key) ?? Infinity) <= 0;
+  };
 
-  const addToCart = (id: string) => setCart(p => {
-    const left = stockLeft(id);
-    const have = p[id] || 0;
+  /** Does this product come in sizes? */
+  const hasSizes = (m: MenuItem) => (m.variants?.length ?? 0) > 0;
+  /** How many of a sized product are in the basket, across every size. */
+  const qtyOf = (m: MenuItem) =>
+    Object.entries(cart).reduce((a, [k, q]) => (splitKey(k).id === m.id ? a + q : a), 0);
+
+  const addToCart = (key: string) => setCart(p => {
+    const left = stockLeft(key);
+    const have = p[key] || 0;
     // Sold out, or the basket already holds everything on the shelf.
     if (left !== null && have >= left) return p;
-    return { ...p, [id]: have + 1 };
+    return { ...p, [key]: have + 1 };
   });
   const removeFromCart = (id: string) => setCart(p => {
     const n = { ...p };
@@ -261,9 +346,9 @@ export default function MenuPage() {
     return n;
   });
 
-  const cartTotal = Object.entries(cart).reduce((acc, [id, qty]) => {
-    const item = menu.find(m => m.id === id);
-    return acc + (item?.price || 0) * qty;
+  const cartTotal = Object.entries(cart).reduce((acc, [key, qty]) => {
+    const line = resolveLine(key, menu);
+    return acc + (line?.price || 0) * qty;
   }, 0);
   const cartItemCount = Object.values(cart).reduce((a, b) => a + b, 0);
   const discount = appliedCoupon ? (cartTotal * appliedCoupon.discountPercent) / 100 : 0;
@@ -275,9 +360,9 @@ export default function MenuPage() {
   // How heavy the basket is. Each product carries its own weight (set in
   // Inventory); anything without one counts as nothing, so a shop that hasn't
   // filled weights in keeps paying the flat fee rather than being overcharged.
-  const cartGrams = Object.entries(cart).reduce((acc, [id, qty]) => {
-    const item = menu.find(m => m.id === id);
-    return acc + (item?.weightGrams ?? 0) * qty;
+  const cartGrams = Object.entries(cart).reduce((acc, [key, qty]) => {
+    const line = resolveLine(key, menu);
+    return acc + (line?.grams ?? 0) * qty;
   }, 0);
   const liveAreas = React.useMemo(() => activeAreas(areas), [areas]);
   const deliveryZones = React.useMemo(() => {
@@ -509,9 +594,14 @@ export default function MenuPage() {
     setFormError(null);
     setStep('submitting');
 
-    const items = Object.entries(cart).map(([id, qty]) => {
-      const item = menu.find(m => m.id === id)!;
-      return { id: item.id, name: item.name, price: item.price, qty };
+    /* The ticket carries the SIZE in the name — "Black Forest Cake (1kg)" —
+       so the chef, the waiter and the admin all read the same thing without
+       any of those screens having to know what a size is. The id keeps the
+       "::<sizeId>" so the server takes the stock off the right shelf. */
+    const items = Object.entries(cart).flatMap(([key, qty]) => {
+      const line = resolveLine(key, menu);
+      if (!line) return [];
+      return [{ id: key, name: line.name, price: line.price, qty }];
     });
 
     setTimeout(() => {
@@ -847,7 +937,7 @@ export default function MenuPage() {
                   </span>
                 )}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.image} alt={item.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                {item.image ? <img src={item.image} alt={item.name} className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105" /> : <ImageFallback name={item.name} />}
                 <span className="absolute left-2 top-2 rounded-full bg-brand-red px-2 py-0.5 font-body text-[8px] font-bold uppercase tracking-[0.14em] text-white">Best seller</span>
                 <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent p-3 pt-8">
                   <span className="block truncate font-body text-[13px] font-bold text-white">{item.name}</span>
@@ -907,22 +997,9 @@ export default function MenuPage() {
               <div key={item.id} id={`menu-item-${item.id}`} className="menu-item-card group relative flex flex-col overflow-hidden rounded-2xl border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
                 <div className="relative aspect-[4/3] w-full flex-shrink-0 overflow-hidden bg-brand-sand">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.07]" />
+                  {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.07]" /> : <ImageFallback name={item.name} />}
                   <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a0a0a]/55 via-[#2a0a0a]/0 to-transparent" />
                   <span aria-hidden className="pointer-events-none absolute inset-[6px] rounded-xl border border-white/35 sm:inset-[10px] sm:rounded-[1.25rem]" />
-
-                  <div className="absolute left-2 right-2 top-2 flex items-start justify-between gap-1.5 sm:left-4 sm:right-4 sm:top-4 sm:gap-2">
-                    {item.isPopular ? (
-                      <span className="rounded-full bg-brand-red px-2 py-1 font-body text-[7.5px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_8px_18px_-8px_rgba(176,30,40,0.75)] sm:px-3 sm:py-1.5 sm:text-[9px] sm:tracking-[0.26em]">
-                        Popular
-                      </span>
-                    ) : <span />}
-                    {item.isChefSpecial && (
-                      <span className="rounded-full bg-brand-gold px-2 py-1 font-body text-[7.5px] font-semibold uppercase tracking-[0.2em] text-brand-wine shadow-[0_8px_18px_-8px_rgba(30,0,4,0.55)] sm:px-3 sm:py-1.5 sm:text-[9px] sm:tracking-[0.26em]">
-                        Chef&apos;s pick
-                      </span>
-                    )}
-                  </div>
 
                   <span className="absolute bottom-2 left-2 rounded-full bg-brand-cream/95 px-2 py-0.5 font-body text-[7.5px] font-medium uppercase tracking-[0.22em] text-brand-gold-dark shadow-sm backdrop-blur-sm sm:bottom-4 sm:left-4 sm:px-3 sm:py-1 sm:text-[9px] sm:tracking-[0.3em]">
                     {item.category}
@@ -951,19 +1028,41 @@ export default function MenuPage() {
                   </p>
                   <div className="mt-auto flex flex-col items-stretch gap-2 border-t border-brand-gold/25 pt-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pt-4">
                     <div className="min-w-0 shrink-0">
+                      {hasSizes(item) && (
+                        <span className="mr-1 font-body text-[9px] font-bold uppercase tracking-[0.18em] text-brand-ink/40">from</span>
+                      )}
                       <span
                         className="lining-nums font-wordmark text-[18px] leading-none text-brand-red sm:text-[26px] md:text-[28px]"
                         style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
                       >
-                        {formatKWD(item.price)}
+                        {formatKWD(hasSizes(item) ? Math.min(...item.variants!.map(v => v.price)) : item.price)}
                       </span>
-                      {cart[item.id] > 0 && (
-                        <p className="mt-1 hidden font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-ink/45 sm:mt-1.5 sm:block">
-                          {formatKWD(item.price * cart[item.id])} total
-                        </p>
+                      {hasSizes(item) ? (
+                        qtyOf(item) > 0 && (
+                          <p className="mt-1 hidden font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-ink/45 sm:mt-1.5 sm:block">
+                            {qtyOf(item)} in basket
+                          </p>
+                        )
+                      ) : (
+                        cart[item.id] > 0 && (
+                          <p className="mt-1 hidden font-body text-[10px] font-medium uppercase tracking-[0.18em] text-brand-ink/45 sm:mt-1.5 sm:block">
+                            {formatKWD(item.price * cart[item.id])} total
+                          </p>
+                        )
                       )}
                     </div>
-                    {cart[item.id] ? (
+                    {/* Sized products never get a bare "+": the customer has
+                        to say WHICH size, or the kitchen gets a ticket for a
+                        cake with no weight on it. */}
+                    {hasSizes(item) ? (
+                      <button
+                        onClick={() => setSizingFor(item.id)}
+                        disabled={isSoldOut(item.id)}
+                        className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5"
+                      >
+                        <Plus size={13} /> {isSoldOut(item.id) ? 'Sold out' : qtyOf(item) > 0 ? `${qtyOf(item)} · Change size` : 'Choose size'}
+                      </button>
+                    ) : cart[item.id] ? (
                       <div className="qty-pop flex w-full items-center justify-between gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5 sm:w-auto sm:shrink-0 sm:justify-start sm:gap-2 sm:p-1">
                         <button onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-all hover:scale-105 hover:text-brand-red active:scale-95 sm:h-9 sm:w-9"><Minus size={13} /></button>
                         <span key={cart[item.id]} className="qty-bump w-5 text-center font-wordmark text-base text-brand-wine sm:text-xl" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{cart[item.id]}</span>
@@ -1115,8 +1214,9 @@ export default function MenuPage() {
                         </div>
                       ) : (
                         Object.entries(cart).map(([id, qty], idx) => {
-                          const item = menu.find(m => m.id === id);
-                          if (!item) return null;
+                          const line = resolveLine(id, menu);
+                          if (!line) return null;
+                          const item = line.item;
                           return (
                             <div
                               key={id}
@@ -1124,23 +1224,23 @@ export default function MenuPage() {
                               style={{ '--i': idx } as React.CSSProperties}
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={item.image} alt={item.name} className="h-14 w-14 rounded-xl bg-brand-sand object-cover" />
+                              {item.image ? <img src={item.image} alt={item.name} className="h-14 w-14 rounded-xl bg-brand-sand object-cover" /> : <ImageFallback name={item.name} className="h-14 w-14 rounded-xl" />}
                               <div className="min-w-0 flex-1">
                                 <h4
                                   className="mb-1 block line-clamp-1 font-wordmark text-[15px] uppercase leading-tight tracking-[0.012em] text-brand-wine"
                                   style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
-                                >{item.name}</h4>
+                                >{line.name}</h4>
                                 <p
                                   className="block font-wordmark text-[15px] leading-none text-brand-red"
                                   style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
-                                >{formatKWD(item.price * qty)}</p>
+                                >{formatKWD(line.price * qty)}</p>
                               </div>
                               <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
-                                <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${item.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={12} /></button>
+                                <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${line.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={12} /></button>
                                 <span key={qty} className="qty-bump w-5 text-center font-wordmark text-[15px] text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
                                 <button
                                   onClick={() => addToCart(id)}
-                                  aria-label={`Add one ${item.name}`}
+                                  aria-label={`Add one ${line.name}`}
                                   disabled={(stockLeft(id) ?? Infinity) <= qty}
                                   className="btn btn-wine h-7 w-7 p-0 transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
                                 ><Plus size={12} /></button>
@@ -1276,14 +1376,7 @@ export default function MenuPage() {
                       )}
 
                       {selectedMode === 'takeaway' && (
-                        <Field label="Preferred pick-up time" required>
-                          <input
-                            type="time"
-                            value={pickupTime}
-                            onChange={e => setPickupTime(e.target.value)}
-                            className="input-plain"
-                          />
-                        </Field>
+                        <PickupTime value={pickupTime} onChange={setPickupTime} />
                       )}
 
                       {selectedMode === 'delivery' && (
@@ -1444,6 +1537,112 @@ export default function MenuPage() {
           onAddToTab={startAddToTab}
         />
       )}
+
+      {sizingFor && (() => {
+        const product = menu.find(m => m.id === sizingFor);
+        if (!product) return null;
+        return (
+          <SizeSheet
+            product={product}
+            cart={cart}
+            onAdd={(v) => addToCart(cartKey(product.id, v.id))}
+            onRemove={(v) => removeFromCart(cartKey(product.id, v.id))}
+            onClose={() => setSizingFor(null)}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Size sheet — which 500 g / 1 kg / 1.5 kg the customer actually wants
+   ════════════════════════════════════════════════════════════════════════ */
+
+function SizeSheet({
+  product, cart, onAdd, onRemove, onClose,
+}: {
+  product: MenuItem;
+  cart: Record<string, number>;
+  onAdd: (v: MenuVariant) => void;
+  onRemove: (v: MenuVariant) => void;
+  onClose: () => void;
+}) {
+  const variants = product.variants ?? [];
+  const inBasket = variants.reduce((a, v) => a + (cart[cartKey(product.id, v.id)] ?? 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-[95] flex items-end justify-center bg-[#2a0a0a]/55 backdrop-blur-sm sm:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Choose a size for ${product.name}`}
+        onClick={e => e.stopPropagation()}
+        className="anim-cart-slide-up w-full max-w-md overflow-hidden rounded-t-[2rem] border border-brand-gold/30 bg-brand-cream shadow-2xl sm:rounded-[2rem]"
+      >
+        <div className="flex items-start gap-3 border-b border-brand-gold/25 bg-white p-4">
+          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-brand-sand">
+            {product.image
+              ? /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={product.image} alt="" className="h-full w-full object-cover" />
+              : <ImageFallback name={product.name} />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3
+              className="font-wordmark text-[19px] uppercase leading-tight tracking-[0.012em] text-brand-wine"
+              style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
+            >{product.name}</h3>
+            <p className="font-body text-[11.5px] text-brand-ink/55">Pick a size</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="shrink-0 rounded-full p-1.5 text-brand-wine/50 hover:bg-brand-sand hover:text-brand-wine">
+            <X size={18} />
+          </button>
+        </div>
+
+        <ul className="max-h-[52vh] divide-y divide-brand-gold/20 overflow-y-auto custom-scrollbar">
+          {variants.map(v => {
+            const key = cartKey(product.id, v.id);
+            const qty = cart[key] ?? 0;
+            const left = v.stock;
+            const out = left != null && left <= 0;
+            const maxed = left != null && qty >= left;
+            return (
+              <li key={v.id} className={`flex items-center gap-3 px-4 py-3.5 ${out ? 'opacity-50' : 'bg-white'}`}>
+                <span className="adm-num grid h-12 min-w-14 shrink-0 place-items-center rounded-xl bg-brand-wine px-2 font-wordmark text-[17px] text-brand-gold-light">
+                  {variantLabel(v)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-wordmark text-[17px] leading-none text-brand-red" style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}>
+                    {formatKWD(v.price)}
+                  </p>
+                  <p className="mt-1 font-body text-[10.5px] font-semibold uppercase tracking-[0.16em] text-brand-ink/45">
+                    {out ? 'Sold out' : left == null ? 'Always available' : `${left} left`}
+                  </p>
+                </div>
+                {out ? (
+                  <span className="shrink-0 font-body text-[10px] font-bold uppercase tracking-[0.18em] text-brand-ink/40">—</span>
+                ) : qty > 0 ? (
+                  <div className="flex shrink-0 items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
+                    <button onClick={() => onRemove(v)} aria-label={`Remove one ${variantLabel(v)}`} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm active:scale-95"><Minus size={13} /></button>
+                    <span key={qty} className="qty-bump w-5 text-center font-wordmark text-base text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
+                    <button onClick={() => onAdd(v)} disabled={maxed} aria-label={`Add one ${variantLabel(v)}`} className="btn btn-wine h-8 w-8 p-0 disabled:pointer-events-none disabled:opacity-40"><Plus size={13} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => onAdd(v)} className="btn btn-wine shrink-0 gap-1.5 px-4 py-2.5 text-[10px] active:scale-95">
+                    <Plus size={13} /> Add
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="border-t border-brand-gold/25 bg-brand-sand/60 p-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+          <button onClick={onClose} className="btn btn-wine w-full justify-center py-3.5 text-[11px]">
+            {inBasket > 0 ? `Done · ${inBasket} in basket` : 'Close'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
