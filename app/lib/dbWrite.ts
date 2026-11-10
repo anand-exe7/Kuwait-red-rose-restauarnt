@@ -21,6 +21,29 @@ export interface WriteResult {
   error: { message: string; code?: string } | null;
 }
 
+/** Raised to every store when the staff cookie is gone or has expired. */
+export const SESSION_EXPIRED =
+  'Your admin session has expired. Sign in again — nothing was saved.';
+
+let promptedForLogin = false;
+
+/**
+ * Reads use the public anon key and keep working after the staff cookie
+ * expires, but every write goes through /api/db and starts coming back 401/403.
+ * The stores then roll their optimistic update back, so from the counter it
+ * looks like a saved expense "vanishes" and a deleted one "comes back" — with
+ * no hint that the session is the reason. Say so plainly, once, and send the
+ * user to the login page so they can carry on.
+ */
+function handleExpiredSession() {
+  if (promptedForLogin || typeof window === 'undefined') return;
+  promptedForLogin = true;
+  const here = window.location.pathname;
+  if (here.startsWith('/admin') && !here.startsWith('/admin/login')) {
+    window.location.assign('/admin/login');
+  }
+}
+
 let queue: Promise<unknown> = Promise.resolve();
 
 async function send(req: WriteRequest): Promise<WriteResult> {
@@ -31,7 +54,14 @@ async function send(req: WriteRequest): Promise<WriteResult> {
       body: JSON.stringify(req),
     });
     const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: { message: string; code?: string } } | null;
-    if (res.ok && json?.ok) return { error: null };
+    if (res.ok && json?.ok) {
+      promptedForLogin = false;
+      return { error: null };
+    }
+    if (res.status === 401 || res.status === 403) {
+      handleExpiredSession();
+      return { error: { message: SESSION_EXPIRED, code: 'SESSION_EXPIRED' } };
+    }
     return { error: json?.error ?? { message: `Request failed (${res.status})` } };
   } catch {
     return { error: { message: 'Network error' } };

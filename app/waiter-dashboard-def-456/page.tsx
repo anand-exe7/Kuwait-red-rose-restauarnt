@@ -33,10 +33,10 @@ import React, { useState, useMemo, useEffect, useRef, useCallback, useSyncExtern
 import {
   Plus, Minus, Send, Clock, Hash, Coffee, Bell, BellRing, Search, X, Flame, Check,
   Trash2, Receipt, Volume2, VolumeX, PackageCheck, PersonStanding, Banknote, ShoppingBag,
-  Truck, ChevronLeft, Utensils, CircleAlert, Info, UserRound,
+  Truck, ChevronLeft, ChevronDown, Utensils, CircleAlert, Info, UserRound,
 } from 'lucide-react';
 import type { Order, OrderMode, OrderItem } from '../lib/orderStore';
-import { variantName } from '../lib/menuStore';
+import { variantLabel, variantName } from '../lib/menuStore';
 import {
   addOrder, updateOrderStatus, orderLabel, markHandedOver, isHomeMode,
   getOrdersSnapshot, getOrdersServerSnapshot, subscribeToOrders,
@@ -1159,6 +1159,15 @@ function ItemPicker({
   const [rush, setRush] = useState(false);
   const [walkInName, setWalkInName] = useState(target.standingLabel ?? '');
   const [reviewing, setReviewing] = useState(false);
+  /** Products whose sizes are open in the picker. */
+  const [openSizes, setOpenSizes] = useState<Set<string>>(() => new Set());
+  const toggleSizes = (id: string) =>
+    setOpenSizes(cur => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const categories = useMemo(
     () => ['All', ...Array.from(new Set(menu.map(m => m.category).filter(Boolean)))],
@@ -1191,14 +1200,49 @@ function ItemPicker({
     return out;
   }, [menu]);
 
-  const visible = useMemo(() => {
+  /* The picker shows PRODUCTS, not every size as its own card: a shop with
+     four products in three sizes each was showing twelve near-identical
+     tiles. Tapping a product opens its sizes, and the quantity buttons live
+     on the size — which is what actually gets rung up. */
+  const groups = useMemo(
+    () =>
+      menu.map(m => {
+        const variants = m.variants ?? [];
+        return {
+          id: m.id,
+          name: m.name,
+          category: m.category,
+          description: m.description ?? '',
+          image: m.image ?? '',
+          lowStockThreshold: m.lowStockThreshold ?? null,
+          /* No sizes → the product itself is the sellable line. */
+          base: variants.length === 0
+            ? { id: m.id, price: m.price, stock: m.stock ?? null }
+            : null,
+          sizes: variants.map(v => ({
+            id: `${m.id}::${v.id}`,
+            label: variantLabel(v),
+            price: v.price,
+            stock: v.stock ?? null,
+          })),
+        };
+      }),
+    [menu]
+  );
+
+  const visibleGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return sellable.filter(m => {
-      if (cat !== 'All' && m.category !== cat) return false;
+    return groups.filter(g => {
+      if (cat !== 'All' && g.category !== cat) return false;
       if (!q) return true;
-      return m.name.toLowerCase().includes(q) || m.description.toLowerCase().includes(q);
+      return (
+        g.name.toLowerCase().includes(q) ||
+        g.description.toLowerCase().includes(q) ||
+        g.sizes.some(v => v.label.toLowerCase().includes(q))
+      );
     });
-  }, [sellable, cat, query]);
+  }, [groups, cat, query]);
+
 
   const chosen = useMemo(
     () => Object.entries(qty)
@@ -1335,57 +1379,142 @@ function ItemPicker({
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 sm:px-5">
-            {visible.length === 0 ? (
+            {visibleGroups.length === 0 ? (
               <Empty icon={Search} text="Nothing matches that search." />
             ) : (
               // One column on purpose: this grid lives inside a ~600px drawer,
               // and Tailwind's breakpoints measure the VIEWPORT, so `md:` would
               // split the drawer in two and chop every dish name in half.
               <div className="flex flex-col gap-2">
-                {visible.map(m => {
-                  const n = qty[m.id] ?? 0;
-                  const out = soldOut(m);
-                  const low = !out && m.stock != null && m.lowStockThreshold != null && m.stock <= m.lowStockThreshold;
+                {visibleGroups.map(g => {
+                  const expanded = openSizes.has(g.id);
+                  const rows = g.base ? [{ id: g.base.id, label: '', price: g.base.price, stock: g.base.stock }] : g.sizes;
+                  const picked = rows.reduce((a, r) => a + (qty[r.id] ?? 0), 0);
+                  const allOut = rows.every(r => soldOut({ stock: r.stock }));
+                  const prices = rows.map(r => r.price);
+                  const from = Math.min(...prices);
+                  const to = Math.max(...prices);
+
+                  const Thumb = (
+                    <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-sand">
+                      {g.image ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={g.image}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                        />
+                      ) : (
+                        <span aria-hidden className="font-wordmark text-[20px] text-brand-gold-dark/60">
+                          {g.name.trim().charAt(0).toUpperCase() || '\u2022'}
+                        </span>
+                      )}
+                    </div>
+                  );
+
+                  /* One price, one shelf — ring it up straight from the card. */
+                  if (g.base) {
+                    const r = rows[0];
+                    const n = qty[r.id] ?? 0;
+                    const out = soldOut({ stock: r.stock });
+                    const low = !out && r.stock != null && g.lowStockThreshold != null && r.stock <= g.lowStockThreshold;
+                    return (
+                      <div
+                        key={g.id}
+                        className={`flex items-center gap-3 rounded-2xl border p-2.5 transition-colors ${
+                          out ? 'border-brand-gold/20 bg-brand-sand/30 opacity-60'
+                          : n > 0 ? 'border-brand-red/50 bg-brand-red/[0.05]'
+                          : 'border-brand-gold/25 bg-white'
+                        }`}
+                      >
+                        {Thumb}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13.5px] font-semibold leading-tight text-brand-wine">{g.name}</p>
+                          <p className="text-[13px] font-bold text-brand-red">{formatKWD(r.price)}</p>
+                          {out && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-ink/50">Out of stock</span>}
+                          {low && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-gold-dark">Only {r.stock} left</span>}
+                        </div>
+                        {out ? (
+                          <span className="shrink-0 px-2 text-brand-ink/30"><CircleAlert size={18} /></span>
+                        ) : n > 0 ? (
+                          <Stepper qty={n} onMinus={() => bump(r.id, -1)} onPlus={() => bump(r.id, 1)} />
+                        ) : (
+                          <button onClick={() => bump(r.id, 1)} className="btn btn-wine h-10 shrink-0 px-4 text-[10px]">
+                            <Plus size={14} /> Add
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  /* Sold in sizes — the card opens, and each size is rung up. */
                   return (
                     <div
-                      key={m.id}
-                      className={`flex items-center gap-3 rounded-2xl border p-2.5 transition-colors ${
-                        out ? 'border-brand-gold/20 bg-brand-sand/30 opacity-60'
-                        : n > 0 ? 'border-brand-red/50 bg-brand-red/[0.05]'
+                      key={g.id}
+                      className={`overflow-hidden rounded-2xl border transition-colors ${
+                        allOut ? 'border-brand-gold/20 bg-brand-sand/30 opacity-60'
+                        : picked > 0 ? 'border-brand-red/50 bg-brand-red/[0.05]'
                         : 'border-brand-gold/25 bg-white'
                       }`}
                     >
-                      <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-sand">
-                        {/* A product with no photo must not render src="" —
-                            the browser re-requests the whole page for it. */}
-                        {m.image ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={m.image}
-                            alt=""
-                            className="h-full w-full object-cover"
-                            onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
-                          />
-                        ) : (
-                          <span aria-hidden className="font-wordmark text-[20px] text-brand-gold-dark/60">
-                            {m.name.trim().charAt(0).toUpperCase() || '\u2022'}
+                      <button
+                        type="button"
+                        onClick={() => toggleSizes(g.id)}
+                        aria-expanded={expanded}
+                        className="flex w-full items-center gap-3 p-2.5 text-left"
+                      >
+                        {Thumb}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13.5px] font-semibold leading-tight text-brand-wine">{g.name}</p>
+                          <p className="text-[13px] font-bold text-brand-red">
+                            {from === to ? formatKWD(from) : `${formatKWD(from)} – ${formatKWD(to)}`}
+                          </p>
+                          <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-ink/50">
+                            {allOut ? 'Out of stock' : `${g.sizes.length} size${g.sizes.length === 1 ? '' : 's'}`}
+                          </span>
+                        </div>
+                        {picked > 0 && (
+                          <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-full bg-brand-red px-2 text-[12px] font-bold text-white">
+                            {picked}
                           </span>
                         )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13.5px] font-semibold leading-tight text-brand-wine">{m.name}</p>
-                        <p className="text-[13px] font-bold text-brand-red">{formatKWD(m.price)}</p>
-                        {out && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-ink/50">Out of stock</span>}
-                        {low && <span className="text-[10.5px] font-bold uppercase tracking-wide text-brand-gold-dark">Only {m.stock} left</span>}
-                      </div>
-                      {out ? (
-                        <span className="shrink-0 px-2 text-brand-ink/30"><CircleAlert size={18} /></span>
-                      ) : n > 0 ? (
-                        <Stepper qty={n} onMinus={() => bump(m.id, -1)} onPlus={() => bump(m.id, 1)} />
-                      ) : (
-                        <button onClick={() => bump(m.id, 1)} className="btn btn-wine h-10 shrink-0 px-4 text-[10px]">
-                          <Plus size={14} /> Add
-                        </button>
+                        <ChevronDown
+                          size={18}
+                          className={`shrink-0 text-brand-ink/40 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+
+                      {expanded && (
+                        <ul className="border-t border-brand-gold/20">
+                          {g.sizes.map(v => {
+                            const n = qty[v.id] ?? 0;
+                            const out = soldOut({ stock: v.stock });
+                            const low = !out && v.stock != null && g.lowStockThreshold != null && v.stock <= g.lowStockThreshold;
+                            return (
+                              <li
+                                key={v.id}
+                                className={`flex items-center gap-3 border-b border-brand-gold/15 px-2.5 py-2 last:border-b-0 ${out ? 'opacity-60' : ''}`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[13px] font-bold text-brand-wine">{v.label}</p>
+                                  <p className="text-[12.5px] font-bold text-brand-red">{formatKWD(v.price)}</p>
+                                  {out && <span className="text-[10px] font-bold uppercase tracking-wide text-brand-ink/50">Out of stock</span>}
+                                  {low && <span className="text-[10px] font-bold uppercase tracking-wide text-brand-gold-dark">Only {v.stock} left</span>}
+                                </div>
+                                {out ? (
+                                  <span className="shrink-0 px-2 text-brand-ink/30"><CircleAlert size={16} /></span>
+                                ) : n > 0 ? (
+                                  <Stepper qty={n} onMinus={() => bump(v.id, -1)} onPlus={() => bump(v.id, 1)} />
+                                ) : (
+                                  <button onClick={() => bump(v.id, 1)} className="btn btn-wine h-9 shrink-0 px-3.5 text-[10px]">
+                                    <Plus size={13} /> Add
+                                  </button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
                       )}
                     </div>
                   );

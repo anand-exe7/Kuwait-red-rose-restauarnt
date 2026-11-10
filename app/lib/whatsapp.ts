@@ -10,7 +10,7 @@
 
 import type { Order, OrderItem, DeliveryAddress, CustomerInfo } from './orderStore';
 import { formatKWD } from './currency';
-import { shopName } from './shop';
+import { shopAddress, shopMapUrl, shopName, shopPhone } from './shop';
 import { resolveOrderNo } from './invoice';
 
 export function shopWhatsAppNumber(): string | null {
@@ -97,6 +97,18 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
   lines.push('Payment: Cash on ' + (mode === 'delivery' ? 'delivery' : 'pickup'));
   if (mode === 'takeaway' && pickupTime) {
     lines.push(`Pick-up time: ${pickupTime}`);
+  }
+
+  if (mode === 'takeaway') {
+    const where = shopAddress();
+    const pin = shopMapUrl();
+    const tel = shopPhone();
+    if (where || pin || tel) {
+      lines.push('', '— Collect from —');
+      if (where) lines.push(where);
+      if (tel) lines.push(`Tel: ${tel}`);
+      if (pin) lines.push(pin);
+    }
   }
 
   lines.push('', '— Customer —');

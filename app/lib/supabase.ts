@@ -12,6 +12,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 let client: SupabaseClient | null = null;
+let dataClient: SupabaseClient | null = null;
 
 /** True when the public env vars are configured. */
 export function isSupabaseConfigured(): boolean {
@@ -49,6 +50,40 @@ export function getSupabase(): SupabaseClient | null {
     });
   }
   return client;
+}
+
+/**
+ * Client for reading SHOP data (every store built on createRealtimeStore) and
+ * for its Realtime channels.
+ *
+ * Deliberately session-less: `persistSession: false` plus its own storage key,
+ * so it never picks up the Google session a customer signed in with on this
+ * same browser. The app has one client otherwise, and the stores shared it —
+ * so once anybody had signed in, every store read went to Postgres as
+ * `authenticated` instead of `anon`. Any table whose RLS policy named only
+ * `anon` then answered with zero rows, which is how a saved expense stayed in
+ * the database but never showed up on the Expenses page.
+ *
+ * No table's read policy depends on who is asking (there is no auth.uid() in
+ * supabase/*.sql — shop data is public-readable, and every write goes through
+ * /api/db with the service role), so reading as `anon` is both correct and the
+ * one thing that cannot be broken by a customer login.
+ */
+export function getSupabaseData(): SupabaseClient | null {
+  if (typeof window === 'undefined') return null;
+  if (!url || !anonKey) return getSupabase(); // reuses the one-time warning
+  if (!dataClient) {
+    dataClient = createClient(url, anonKey, {
+      realtime: { params: { eventsPerSecond: 10 } },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+        storageKey: 'rr-data-anon',
+      },
+    });
+  }
+  return dataClient;
 }
 
 let warned = false;

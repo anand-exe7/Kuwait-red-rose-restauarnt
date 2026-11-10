@@ -53,13 +53,6 @@ import { subscribeToTables, getTablesSnapshot, getTablesServerSnapshot } from '.
 import { getBills, getBillsSnapshot, getBillsServerSnapshot, subscribeToBills } from '../lib/billStore';
 import { BRAND } from '../lib/brand';
 
-const PETALS = [
-  { src: 'petal-a', left: '8%', w: '26px', dur: 17, delay: 0, sway: 40 },
-  { src: 'petal-b', left: '26%', w: '20px', dur: 21, delay: 6, sway: -30 },
-  { src: 'petal-c', left: '71%', w: '24px', dur: 19, delay: 3, sway: 36 },
-  { src: 'petal-a', left: '90%', w: '18px', dur: 23, delay: 9, sway: -44 },
-];
-
 // Fallback delivery zones — used only until an admin adds areas in
 // Admin → Delivery areas & prices. Once areas exist in the database they take
 // over here, so delivery pricing is fully admin-editable but never empty.
@@ -730,7 +723,7 @@ export default function MenuPage() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-brand-gold/25 bg-[#4f070c]/90 py-1 pl-1.5 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md sm:gap-3 sm:py-1.5 sm:pl-2">
           <BrandMark href="/" sub="Pastry · Kuwait" compact />
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
               href="/"
               aria-label="Back to home"
@@ -791,21 +784,13 @@ export default function MenuPage() {
         <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(65% 42% at 50% 66%, rgba(255,152,160,0.22) 0%, rgba(255,120,132,0.08) 45%, transparent 72%)' }} />
         <div aria-hidden className="grain pointer-events-none absolute inset-0 opacity-[0.055] mix-blend-overlay" />
 
-        {PETALS.map((p, i) => (
-          <span key={i} aria-hidden className="petal-fall pointer-events-none absolute top-0 z-10"
-            style={{ left: p.left, width: p.w, '--dur': `${p.dur}s`, '--delay': `${p.delay}s`, '--sway': `${p.sway}px` } as React.CSSProperties}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/cutouts/${p.src}.webp`} alt="" className="block h-auto w-full drop-shadow-[0_8px_8px_rgba(40,0,6,0.35)]" />
-          </span>
-        ))}
-
         <div className="h-20 sm:h-24" aria-hidden />
 
         <div className="relative z-30 mx-auto grid max-w-6xl select-none grid-cols-1 items-center gap-6 px-5 pb-24 sm:px-8 sm:pb-28 md:grid-cols-[1.05fr_1fr] md:gap-10 md:pb-32">
 
           {/* ---- Left: eyebrow + title + subtitle ---- */}
           <div className="order-2 flex flex-col items-start md:order-1">
-            <div className="anim-fade-down flex items-center gap-3 sm:gap-5">
+            <div className="anim-fade-down flex max-w-full flex-wrap items-center gap-2 sm:gap-5">
               <span className="h-px w-10 bg-gradient-to-r from-transparent to-brand-gold/70 sm:w-16" />
               <span className="whitespace-nowrap font-body text-[9px] font-medium uppercase tracking-[0.34em] text-brand-gold-light/90 sm:text-[10px] sm:tracking-[0.42em]">
                 Our menu · Baked fresh daily

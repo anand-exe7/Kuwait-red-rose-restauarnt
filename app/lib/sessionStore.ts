@@ -7,7 +7,7 @@
 // table, even if two phones order at the same instant.
 
 import { createRealtimeStore } from './createRealtimeStore';
-import { getSupabase } from './supabase';
+import { getSupabaseData } from './supabase';
 import { write } from './dbWrite';
 import type { OrderMode } from './orderStore';
 
@@ -128,7 +128,7 @@ export function openSession(input: {
     // One-open-session-per-table index fired: another device (or a stale tab)
     // already has this table open. Adopt that session instead of ours.
     if (error.code === '23505' && session.mode === 'table' && session.tableNumber != null) {
-      const sb = getSupabase();
+      const sb = getSupabaseData();
       const { data } = sb
         ? await sb
             .from('sessions')

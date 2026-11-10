@@ -22,12 +22,19 @@ create index if not exists expenses_created_idx on expenses (created_at desc);
 
 alter table expenses enable row level security;
 
--- Readable by the app (the admin pages read with the anon key); every write
--- goes through /api/db with the service role, which checks the admin cookie.
+-- Readable by the app; every write goes through /api/db with the service role,
+-- which checks the admin cookie.
+--
+-- BOTH roles, like every other table in this project (see security.sql). The
+-- browser holds ONE Supabase client, so the moment anybody signs in with
+-- Google on the customer side, every read from that browser goes out as
+-- `authenticated` — including the admin panel's. With `to anon` alone, RLS
+-- answered those reads with zero rows, so a just-saved expense sat in the
+-- database but never appeared on the Expenses page.
 drop policy if exists expenses_anon_read on expenses;
-create policy expenses_anon_read on expenses for select to anon using (true);
+create policy expenses_anon_read on expenses for select to anon, authenticated using (true);
 
-revoke insert, update, delete on expenses from anon;
+revoke insert, update, delete on expenses from anon, authenticated;
 
 -- Live updates in the admin panel.
 do $$

@@ -49,6 +49,56 @@ export function shopAddress(): string {
   return [loc, country].filter(Boolean).join(', ');
 }
 
+/**
+ * The shop's number as a human reads it: "+965 5556 8759".
+ * Falls back to the WhatsApp number when no separate phone is configured, so
+ * the landing page, the footer and the receipt all print the same digits
+ * instead of a placeholder somebody typed once.
+ */
+export function shopPhoneDisplay(): string {
+  const raw = (val(process.env.NEXT_PUBLIC_SHOP_PHONE) || val(process.env.NEXT_PUBLIC_SHOP_WHATSAPP)).replace(/\D/g, '');
+  if (!raw) return '';
+  if (raw.startsWith('965') && raw.length === 11) return `+965 ${raw.slice(3, 7)} ${raw.slice(7)}`;
+  if (raw.length === 8) return `+965 ${raw.slice(0, 4)} ${raw.slice(4)}`;
+  return `+${raw}`;
+}
+
+/** The same number as a `tel:` target, digits only. */
+export function shopTelHref(): string {
+  const d = shopPhoneDisplay().replace(/[^\d]/g, '');
+  return d ? `tel:+${d}` : '';
+}
+
+/** Map coordinates for the shop pin, e.g. "29.2000989". Empty when unset. */
+export function shopMapLat(): string {
+  return val(process.env.NEXT_PUBLIC_SHOP_MAP_LAT);
+}
+
+export function shopMapLng(): string {
+  return val(process.env.NEXT_PUBLIC_SHOP_MAP_LNG);
+}
+
+/**
+ * The Google Maps place link for "find our shop". Falls back to a coordinate
+ * search, then to an address search, so the button always goes somewhere sane.
+ */
+export function shopMapUrl(): string {
+  const explicit = val(process.env.NEXT_PUBLIC_SHOP_MAP_URL);
+  if (explicit) return explicit;
+  const lat = shopMapLat();
+  const lng = shopMapLng();
+  if (lat && lng) return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${shopFullName()}, ${shopAddress()}`)}`;
+}
+
+/** The embeddable map for the landing page, centred on the real shop pin. */
+export function shopMapEmbedUrl(zoom = 17): string {
+  const lat = shopMapLat();
+  const lng = shopMapLng();
+  const q = lat && lng ? `${lat},${lng}` : encodeURIComponent(`${shopFullName()}, ${shopAddress()}`);
+  return `https://www.google.com/maps?q=${q}&z=${zoom}&output=embed`;
+}
+
 /** The whole identity in one object, for components that render several lines. */
 export interface ShopIdentity {
   name: string;

@@ -100,6 +100,9 @@ export async function saveExpense(input: Partial<Expense> & { id?: string }): Pr
     void store.refetch();
     return { ok: false, error: missingTable(error.message) };
   }
+  // The row is in the database; pull the table back so what the screen shows
+  // is the server's copy rather than only our optimistic one.
+  void store.refetch();
   return { ok: true, expense: patch };
 }
 
@@ -110,6 +113,7 @@ export async function deleteExpense(id: string): Promise<{ ok: boolean; error?: 
     void store.refetch();
     return { ok: false, error: missingTable(error.message) };
   }
+  void store.refetch();
   return { ok: true };
 }
 

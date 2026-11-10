@@ -5,7 +5,18 @@
 // environment via ./shop, so moving branch or changing the number is a .env
 // edit — nothing here or in any page has to be touched.
 
-import { shopAddress, shopFullName, shopLocation, shopName, shopOwner, shopPhone } from './shop';
+import {
+  shopAddress,
+  shopFullName,
+  shopLocation,
+  shopMapEmbedUrl,
+  shopMapUrl,
+  shopName,
+  shopPhoneDisplay,
+  shopTelHref,
+  shopOwner,
+  shopPhone,
+} from './shop';
 
 const CITY = (process.env.NEXT_PUBLIC_SHOP_COUNTRY || 'Kuwait').trim() || 'Kuwait';
 const AREA = shopLocation() || CITY;
@@ -19,8 +30,16 @@ export const BRAND = {
   address: shopAddress(),
   /** Contact number as a customer would dial it. */
   phone: shopPhone(),
+  /** The same number formatted for display, e.g. "+965 5556 8759". */
+  phoneDisplay: shopPhoneDisplay(),
+  /** `tel:` target for that number. */
+  telHref: shopTelHref(),
   /** Proprietor, printed on the invoice. */
   owner: shopOwner(),
+  /** Google Maps place link used by every "find us" / "directions" button. */
+  mapUrl: shopMapUrl(),
+  /** Embeddable map centred on the real shop pin. */
+  mapEmbedUrl: shopMapEmbedUrl(),
   tagline: `${CITY}’s finest sweets — order from your table, right from your phone.`,
   shortTagline: 'Order from your table, right from your phone.',
   logo: '/finallogo.jpeg',
