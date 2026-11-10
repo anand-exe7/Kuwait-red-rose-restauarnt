@@ -128,7 +128,7 @@ export default function ChefDashboard() {
             </div>
           </div>
 
-          <div className="flex w-full items-center gap-2 md:w-auto">
+          <div className="flex w-full min-w-0 items-center gap-2 md:w-auto">
             <button
               onClick={() => setMuted(m => !m)}
               title={muted ? 'Sound alerts off — tap to enable' : 'Sound alerts on — tap to mute'}
@@ -137,17 +137,17 @@ export default function ChefDashboard() {
             >
               {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <div className="flex flex-1 gap-1 rounded-full border border-brand-gold/30 p-1 md:flex-none">
+            <div className="flex min-w-0 flex-1 gap-1 rounded-full border border-brand-gold/30 p-1 md:flex-initial">
               <button
                 onClick={() => setView('active')}
-                className={`btn flex-1 min-h-[44px] px-4 py-3 text-[10px] sm:px-6 md:flex-none ${view === 'active' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
+                className={`btn min-w-0 flex-1 min-h-[44px] px-3 py-3 text-[10px] sm:px-6 md:flex-initial ${view === 'active' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
               >
                 <span className="hidden sm:inline">All Orders</span>
                 <span className="sm:hidden">Active</span>
               </button>
               <button
                 onClick={() => setView('history')}
-                className={`btn flex-1 min-h-[44px] px-4 py-3 text-[10px] sm:px-6 md:flex-none ${view === 'history' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
+                className={`btn min-w-0 flex-1 min-h-[44px] px-3 py-3 text-[10px] sm:px-6 md:flex-initial ${view === 'history' ? 'btn-gold' : 'text-white/70 hover:text-white'}`}
               >
                 History
               </button>

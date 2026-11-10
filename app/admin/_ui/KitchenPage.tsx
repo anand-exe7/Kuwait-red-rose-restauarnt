@@ -278,18 +278,18 @@ export default function KitchenPage() {
 function AddedByTag({ by }: { by: OrderSource }) {
   if (by === "admin")
     return (
-      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-red-700">
+      <span className="max-w-full shrink-0 truncate whitespace-nowrap rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-red-700">
         Added by admin
       </span>
     );
   if (by === "waiter")
     return (
-      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
+      <span className="max-w-full shrink-0 truncate whitespace-nowrap rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
         Added by waiter
       </span>
     );
   return (
-    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+    <span className="max-w-full shrink-0 truncate whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
       From customer
     </span>
   );
@@ -402,7 +402,7 @@ function TabDetail({
             {lines.map((i, k) => {
               const p = products.find((x) => x.id === i.productId);
               return (
-                <li key={k} className="flex items-center gap-3 bg-white px-4 py-3">
+                <li key={k} className="flex flex-wrap items-center gap-x-3 gap-y-2 bg-white px-3 py-3 sm:flex-nowrap sm:px-4">
                   {p?.image ? (
                     <img src={p.image} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" loading="lazy" />
                   ) : (
@@ -410,16 +410,16 @@ function TabDetail({
                       {i.name[0]}
                     </span>
                   )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 flex-1 basis-[7.5rem]">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                       <b className="truncate text-[14px] text-slate-900">{i.name}</b>
                       <AddedByTag by={i.addedBy} />
                     </div>
                     <p className="truncate text-[11.5px] text-slate-500">{rupee(i.price)} each</p>
                     {i.notes && <p className="truncate text-[11.5px] font-semibold italic text-amber-700">{i.notes}</p>}
                   </div>
-                  <span className="shrink-0 rounded-lg bg-slate-100 px-3 py-1 text-[13px] font-extrabold text-slate-800">×{i.qty}</span>
-                  <b className="adm-num w-24 shrink-0 text-right text-[14px] text-slate-900">{rupee(i.price * i.qty)}</b>
+                  <span className="shrink-0 rounded-lg bg-slate-100 px-2.5 py-1 text-[13px] font-extrabold text-slate-800">×{i.qty}</span>
+                  <b className="adm-num ml-auto shrink-0 whitespace-nowrap text-right text-[14px] text-slate-900 sm:ml-0 sm:w-24">{rupee(i.price * i.qty)}</b>
                 </li>
               );
             })}

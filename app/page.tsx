@@ -162,7 +162,7 @@ const STEPS = [
   },
   {
     title: 'We Deliver',
-    text: 'Same-day delivery across Kuwait City, boxed and beautifully sealed.',
+    text: 'Same-day delivery across Kuwait, boxed and beautifully sealed.',
   },
 ];
 
@@ -1080,8 +1080,8 @@ export default async function Home() {
                     Open daily · <span className="tabular-nums">8:00 – 23:00</span>
                   </InfoRow>
                   <InfoRow icon={Phone} label="Telephone">
-                    <a href={`tel:${BRAND.phone.replace(/[^\d+]/g, "")}`} className="tabular-nums transition-colors hover:text-brand-red">
-                      {BRAND.phone}
+                    <a href={BRAND.telHref} className="tabular-nums transition-colors hover:text-brand-red">
+                      {BRAND.phoneDisplay}
                     </a>
                   </InfoRow>
                 </dl>
@@ -1136,7 +1136,7 @@ export default async function Home() {
               </Link>
               <p className="mt-6 max-w-xs font-body text-[14px] font-light leading-relaxed text-white/65">
                 Artisanal Arabic and French pastries, baked fresh every morning in
-                Kuwait City and delivered to your door.
+                {' '}{BRAND.area} and delivered to your door.
               </p>
             </div>
 
@@ -1159,11 +1159,7 @@ export default async function Home() {
             <div className="lg:col-span-3">
               <FooterHeading>Visit</FooterHeading>
               <address className="mt-5 flex flex-col gap-3 font-body text-[14px] font-light not-italic leading-relaxed text-white/70">
-                <span>
-                  {BRAND.address}
-                  <br />
-                  Kuwait City
-                </span>
+                <span>{BRAND.address}</span>
                 <span>
                   Open daily · <span className="tabular-nums">8:00 – 23:00</span>
                 </span>

@@ -273,15 +273,18 @@ export function Btn({
       type="button"
       {...rest}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition active:scale-[.97] disabled:pointer-events-none disabled:opacity-45",
-        size === "sm" && "h-8 px-3 text-[12px]",
-        size === "md" && "h-9 px-3.5 text-[13px]",
-        size === "lg" && "h-11 px-5 text-[14px]",
+        // max-w-full + min-w-0 stop a long label widening the button past its
+        // container; min-h (not h) lets a wrapped label make the button taller
+        // instead of clipping the second line.
+        "inline-flex max-w-full min-w-0 items-center justify-center gap-2 rounded-xl text-center font-semibold transition active:scale-[.97] disabled:pointer-events-none disabled:opacity-45 [overflow-wrap:anywhere]",
+        size === "sm" && "min-h-8 px-3 py-1 text-[12px]",
+        size === "md" && "min-h-9 px-3.5 py-1.5 text-[13px]",
+        size === "lg" && "min-h-11 px-5 py-2 text-[14px]",
         BTN[kind],
         className,
       )}
     >
-      {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} stroke={2.2} />}
+      {icon && <Icon name={icon} size={size === "sm" ? 14 : 16} stroke={2.2} className="shrink-0" />}
       {children}
     </button>
   );
@@ -300,7 +303,7 @@ export type BadgeTone = keyof typeof BADGE;
 
 export function Badge({ tone = "slate", children, className }: { tone?: BadgeTone; children: React.ReactNode; className?: string }) {
   return (
-    <span className={cx("inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-[3px] text-[10.5px] font-bold uppercase tracking-wide", BADGE[tone], className)}>{children}</span>
+    <span className={cx("inline-flex max-w-full items-center gap-1 whitespace-nowrap overflow-hidden text-ellipsis rounded-md border px-2 py-[3px] text-[10.5px] font-bold uppercase tracking-wide", BADGE[tone], className)}>{children}</span>
   );
 }
 

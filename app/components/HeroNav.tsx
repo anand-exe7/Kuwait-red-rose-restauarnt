@@ -45,9 +45,9 @@ export default function HeroNav() {
 
   return (
     <>
-      <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4 anim-fade-down">
+      <header className="fixed inset-x-0 top-0 z-50 px-2.5 pt-3 sm:px-5 sm:pt-4 anim-fade-down">
         <div
-          className={`mx-auto flex items-center justify-between gap-3 rounded-full border transition-[max-width,padding,background-color,box-shadow,border-color] duration-300 ease-out ${
+          className={`mx-auto flex w-full items-center justify-between gap-2 rounded-full border sm:gap-3 transition-[max-width,padding,background-color,box-shadow,border-color] duration-300 ease-out ${
             scrolled
               ? 'max-w-5xl border-brand-gold/25 bg-[#4f070c]/90 py-1.5 pl-2 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md'
               : 'max-w-6xl border-white/15 bg-white/[0.07] py-2 pl-2.5 pr-2 shadow-[0_14px_40px_-16px_rgba(35,0,4,0.45)] backdrop-blur-sm'
@@ -57,7 +57,7 @@ export default function HeroNav() {
           <Link
             href="/"
             onClick={() => setOpen(false)}
-            className="group flex shrink-0 items-center gap-2.5 pr-1"
+            className="group flex min-w-0 flex-1 items-center gap-2 pr-1 sm:gap-2.5"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -65,20 +65,20 @@ export default function HeroNav() {
               alt=""
               width={40}
               height={40}
-              className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/60 transition-transform duration-500 group-hover:scale-105 sm:h-10 sm:w-10"
+              className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/60 transition-transform duration-500 group-hover:scale-105 min-[360px]:h-9 min-[360px]:w-9 sm:h-10 sm:w-10"
             />
-            <span className="leading-none">
+            <span className="min-w-0 leading-none">
               <span className="sr-only">{BRAND.fullName}</span>
               <span
                 aria-hidden
-                className="block font-wordmark text-[21px] uppercase tracking-[0.04em] text-white sm:text-[24px]"
+                className="block truncate font-wordmark text-[clamp(16px,5.6vw,21px)] uppercase tracking-[0.04em] text-white sm:text-[24px]"
                 style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
               >
                 Red Rose
               </span>
               <span
                 aria-hidden
-                className="mt-1 block font-body text-[7.5px] font-medium uppercase tracking-[0.5em] text-brand-gold-light/85"
+                className="mt-1 block truncate font-body text-[7.5px] font-medium uppercase tracking-[0.28em] text-brand-gold-light/85 min-[360px]:tracking-[0.5em]"
               >
                 Pastry · Kuwait
               </span>
@@ -86,7 +86,7 @@ export default function HeroNav() {
           </Link>
 
           {/* ---- Links ---- */}
-          <nav aria-label="Main" className="hidden items-center lg:flex">
+          <nav aria-label="Main" className="hidden shrink-0 items-center lg:flex">
             {LINKS.map((l) => (
               <Link
                 key={l.label}
@@ -103,7 +103,7 @@ export default function HeroNav() {
           </nav>
 
           {/* ---- Actions ---- */}
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 lg:flex-1">
             <Link
               href="/menu"
               aria-label="Your bag"
@@ -124,7 +124,7 @@ export default function HeroNav() {
               aria-label={open ? 'Close menu' : 'Open menu'}
               aria-expanded={open}
               aria-controls="mobile-menu"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/25 text-white transition-colors duration-300 hover:bg-white/10 active:scale-95 lg:hidden"
+              className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/25 text-white transition-colors duration-300 hover:bg-white/10 active:scale-95 lg:hidden"
             >
               <Menu
                 size={18}
@@ -214,8 +214,8 @@ export default function HeroNav() {
             </Link>
             <p className="text-center font-body text-[11px] font-light tracking-[0.12em] text-white/60">
               {BRAND.area} · Open daily 8:00 – 23:00 ·{' '}
-              <a href="tel:+96522000000" tabIndex={open ? 0 : -1} className="text-white/85 underline-offset-4 hover:underline">
-                +965 2200 0000
+              <a href={BRAND.telHref} tabIndex={open ? 0 : -1} className="text-white/85 underline-offset-4 hover:underline">
+                {BRAND.phoneDisplay}
               </a>
             </p>
           </div>

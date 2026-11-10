@@ -24,23 +24,19 @@ import { compressToWebp } from "../../lib/compressImage";
 import { useAdmin } from "./Store";
 import { Btn, Card, Empty, Icon, Page, PageHead, cx } from "./kit";
 
-type Slot = "gallery" | "videos" | "finest" | "celebrations";
+type Slot = "gallery" | "videos";
 
 const SLOTS: { key: Slot; title: string; blurb: string; kind: "image" | "video"; max: number }[] = [
-  { key: "gallery", title: "Inside our kitchen", blurb: "Four photos, one row on the homepage. Each one can carry a caption.", kind: "image", max: HOME_MEDIA_LIMITS.gallery },
-  { key: "finest", title: "Kuwait's Finest Flavours", blurb: "The four featured photos.", kind: "image", max: HOME_MEDIA_LIMITS.finest },
-  { key: "videos", title: "Videos", blurb: "Four short MP4 clips, one row on the homepage. Up to 10 MB each.", kind: "video", max: HOME_MEDIA_LIMITS.videos },
-  { key: "celebrations", title: "Made for Celebrations", blurb: "One photo behind the celebrations panel.", kind: "image", max: 1 },
+  { key: "gallery", title: "Images", blurb: "Four photos — one row on the homepage. Each one can carry a caption.", kind: "image", max: HOME_MEDIA_LIMITS.gallery },
+  { key: "videos", title: "Videos", blurb: "Four short MP4 clips — one row on the homepage, under the photos. Up to 15 MB each.", kind: "video", max: HOME_MEDIA_LIMITS.videos },
 ];
 
-/** Everything currently in a slot, as a list — `celebrations` holds one. */
+/** Everything currently in a slot, as a list. */
 function listOf(media: HomeMedia, slot: Slot): string[] {
-  if (slot === "celebrations") return media.celebrations ? [media.celebrations] : [];
   return media[slot];
 }
 
 function withSlot(media: HomeMedia, slot: Slot, urls: string[]): HomeMedia {
-  if (slot === "celebrations") return { ...media, celebrations: urls[0] ?? "" };
   return { ...media, [slot]: urls };
 }
 

@@ -9,7 +9,7 @@ import { HttpError, bad, clientIp, deny, respond, throttle, unauthorized } from 
 
 const BUCKET = 'homepage-media';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;  // 5 MB per photo
-const MAX_VIDEO_BYTES = 10 * 1024 * 1024; // 10 MB per video
+const MAX_VIDEO_BYTES = 15 * 1024 * 1024; // 15 MB per video
 
 /** WebP files start with "RIFF", a 4-byte size, then "WEBP". */
 function looksLikeWebp(b: Uint8Array): boolean {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     let ext: string;
     let contentType: string;
     if (kind === 'video') {
-      if (file.size > MAX_VIDEO_BYTES) throw bad(`Video is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). The limit is 10 MB.`);
+      if (file.size > MAX_VIDEO_BYTES) throw bad(`Video is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). The limit is 15 MB.`);
       if (!looksLikeMp4(bytes)) throw bad('Only MP4 videos are accepted');
       ext = 'mp4'; contentType = 'video/mp4';
     } else {

@@ -301,19 +301,19 @@ export default function DeliveryPage() {
                     </p>
 
                     {r.tiers.length > 0 && (
-                      <div className="mb-2 hidden grid-cols-12 gap-2 px-1 sm:grid">
-                        <span className={cx(labelCls, "col-span-4 mb-0")}>Min weight (g)</span>
-                        <span className={cx(labelCls, "col-span-4 mb-0")}>Max weight (g)</span>
-                        <span className={cx(labelCls, "col-span-3 mb-0")}>Delivery fee (KD)</span>
+                      <div className="mb-2 grid grid-cols-2 gap-2 px-1 sm:grid-cols-12">
+                        <span className={cx(labelCls, "mb-0 sm:col-span-4")}>Min weight (g)</span>
+                        <span className={cx(labelCls, "mb-0 sm:col-span-4")}>Max weight (g)</span>
+                        <span className={cx(labelCls, "mb-0 sm:col-span-3")}>Delivery fee (KD)</span>
                       </div>
                     )}
 
                     <div className="flex flex-col gap-2">
                       {r.tiers.map((t, tIdx) => (
-                        <div key={tIdx} className="grid grid-cols-12 items-center gap-2">
+                        <div key={tIdx} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-12">
                           <input
                             type="number" min="0" step="50"
-                            className={cx(inputCls, "col-span-4")}
+                            className={cx(inputCls, "w-full min-w-0 sm:col-span-4")}
                             value={t.minG}
                             onChange={(e) => editTier(i, tIdx, { minG: e.target.value })}
                             placeholder="0"
@@ -321,7 +321,7 @@ export default function DeliveryPage() {
                           />
                           <input
                             type="number" min="0" step="50"
-                            className={cx(inputCls, "col-span-4")}
+                            className={cx(inputCls, "w-full min-w-0 sm:col-span-4")}
                             value={t.maxG}
                             onChange={(e) => editTier(i, tIdx, { maxG: e.target.value })}
                             placeholder="and above"
@@ -329,7 +329,7 @@ export default function DeliveryPage() {
                           />
                           <input
                             type="number" min="0" step="0.05"
-                            className={cx(inputCls, "col-span-3")}
+                            className={cx(inputCls, "w-full min-w-0 sm:col-span-3")}
                             value={t.fee}
                             onChange={(e) => editTier(i, tIdx, { fee: e.target.value })}
                             placeholder="0.500"
@@ -338,7 +338,7 @@ export default function DeliveryPage() {
                           <button
                             type="button"
                             onClick={() => removeTier(i, tIdx)}
-                            className="col-span-1 grid h-10 place-items-center rounded-xl text-red-600 hover:bg-red-50"
+                            className="grid h-10 w-10 place-items-center justify-self-start rounded-xl text-red-600 hover:bg-red-50 sm:col-span-1 sm:w-auto sm:justify-self-auto"
                             aria-label={`Remove bracket ${tIdx + 1}`}
                           >
                             <Icon name="trash" size={15} />

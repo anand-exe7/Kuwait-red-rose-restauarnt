@@ -13,17 +13,19 @@ type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "sta
    accept what came in from the website, work the open tabs, then the records.
    Staff sees the same list minus Analytics, Coupons and the delivery areas. */
 const NAV: Nav[] = [
+  // The owner's own running order: what the counter touches most, then the
+  // catalogue, then the things that are set once and left alone.
   { href: "/admin/billing", label: "Billing", icon: "billing", roles: ["admin", "staff"] },
   { href: "/admin/online", label: "Online orders", icon: "bag", roles: ["admin", "staff"] },
   { href: "/admin/kitchen", label: "Open tabs", icon: "kitchen", roles: ["admin", "staff"] },
-  { href: "/admin/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
   { href: "/admin/orders", label: "Orders", icon: "orders", roles: ["admin", "staff"] },
   { href: "/admin/analytics", label: "Analytics", icon: "chart", roles: ["admin"] },
   { href: "/admin/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
   { href: "/admin/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
   { href: "/admin/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
-  { href: "/admin/media", label: "Images & videos", icon: "image", roles: ["admin"] },
   { href: "/admin/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
+  { href: "/admin/media", label: "Images & videos", icon: "image", roles: ["admin"] },
+  { href: "/admin/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
 ];
 
 const Cherry = () => (
@@ -99,8 +101,20 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   }, [fresh, path]);
 
   const signOut = async () => {
-    await fetch("/api/admin/auth", { method: "DELETE" });
+    // This used to DELETE /api/admin/auth, a route that does not exist: the
+    // request 404'd, the rr_session cookie survived, and the redirect below
+    // was bounced straight back into the panel by the edge guard. The real
+    // endpoint clears the cookie on POST.
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Even if the call fails we still leave the panel; the guard will send
+      // the user to the login page on the next server request.
+    }
     router.replace("/admin/login");
+    // Drop the cached RSC payload for the panel, otherwise Next can paint the
+    // signed-in shell again from cache before the server re-checks the cookie.
+    router.refresh();
   };
 
   const nav = NAV.filter((n) => n.roles.includes(role));
@@ -184,7 +198,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         {menu && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <button type="button" className="adm-scrim absolute inset-0 bg-slate-900/40" onClick={() => setMenu(false)} aria-label="Close menu" />
-            <aside className="adm-side adm-in absolute inset-y-0 left-0 w-[270px] shadow-2xl">{renderSide(false)}</aside>
+            <aside className="adm-side adm-in absolute inset-y-0 left-0 w-[min(270px,82vw)] shadow-2xl">{renderSide(false)}</aside>
           </div>
         )}
 
