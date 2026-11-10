@@ -1,7 +1,7 @@
 "use client";
 
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { getSupabase } from './supabase';
+import { getSupabaseData } from './supabase';
 
 // Tables that returned PGRST205 (missing from PostgREST schema cache) — we
 // warn once per table and then stay quiet, so the dev console isn't spammed
@@ -59,6 +59,16 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   let channel: RealtimeChannel | null = null;
   const listeners = new Set<() => void>();
 
+  /* Bumped by every optimistic local change. A refetch snapshots this before
+     it asks the server and checks it again when the answer arrives: if a local
+     write happened in between, that answer predates the write and applying it
+     would wipe the new row off the screen while it sits happily in the
+     database. That is exactly what made a just-saved expense "vanish from the
+     frontend but still be in the DB" — the Realtime channel calls refetch()
+     the moment it connects, and that read could already be in flight when the
+     row was saved. */
+  let mutationSeq = 0;
+
   // ---------- Local-storage demo persistence ----------
   // When Supabase isn't configured we still want the whole app to feel real:
   // orders placed in /menu should show up in /admin on another tab, bills
@@ -67,7 +77,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   // for 'storage' events to resync. This hop is removed the moment Supabase
   // env vars appear — the Supabase path takes precedence.
   const LS_KEY = `cenexa_demo_store_${opts.table}`;
-  const demoMode = () => !getSupabase() && typeof window !== 'undefined';
+  const demoMode = () => !getSupabaseData() && typeof window !== 'undefined';
   const loadFromLS = () => {
     if (typeof window === 'undefined') return;
     try {
@@ -102,12 +112,13 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   };
 
   const refetch = async (): Promise<void> => {
-    const sb = getSupabase();
+    const sb = getSupabaseData();
     if (!sb) {
       // Demo mode: hydrate from localStorage once.
       if (!hydrated) { loadFromLS(); hydrated = true; notify(); }
       return;
     }
+    const seenAt = mutationSeq;
     const { data, error } = await sb.from(opts.table).select('*');
     if (error) {
       // PGRST205 = table missing from PostgREST schema cache. That is a one-time
@@ -128,6 +139,11 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
       }
       console.error(`[store:${opts.table}] fetch failed`, error.message);
       return;
+    }
+    if (mutationSeq !== seenAt) {
+      // A local write landed while this read was in flight, so the rows we got
+      // back are already out of date. Drop them and ask again.
+      return refetch();
     }
     cache = (data ?? []).map((r) => opts.fromRow(r as Record<string, unknown>));
     hydrated = true;
@@ -167,7 +183,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   };
 
   const openChannel = () => {
-    const sb = getSupabase();
+    const sb = getSupabaseData();
     if (!sb || channel) return;
     channel = sb
       .channel(topic)
@@ -184,7 +200,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
   };
 
   const closeChannel = () => {
-    const sb = getSupabase();
+    const sb = getSupabaseData();
     if (sb && channel) sb.removeChannel(channel);
     channel = null;
   };
@@ -205,6 +221,7 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
     refetch,
     get: () => cache,
     patchLocal(fn) {
+      mutationSeq++;
       cache = fn(cache);
       hydrated = true;
       notify();

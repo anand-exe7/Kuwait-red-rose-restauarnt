@@ -49,8 +49,8 @@ export default function HeroNav() {
         <div
           className={`mx-auto flex w-full items-center justify-between gap-2 rounded-full border sm:gap-3 transition-[max-width,padding,background-color,box-shadow,border-color] duration-300 ease-out ${
             scrolled
-              ? 'max-w-5xl border-brand-gold/25 bg-[#4f070c]/90 py-1.5 pl-2 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md'
-              : 'max-w-6xl border-white/15 bg-white/[0.07] py-2 pl-2.5 pr-2 shadow-[0_14px_40px_-16px_rgba(35,0,4,0.45)] backdrop-blur-sm'
+              ? 'max-w-5xl border-brand-gold/25 bg-[#4f070c]/90 py-1.5 pl-2 pr-1.5 lg:pr-2 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md'
+              : 'max-w-6xl border-white/15 bg-white/[0.07] py-2 pl-2.5 pr-2 lg:pl-2 shadow-[0_14px_40px_-16px_rgba(35,0,4,0.45)] backdrop-blur-sm'
           }`}
         >
           {/* ---- Mark ---- */}
@@ -103,7 +103,7 @@ export default function HeroNav() {
           </nav>
 
           {/* ---- Actions ---- */}
-          <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 lg:flex-1">
+          <div className="flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 lg:min-w-0 lg:flex-1">
             <Link
               href="/menu"
               aria-label="Your bag"

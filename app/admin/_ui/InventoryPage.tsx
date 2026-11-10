@@ -204,6 +204,33 @@ const stepBy = (id: string, delta: number) => ({ optimistic: withStock(id, (n) =
 function StockCell({ p }: { p: Product }) {
   const { act } = useAdmin();
   const [edit, setEdit] = useState<string | null>(null);
+
+  /* A product sold in sizes keeps its count on each SIZE; the number in this
+     column is those sizes added up (see Store.tsx). The +/- here wrote to the
+     product-level `stock` column instead, which nothing displays for such a
+     product — so the figure never moved however many times it was clicked,
+     while a stray count built up in the database. Show the real total and
+     send the admin to the size that actually needs changing. */
+  if (p.variants?.length) {
+    const tracked = p.variants.filter((v) => v.stock !== null);
+    if (!tracked.length)
+      return (
+        <span className="inline-flex items-center gap-2 text-slate-400">
+          ∞ <span className="text-[11px]">untracked</span>
+        </span>
+      );
+    const total = tracked.reduce((a, v) => a + (v.stock ?? 0), 0);
+    const tone = total <= 0 ? "text-red-600" : total <= p.lowAt ? "text-amber-600" : "text-slate-900";
+    return (
+      <span className="inline-flex min-w-0 flex-col leading-tight">
+        <b className={cx("text-[14px] font-extrabold", tone)}>{total}</b>
+        <span className="text-[11px] text-slate-400">
+          across {tracked.length} size{tracked.length === 1 ? "" : "s"} · edit per size
+        </span>
+      </span>
+    );
+  }
+
   if (p.stock === null)
     return (
       <span className="inline-flex items-center gap-2 text-slate-400">

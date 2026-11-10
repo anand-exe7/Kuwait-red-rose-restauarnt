@@ -14,8 +14,8 @@ export default function BrandMark({ href, sub = 'Pastry · Kuwait', compact = fa
     ? 'h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/60 shadow-[0_2px_8px_rgba(30,0,4,0.35)] transition-transform duration-500 group-hover:scale-105 sm:h-11 sm:w-11'
     : 'h-11 w-11 shrink-0 rounded-full object-cover ring-1 ring-brand-gold/60 shadow-[0_2px_8px_rgba(30,0,4,0.35)] transition-transform duration-500 group-hover:scale-105 sm:h-14 sm:w-14';
   const subCls = compact
-    ? 'block font-body text-[7.5px] font-medium uppercase tracking-[0.3em] text-brand-gold-light/85 sm:text-[9px] sm:tracking-[0.36em]'
-    : 'block font-body text-[8.5px] font-medium uppercase tracking-[0.32em] text-brand-gold-light/85 sm:text-[10px] sm:tracking-[0.4em]';
+    ? 'block truncate font-body text-[7.5px] font-medium uppercase tracking-[0.16em] text-brand-gold-light/85 min-[360px]:tracking-[0.3em] sm:text-[9px] sm:tracking-[0.36em]'
+    : 'block truncate font-body text-[8.5px] font-medium uppercase tracking-[0.18em] text-brand-gold-light/85 min-[360px]:tracking-[0.32em] sm:text-[10px] sm:tracking-[0.4em]';
 
   const inner = (
     <>
@@ -28,11 +28,11 @@ export default function BrandMark({ href, sub = 'Pastry · Kuwait', compact = fa
         className={imgCls}
       />
       {sub ? (
-        <span className="leading-none">
+        <span className="min-w-0 leading-none">
           <span className="sr-only">{BRAND.fullName}</span>
           <span
             aria-hidden
-            className={`block font-wordmark uppercase tracking-[0.04em] text-white ${compact ? 'text-[18px] sm:text-[22px]' : 'text-[22px] sm:text-[26px]'}`}
+            className={`block truncate font-wordmark uppercase tracking-[0.04em] text-white ${compact ? 'text-[clamp(14px,4.8vw,18px)] sm:text-[22px]' : 'text-[clamp(16px,5.4vw,22px)] sm:text-[26px]'}`}
             style={{ transform: 'scaleY(1.12)', transformOrigin: 'bottom' }}
           >
             Red Rose
@@ -45,7 +45,12 @@ export default function BrandMark({ href, sub = 'Pastry · Kuwait', compact = fa
     </>
   );
 
-  const cls = compact ? 'group flex shrink-0 items-center gap-2 pr-1' : 'group flex shrink-0 items-center gap-2.5 pr-1';
+  // Not shrink-0: the mark yields before the action buttons do, so the
+  // buttons beside it can never be pushed off the screen. The badge itself
+  // stays shrink-0 inside, and the text truncates.
+  const cls = compact
+    ? 'group flex min-w-0 flex-1 items-center gap-2 pr-1'
+    : 'group flex min-w-0 flex-1 items-center gap-2.5 pr-1';
   return href ? (
     <Link href={href} className={cls}>
       {inner}

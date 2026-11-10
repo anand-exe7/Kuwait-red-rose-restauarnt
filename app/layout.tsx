@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import PwaRegister from "./components/PwaRegister";
+import NumberInputGuard from "./components/NumberInputGuard";
 import { BRAND } from './lib/brand';
 
 const geistSans = Geist({
@@ -56,6 +57,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         {children}
         <PwaRegister />
+        {/* Wheel must never silently change a price or a stock count. */}
+        <NumberInputGuard />
       </body>
     </html>
   );

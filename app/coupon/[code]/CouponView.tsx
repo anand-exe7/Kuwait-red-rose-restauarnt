@@ -226,8 +226,8 @@ export default function CouponView({ code }: { code: string }) {
           <p className="mt-2 font-body text-[13px] leading-relaxed text-brand-ink/60">
             There is no coupon with the code <b className="font-mono">{code}</b> any more. It may have been removed or
             replaced — call {BRAND.name} on{" "}
-            <a href={`tel:${BRAND.phone}`} className="font-bold text-brand-red">
-              {BRAND.phone}
+            <a href={BRAND.telHref} className="font-bold text-brand-red">
+              {BRAND.phoneDisplay}
             </a>
             .
           </p>
