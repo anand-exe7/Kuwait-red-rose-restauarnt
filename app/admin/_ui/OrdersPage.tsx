@@ -292,7 +292,7 @@ export default function OrdersPage() {
                 This bill was saved before the shop stored its item list, and its tickets are gone — only the totals below are left.
               </p>
             ) : (
-              <ul className="adm-scroll my-4 max-h-[42vh] divide-y divide-dashed divide-slate-200 overflow-y-auto pr-1">
+              <ul className="adm-scroll my-4 max-h-[42dvh] divide-y divide-dashed divide-slate-200 overflow-y-auto pr-1">
                 {bill.items.map((i, k) => (
                   <li key={k} className="flex justify-between gap-3 py-2">
                     <span className="min-w-0">

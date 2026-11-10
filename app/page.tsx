@@ -122,15 +122,6 @@ const FOOTER_LINKS = [
   { label: 'Contact', href: '#contact' },
 ];
 
-/** Fallback best-sellers used when the admin hasn't flagged any in inventory
- *  (so the section never looks broken on a fresh deploy). */
-const FALLBACK_BESTSELLERS: BestSellerCard[] = [
-  { id: 'fb-macarons', name: 'Macaron Box', category: 'Pâtisserie', price: 4.5, image: IMAGES.macarons },
-  { id: 'fb-baklava', name: 'Pistachio Baklava', category: 'Arabic Sweets', price: 3.25, image: IMAGES.baklava },
-  { id: 'fb-croissant', name: 'Butter Croissant', category: 'Viennoiserie', price: 0.75, image: IMAGES.croissant },
-  { id: 'fb-tartlets', name: 'Fruit Tartlets', category: 'Pâtisserie', price: 1.75, image: IMAGES.tartlets },
-];
-
 const FLAVOURS = [
   { src: IMAGES.dates, label: 'Medjool dates', from: 'The Gulf' },
   { src: IMAGES.saffron, label: 'Saffron', from: 'Iran' },
@@ -253,10 +244,11 @@ export default async function Home() {
   const [media, bestSellers] = await Promise.all([fetchHomeMedia(), fetchBestSellers()]);
   const finestSrc = (i: number) => media.finest[i] || FLAVOURS[i].src;
   const celebrationsSrc = media.celebrations || IMAGES.giftBoxes;
-  // Only live (DB-flagged) best sellers can deep-link into the menu page —
-  // fallback cards have placeholder ids that aren't real menu items.
-  const usingLiveBestSellers = bestSellers.length > 0;
-  const bestSellersDisplay = (usingLiveBestSellers ? bestSellers : FALLBACK_BESTSELLERS).slice(0, 4);
+  /* Best sellers are whatever the admin flagged in Inventory, and nothing
+     else: no stand-in cards for products the shop doesn't sell. Flag none
+     and the whole Signatures section stays off the page. */
+  const bestSellersDisplay = bestSellers.slice(0, 4);
+  const hasBestSellers = bestSellersDisplay.length > 0;
   return (
     <div
       className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
@@ -593,6 +585,7 @@ export default async function Home() {
       </div>
 
       {/* ==================== SIGNATURES ==================== */}
+      {hasBestSellers && (
       <Reveal>
         <section id="signatures" className="relative scroll-mt-24 pb-20 pt-12 sm:pb-28 sm:pt-20">
           <Cutout src="raspberry" className="left-[2%] top-16 w-[86px] max-sm:hidden" p0={50} p1={-70} r0={-18} r1={8} f={6} />
@@ -625,7 +618,7 @@ export default async function Home() {
               {bestSellersDisplay.map((p, i) => (
                 <Link
                   key={p.id}
-                  href={usingLiveBestSellers ? `/menu?item=${encodeURIComponent(p.id)}` : '/menu'}
+                  href={`/menu?item=${encodeURIComponent(p.id)}`}
                   className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60"
                   style={{ '--i': i } as React.CSSProperties}
                   aria-label={`${p.name} — open on the menu`}
@@ -654,6 +647,7 @@ export default async function Home() {
           </div>
         </section>
       </Reveal>
+      )}
 
       {/* ==================== OUR STORY ==================== */}
       <Reveal>

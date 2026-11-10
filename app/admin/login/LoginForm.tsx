@@ -38,7 +38,7 @@ export default function LoginForm() {
   };
 
   return (
-    <main className="grid min-h-screen place-items-center p-4">
+    <main className="grid min-h-[100svh] place-items-center p-4">
       <form onSubmit={submit} className="adm-in w-full max-w-[400px] rounded-[28px] bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,.06),0_20px_50px_-20px_rgba(15,23,42,.25)] sm:p-8">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/finallogo.jpeg" alt="Red Rose" className="h-14 w-14 rounded-2xl object-cover shadow" />

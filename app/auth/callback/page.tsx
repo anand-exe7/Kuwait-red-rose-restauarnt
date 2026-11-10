@@ -76,7 +76,7 @@ export default function AuthCallbackPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-brand-cream flex items-center justify-center px-6 text-center">
+    <main className="min-h-[100svh] bg-brand-cream flex items-center justify-center px-6 text-center">
       <div>
         <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-brand-red/30 border-t-brand-red" />
         <p className="mt-6 font-body text-brand-wine">{message}</p>

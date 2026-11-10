@@ -2,17 +2,22 @@
 
 // Delivery — where we deliver, and what it costs by WEIGHT.
 //
-// Each area has a list of weight brackets: 0–500 g costs this, 500 g–1 kg costs
-// that. The checkout adds up the weight of the basket (each product's weight
-// comes from Inventory), finds the bracket and charges that fee. An area with
-// no brackets charges its flat fee, exactly as before.
+// An area is a name and a list of weight brackets, and nothing else. There is
+// no flat fee and no per-area minimum order: you say "0–1 kg costs 0.500,
+// 1–2 kg costs 1.000", and that is the whole price list. The checkout adds up
+// the weight of the basket (each product's weight comes from Inventory, and a
+// product sold in sizes uses the size the customer picked), finds the bracket
+// and charges exactly that.
+//
+// An area with no brackets is not priced, so customers cannot order to it —
+// it is flagged here until you give it one.
 //
 // Nothing else lives here on purpose. A delivery's kitchen life (accept → cook
 // → ready → bill → hand to the driver) is Online orders, Open tabs and the
 // waiter board; a second board for the same orders only splits attention.
 
 import { useCallback, useEffect, useState } from "react";
-import type { DeliveryArea, WeightTier } from "../../lib/delivery/shared";
+import { gramsLabel, tierLabel, type DeliveryArea, type WeightTier } from "../../lib/delivery/shared";
 import { useAdmin } from "./Store";
 import { staffCall } from "./staffApi";
 import { Badge, Btn, Card, Icon, Page, PageHead, cx, inputCls, labelCls } from "./kit";
@@ -28,8 +33,6 @@ interface TierDraft {
 interface Draft {
   id: string | null;
   name: string;
-  fee: string;
-  minOrder: string;
   active: boolean;
   sort: number;
   tiers: TierDraft[];
@@ -38,8 +41,6 @@ interface Draft {
 const toDraft = (a: DeliveryArea): Draft => ({
   id: a.id,
   name: a.name,
-  fee: String(a.fee),
-  minOrder: a.minOrder === null ? "" : String(a.minOrder),
   active: a.active,
   sort: a.sort,
   tiers: (a.tiers ?? []).map((t) => ({
@@ -62,7 +63,7 @@ const toTiers = (rows: TierDraft[]): WeightTier[] =>
 /** The gaps and overlaps a human will otherwise find out about at checkout. */
 function tierProblems(rows: TierDraft[]): string | null {
   const tiers = toTiers(rows);
-  if (tiers.length === 0) return null;
+  if (tiers.length === 0) return "Add at least one weight bracket — that is what delivery to this area costs.";
   for (const t of tiers) {
     if (t.maxG !== null && t.maxG <= t.minG) return "Each bracket's max weight must be more than its min.";
     if (!Number.isFinite(t.fee) || t.fee < 0) return "A delivery fee can't be negative.";
@@ -71,9 +72,15 @@ function tierProblems(rows: TierDraft[]): string | null {
     const prev = tiers[i - 1];
     if (prev.maxG === null) return "Only the last bracket can be left open-ended.";
     if (tiers[i].minG < prev.maxG) return "Two brackets overlap — fix the weights.";
+    if (tiers[i].minG > prev.maxG) {
+      return `Nothing covers ${gramsLabel(prev.maxG)}–${gramsLabel(tiers[i].minG)}. Start the next bracket where the last one ends.`;
+    }
   }
   return null;
 }
+
+/** "Up to 1 kg · KD 0.500" — one bracket on the collapsed row. */
+const kd = (n: number) => `KD ${n.toFixed(3)}`;
 
 export default function DeliveryPage() {
   const { toast, confirm } = useAdmin();
@@ -133,9 +140,10 @@ export default function DeliveryPage() {
   const addTier = (i: number) => {
     const cur = rows[i].tiers;
     const last = cur[cur.length - 1];
-    // Start the new bracket where the last one ended — the common case.
-    const from = last && last.maxG.trim() !== "" ? last.maxG : "";
-    edit(i, { tiers: [...cur, { minG: from, maxG: "", fee: rows[i].fee || "1" }] });
+    // Start the new bracket where the last one ended — the common case, and
+    // the one that leaves no uncovered weight in between.
+    const from = last && last.maxG.trim() !== "" ? last.maxG : last ? "" : "0";
+    edit(i, { tiers: [...cur, { minG: from, maxG: "", fee: last?.fee ?? "0.500" }] });
   };
   const removeTier = (i: number, k: number) => edit(i, { tiers: rows[i].tiers.filter((_, j) => j !== k) });
 
@@ -144,22 +152,36 @@ export default function DeliveryPage() {
     const k = keyOf(r, i);
     const problem = tierProblems(r.tiers);
     if (problem) {
+      setOpenArea(k);
       toast({ kind: "err", title: problem });
       return;
     }
     setBusy(k);
     try {
-      await staffCall("areas.save", {
+      const tiers = toTiers(r.tiers);
+      const res = await staffCall<{ id: string; tiersDropped?: boolean }>("areas.save", {
         id: r.id ?? undefined,
         name: r.name,
-        fee: Number(r.fee || 0),
-        minOrder: r.minOrder.trim() === "" ? null : Number(r.minOrder),
+        // No flat fee and no per-area minimum any more: the brackets are the
+        // whole price list. The old `fee` column still gets the lightest
+        // bracket's price, so an area stays deliverable at a sensible rate
+        // even on a database where the brackets themselves can't be stored
+        // yet (supabase/delivery_weight_tiers.sql not run).
+        fee: tiers[0]?.fee ?? 0,
+        minOrder: null,
         active: r.active,
         sort: r.sort,
-        tiers: toTiers(r.tiers),
+        tiers,
       });
       await load();
-      toast({ kind: "ok", title: `${r.name} saved.` });
+      if (res?.tiersDropped) {
+        toast({
+          kind: "err",
+          title: `${r.name} saved, but the weight brackets could not be stored — run supabase/delivery_weight_tiers.sql in Supabase.`,
+        });
+      } else {
+        toast({ kind: "ok", title: `${r.name} saved.` });
+      }
     } catch (e) {
       toast({ kind: "err", title: (e as Error).message });
     }
@@ -191,9 +213,13 @@ export default function DeliveryPage() {
   };
 
   const addRow = () => {
-    setRows([...rows, { id: null, name: "", fee: "1", minOrder: "", active: true, sort: rows.length + 1, tiers: [] }]);
+    // A new area starts with one open bracket, so it is priced the moment it
+    // is saved instead of being born broken.
+    setRows([...rows, { id: null, name: "", active: true, sort: rows.length + 1, tiers: [{ minG: "0", maxG: "", fee: "0.500" }] }]);
     setOpenArea(`new-${rows.length}`);
   };
+
+  const unpriced = rows.filter((r) => r.id && toTiers(r.tiers).length === 0).length;
 
   return (
     <Page>
@@ -205,12 +231,19 @@ export default function DeliveryPage() {
         </div>
       )}
 
+      {unpriced > 0 && (
+        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-800">
+          {unpriced === 1 ? "One area has" : `${unpriced} areas have`} no weight brackets, so customers cannot order
+          there. Add a bracket to each, or switch the area off.
+        </div>
+      )}
+
       <Card title="Where we deliver, and what it costs">
         <p className="mb-4 text-[13px] leading-relaxed text-slate-500">
-          A customer can only choose an area listed here. Add <b>weight brackets</b> to charge by how heavy the order is
-          — the checkout adds up the weight of the basket (set each product&rsquo;s weight in Inventory) and charges the
-          bracket it lands in. An area with no brackets charges its flat fee. Leave &ldquo;Min. order&rdquo; empty to use
-          the general minimum, and switch an area off to hide it from customers without losing it.
+          An area is a name and its <b>weight brackets</b> — nothing else. Say what each weight range costs (for
+          example <b>0–1000 g → KD 0.500</b>) and the checkout adds up how heavy the basket is, finds the bracket and
+          charges that. Product weights come from Inventory; a product sold in sizes uses the size the customer picked.
+          Switch an area off to hide it from customers without losing it.
         </p>
 
         {!rows.length && <p className="mb-4 text-[13px] text-slate-500">No areas yet — add your first one below.</p>}
@@ -219,25 +252,18 @@ export default function DeliveryPage() {
           {rows.map((r, i) => {
             const k = keyOf(r, i);
             const open = openArea === k;
+            const tiers = toTiers(r.tiers);
             return (
               <div key={k} className={cx("rounded-2xl border", r.active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50")}>
                 <div className="grid grid-cols-2 items-end gap-3 p-3 sm:grid-cols-12">
-                  <div className="col-span-2 sm:col-span-4">
+                  <div className="col-span-2 sm:col-span-6">
                     <span className={labelCls}>Area name</span>
-                    <input className={inputCls} value={r.name} onChange={(e) => edit(i, { name: e.target.value })} placeholder="For example Al Qurain" />
+                    <input className={inputCls} value={r.name} onChange={(e) => edit(i, { name: e.target.value })} placeholder="For example Salmiya" />
                   </div>
-                  <div className="sm:col-span-2">
-                    <span className={labelCls}>Flat fee (KD)</span>
-                    <input type="number" step="0.05" min="0" className={inputCls} value={r.fee} onChange={(e) => edit(i, { fee: e.target.value })} />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <span className={labelCls}>Min. order</span>
-                    <input type="number" step="0.5" min="0" className={inputCls} value={r.minOrder} onChange={(e) => edit(i, { minOrder: e.target.value })} placeholder="general" />
-                  </div>
-                  <label className="flex items-center gap-2 pb-3 text-[13px] font-semibold text-slate-700 sm:col-span-1">
+                  <label className="flex items-center gap-2 pb-3 text-[13px] font-semibold text-slate-700 sm:col-span-2">
                     <input type="checkbox" checked={r.active} onChange={(e) => edit(i, { active: e.target.checked })} /> On
                   </label>
-                  <div className="col-span-2 flex justify-end gap-2 sm:col-span-3">
+                  <div className="col-span-2 flex justify-end gap-2 sm:col-span-4">
                     <Btn kind={dirty.has(k) || !r.id ? "red" : "ghost"} disabled={busy === k || !r.name.trim()} onClick={() => save(i)}>
                       {busy === k ? "Saving…" : r.id ? "Save" : "Add area"}
                     </Btn>
@@ -254,18 +280,24 @@ export default function DeliveryPage() {
                 >
                   <Icon name="chevron" size={14} className={cx("transition-transform", open && "rotate-90")} />
                   Weight brackets
-                  {r.tiers.length ? (
-                    <Badge tone="green">{r.tiers.length} bracket{r.tiers.length === 1 ? "" : "s"}</Badge>
+                  {tiers.length ? (
+                    <Badge tone="green">{tiers.length} bracket{tiers.length === 1 ? "" : "s"}</Badge>
                   ) : (
-                    <Badge tone="slate">flat fee</Badge>
+                    <Badge tone="red">no price set</Badge>
+                  )}
+                  {/* The whole price list at a glance, without opening the row. */}
+                  {!open && tiers.length > 0 && (
+                    <span className="adm-num ml-1 truncate text-[12px] font-medium text-slate-400">
+                      {tiers.map((t) => `${tierLabel(t)} · ${kd(t.fee)}`).join("   ·   ")}
+                    </span>
                   )}
                 </button>
 
                 {open && (
                   <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
                     <p className="mb-3 text-[12px] text-slate-500">
-                      Weights are in grams. Leave the last bracket&rsquo;s <b>max</b> empty for &ldquo;and anything
-                      heavier&rdquo;.
+                      Weights are in grams (1 kg = 1000 g). Each bracket starts where the one before it ends. Leave the
+                      last bracket&rsquo;s <b>max</b> empty for &ldquo;and anything heavier&rdquo;.
                     </p>
 
                     {r.tiers.length > 0 && (
@@ -300,7 +332,7 @@ export default function DeliveryPage() {
                             className={cx(inputCls, "col-span-3")}
                             value={t.fee}
                             onChange={(e) => editTier(i, tIdx, { fee: e.target.value })}
-                            placeholder="1.000"
+                            placeholder="0.500"
                             aria-label={`Bracket ${tIdx + 1} delivery fee`}
                           />
                           <button
@@ -315,9 +347,21 @@ export default function DeliveryPage() {
                       ))}
                     </div>
 
+                    {/* What the customer will actually be shown, in their words. */}
+                    {tiers.length > 0 && (
+                      <ul className="mt-3 flex flex-wrap gap-2">
+                        {tiers.map((t, tIdx) => (
+                          <li key={tIdx} className="rounded-xl border border-slate-200 bg-white px-2.5 py-1 text-[12px] text-slate-600">
+                            {tierLabel(t)} · <b className="adm-num text-slate-800">{kd(t.fee)}</b>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
                     {!r.tiers.length && (
-                      <p className="text-[12.5px] text-slate-500">
-                        No brackets — every delivery to {r.name || "this area"} costs the flat fee above.
+                      <p className="text-[12.5px] font-semibold text-red-600">
+                        No brackets yet, so {r.name || "this area"} has no delivery price and customers cannot choose
+                        it. Add one below.
                       </p>
                     )}
 

@@ -527,7 +527,7 @@ export function Modal({
     <Layer>
       <div className="fixed inset-0 z-[80] grid place-items-center p-3 sm:p-6" role="dialog" aria-modal="true">
         <button type="button" className="adm-scrim absolute inset-0 bg-slate-900/40" onClick={onClose} aria-label="Close" tabIndex={-1} />
-        <div ref={box} className={cx("adm-in relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-3xl bg-white shadow-2xl", wide ? "max-w-3xl" : "max-w-lg")}>
+        <div ref={box} className={cx("adm-in relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-3xl bg-white shadow-2xl", wide ? "max-w-3xl" : "max-w-lg")}>
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
             <h2 className="text-[16px] font-bold text-slate-900">{title}</h2>
             <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-full text-slate-500 hover:bg-slate-100" aria-label="Close">
