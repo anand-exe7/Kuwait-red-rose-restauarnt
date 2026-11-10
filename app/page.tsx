@@ -19,6 +19,8 @@ import Reveal from './components/Reveal';
 import HeroCake from './components/HeroCake';
 import CountUp from './components/CountUp';
 import Reviews, { type Review } from './components/Reviews';
+import LandingLoader from './components/LandingLoader';
+import EnquiryForm from './components/EnquiryForm';
 import { getServerSupabase } from './lib/supabaseServer';
 
 // Admin-managed homepage media (Admin → Homepage) refreshes server-side.
@@ -112,12 +114,23 @@ const img = (id: string, w = 1000) =>
 const srcSet = (id: string, widths: number[]) =>
   isFullUrl(id) ? '' : widths.map((w) => `${img(id, w)} ${w}w`).join(', ');
 
+/* The mosaic's feature photo fills roughly half a desktop column and the whole
+   width of a phone. On a 3× phone that is already ~1200 real pixels, and on a
+   2× 27-inch it is ~1700 — which is why the old ladder topping out where the
+   browser would still pick a 900px copy read as "the image quality is not
+   good". 2560 is a 2K-class source; 3200 covers a 4K panel. `auto=format`
+   means these ship as AVIF/WebP, so the extra width costs far less than the
+   pixel count suggests, and a phone never downloads the top of the ladder. */
+const FEATURE_WIDTHS = [720, 1080, 1440, 1800, 2560, 3200];
+const TILE_WIDTHS = [400, 640, 900, 1280, 1800];
+
 const CONTAINER = 'mx-auto w-full max-w-6xl px-5 sm:px-8';
 
 const FOOTER_LINKS = [
   { label: 'Home', href: '/' },
   { label: 'Menu', href: '/menu' },
   { label: 'Our Story', href: '#story' },
+  { label: 'Enquiry', href: '#enquiry' },
   { label: 'Visit', href: '#locations' },
   { label: 'Contact', href: '#contact' },
 ];
@@ -252,6 +265,17 @@ export default async function Home() {
     <div
       className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
     >
+      {/* Photographs on this page are served from Unsplash and from Supabase
+          storage. Opening those connections while the HTML is still being
+          parsed takes a DNS lookup + TLS handshake (easily 300 ms on mobile
+          data) off the front of the very first photo. */}
+      <link rel="preconnect" href="https://images.unsplash.com" crossOrigin="" />
+      <link rel="dns-prefetch" href="https://images.unsplash.com" />
+      {/* The curtain, and the way out of it for anyone without JavaScript. */}
+      <LandingLoader />
+      <noscript>
+        <style>{`#landing-loader{display:none!important}`}</style>
+      </noscript>
       <div aria-hidden className="scroll-progress" />
       <HeroNav />
 
@@ -692,31 +716,79 @@ export default async function Home() {
               </Link>
             </div>
 
-            {/* Two staggered columns of photographs, with the year set
-                between them like a maker's mark. */}
-            <div className="relative mx-auto w-full max-w-[520px] lg:max-w-none">
-              {/* The two columns drift at different speeds as the page moves. */}
-              <div className="grid grid-cols-2 gap-4 sm:gap-5">
-                <div
-                  className="parallax flex flex-col gap-4 sm:gap-5"
-                  style={{ '--p0': '24px', '--p1': '-24px' } as React.CSSProperties}
-                >
-                  <Photo i={0} src={finestSrc(0)} label={FLAVOURS[0].label} from={FLAVOURS[0].from} aspect="aspect-[4/5]" />
-                  <Photo i={2} src={finestSrc(2)} label={FLAVOURS[2].label} from={FLAVOURS[2].from} aspect="aspect-square" />
-                </div>
-                <div
-                  className="parallax mt-12 flex flex-col gap-4 sm:mt-16 sm:gap-5"
-                  style={{ '--p0': '80px', '--p1': '-80px' } as React.CSSProperties}
-                >
-                  <Photo i={1} src={finestSrc(1)} label={FLAVOURS[1].label} from={FLAVOURS[1].from} aspect="aspect-square" />
-                  <Photo i={3} src={finestSrc(3)} label={FLAVOURS[3].label} from={FLAVOURS[3].from} aspect="aspect-[4/5]" />
-                </div>
+            {/* ── The mosaic ─────────────────────────────────────────────
+                Four photographs in a six-column grid: a near-square anchor,
+                two small squares stacked beside it, and a wide cinematic
+                band closing the block.
+
+                The previous try made the anchor a 3:4 portrait running the
+                full height of the group, which on a wide screen turned into
+                a single towering photograph with a thin ladder of pictures
+                pinned next to it — and `object-cover` on a box that tall
+                crops a plate of dates down to three dates. This shape keeps
+                the anchor big without letting it run away: it takes its
+                height from the two squares beside it, so nothing is ever
+                more than a little taller than it is wide, and the band along
+                the bottom gives the group a base to sit on.
+
+                One set of markup at every width. The proportions hold on a
+                phone because the grid is fractional, so there is no second
+                copy of these photographs for a phone to download. */}
+            <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
+              <div
+                className="parallax grid grid-cols-6 gap-2.5 sm:gap-4"
+                style={{ '--p0': '28px', '--p1': '-28px' } as React.CSSProperties}
+              >
+                {/* The anchor. No aspect of its own — it fills the height the
+                    two squares to its right define, which is what keeps it
+                    roughly square instead of a tower. */}
+                <Photo
+                  i={0}
+                  feature
+                  src={finestSrc(0)}
+                  label={FLAVOURS[0].label}
+                  from={FLAVOURS[0].from}
+                  className="col-span-4 row-span-2"
+                  sizes="(min-width: 1024px) 32vw, (min-width: 640px) 30vw, 60vw"
+                />
+                <Photo
+                  i={1}
+                  src={finestSrc(1)}
+                  label={FLAVOURS[1].label}
+                  from={FLAVOURS[1].from}
+                  className="col-span-2 aspect-square"
+                  sizes="(min-width: 1024px) 16vw, (min-width: 640px) 15vw, 30vw"
+                />
+                <Photo
+                  i={2}
+                  src={finestSrc(2)}
+                  label={FLAVOURS[2].label}
+                  from={FLAVOURS[2].from}
+                  className="col-span-2 aspect-square"
+                  sizes="(min-width: 1024px) 16vw, (min-width: 640px) 15vw, 30vw"
+                />
+                {/* The closing band, full width and letterboxed. Marked as a
+                    feature too: it is the widest photograph on the page, so
+                    it needs the same large source ladder as the anchor. */}
+                <Photo
+                  i={3}
+                  feature
+                  src={finestSrc(3)}
+                  label={FLAVOURS[3].label}
+                  from={FLAVOURS[3].from}
+                  className="col-span-6 aspect-[16/6]"
+                  sizes="(min-width: 1024px) 48vw, (min-width: 640px) 46vw, 92vw"
+                />
               </div>
 
-              {/* A rose laid across the corner of the photographs. */}
+              {/* A rose resting under the left corner of the band — low
+                  enough that only the head clears the bottom edge. Every
+                  photograph carries its caption along its own bottom-left,
+                  so a stem lying any higher draws itself straight through
+                  the word "Baklava". */}
               <Cutout
                 src="rose"
-                className="-bottom-14 -left-6 z-10 w-[230px] sm:-bottom-16 sm:-left-12 sm:w-[310px] lg:-bottom-20 lg:-left-24 lg:w-[380px]"
+                className="-bottom-24 -left-14 z-10 w-[150px] sm:-bottom-28 sm:-left-20 sm:w-[230px] lg:-bottom-32 lg:-left-28 lg:w-[310px]"
                 p0={50}
                 p1={-50}
                 r0={-16}
@@ -724,7 +796,11 @@ export default async function Home() {
                 f={8}
               />
 
-              <div className="absolute -left-3 -top-6 flex h-[92px] w-[92px] flex-col sm:-left-9 sm:-top-9 items-center justify-center rounded-full bg-brand-cream text-center shadow-[0_18px_40px_-16px_rgba(74,21,21,0.5)] ring-1 ring-brand-gold/40 sm:h-[112px] sm:w-[112px]">
+              {/* The maker's mark, hung off the top-right corner. It used to
+                  sit top-left, square over the anchor's own subject; out here
+                  it reads as a seal on the group rather than a sticker on a
+                  photograph. */}
+              <div className="absolute -right-3 -top-7 z-20 flex h-[84px] w-[84px] flex-col sm:-right-6 sm:-top-9 items-center justify-center rounded-full bg-brand-cream text-center shadow-[0_18px_40px_-16px_rgba(74,21,21,0.5)] ring-1 ring-brand-gold/40 sm:h-[112px] sm:w-[112px] lg:-right-10">
                 <span aria-hidden className="absolute inset-[5px] rounded-full border border-brand-gold/35" />
                 <span className="font-display text-[13px] italic leading-none text-brand-gold-dark sm:text-[15px]">Our shop</span>
                 <span className="mt-1 max-w-[76px] text-balance font-display text-[15px] font-semibold leading-tight text-brand-wine sm:max-w-[92px] sm:text-[18px]">
@@ -1038,6 +1114,18 @@ export default async function Home() {
         </section>
       </Reveal>
 
+      {/* ==================== ENQUIRY ====================
+          Sits exactly where the question arrives: straight after the reviews
+          have done their work, and before "Find our shop" sends anybody off
+          to a map. Landing page only — the menu has a basket for people who
+          already know what they want. */}
+      <Reveal>
+        <section id="enquiry" className="relative scroll-mt-24 pb-6 sm:pb-10">
+          <Cutout src="petal-a" className="right-[7%] top-0 w-[38px] max-sm:hidden" p0={110} p1={-120} r0={-24} r1={60} f={6.5} />
+          <EnquiryForm />
+        </section>
+      </Reveal>
+
       {/* ==================== VISIT ==================== */}
       <Reveal>
         <section id="locations" className="relative scroll-mt-24 pb-28 sm:pb-36">
@@ -1123,6 +1211,8 @@ export default async function Home() {
                 <img
                   src="/finallogo.jpeg"
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   width={48}
                   height={48}
                   className="h-12 w-12 rounded-full object-cover ring-1 ring-brand-gold-light/60"
@@ -1210,27 +1300,54 @@ export default async function Home() {
 /* --------------------------------------------------------------------- */
 
 /** A photograph in the Our Story mosaic, captioned on a soft shade. */
-function Photo({ src, label, from, aspect, i }: { src: string; label: string; from: string; aspect: string; i: number }) {
+function Photo({
+  src,
+  label,
+  from,
+  className = '',
+  sizes,
+  i,
+  feature = false,
+}: {
+  src: string;
+  label: string;
+  from: string;
+  /** Aspect / flex classes — the mosaic decides the shape, not the photo. */
+  className?: string;
+  /** What width this photo actually occupies, so the browser picks the right
+   *  copy. Getting this wrong is why the photos looked soft: a 2048px source
+   *  behind a `sizes` that claimed 270px made the browser pick a 600px file
+   *  and stretch it across a 3× phone screen. */
+  sizes: string;
+  i: number;
+  /** The one large photo in the mosaic: it earns the largest source. */
+  feature?: boolean;
+}) {
   return (
     <figure
-      className={`curtain group relative isolate overflow-hidden rounded-[18px] shadow-[0_22px_44px_-28px_rgba(74,21,21,0.6)] ${aspect}`}
+      className={`curtain group relative isolate overflow-hidden rounded-[18px] shadow-[0_22px_44px_-28px_rgba(74,21,21,0.6)] ${className}`}
       style={{ '--i': i } as React.CSSProperties}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={img(src, 1200)}
-        srcSet={srcSet(src, [600, 900, 1200, 1600, 2048])}
-        sizes="(min-width: 1024px) 270px, 45vw"
+        src={img(src, feature ? 1800 : 1200)}
+        srcSet={srcSet(src, feature ? FEATURE_WIDTHS : TILE_WIDTHS)}
+        sizes={sizes}
         alt={label}
         loading="lazy"
+        decoding="async"
         className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.05]"
       />
-      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/75 via-[#2a1108]/5 to-transparent" />
-      <figcaption className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#2a1108]/80 via-[#2a1108]/8 to-transparent" />
+      <figcaption className={`absolute inset-x-0 bottom-0 ${feature ? 'p-4 sm:p-6' : 'p-2.5 sm:p-3.5'}`}>
         <span className="block font-body text-[8.5px] font-medium uppercase tracking-[0.28em] text-brand-gold-light">
           {from}
         </span>
-        <span className="mt-1 block font-display text-[19px] font-medium leading-none text-white sm:text-[22px]">
+        <span
+          className={`mt-1 block font-display font-medium leading-none text-white ${
+            feature ? 'text-[22px] sm:text-[28px]' : 'text-[14px] sm:text-[17px]'
+          }`}
+        >
           {label}
         </span>
       </figcaption>
@@ -1348,6 +1465,8 @@ function Seal() {
       <img
         src="/finallogo.jpeg"
         alt=""
+        loading="lazy"
+        decoding="async"
         width={56}
         height={56}
         className="absolute left-1/2 top-1/2 h-[54px] w-[54px] -translate-x-1/2 -translate-y-1/2 rounded-full object-cover"

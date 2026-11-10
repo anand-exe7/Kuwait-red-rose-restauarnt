@@ -8,6 +8,7 @@ import Link from "next/link";
 import { useAdmin } from "./Store";
 import { Badge, Btn, Card, DateRange, Empty, Kpi, Page, PageHead, Pills, SearchBox, Switch, Tabs, cx, downloadExcel, fmtDate, fmtTime, type ExcelSheet } from "./kit";
 import { BRAND } from "../../lib/brand";
+import { stockIsLow, stockIsOut } from "../../lib/menuStore";
 
 type Tab = "revenue" | "today" | "products" | "customers" | "coupons";
 
@@ -291,7 +292,7 @@ export default function AnalyticsPage() {
     const body = gstBills.map((b) => [b.invoiceNo, fmtDate(b.createdAt), b.customerName, b.customerPhone, b.gstPercent, b.taxableAmount, b.gstAmount, b.total]);
     downloadExcel(`vat-invoices-${new Date().toISOString().slice(0, 10)}.xlsx`, [{ name: "VAT invoices", rows: [head, ...body] }]);
   };
-  const lowCount = s.products.filter((p) => p.stock !== null && p.stock <= p.lowAt).length;
+  const lowCount = s.products.filter((p) => stockIsLow(p) || stockIsOut(p)).length;
   const customers = useMemo(() => customerStats(inPeriod), [inPeriod]);
   const repeat = customers.filter((c) => c.visits > 1).length;
 
@@ -772,7 +773,7 @@ function ProductsTab({ bills, q, setQ }: { bills: Bill[]; q: string; setQ: (v: s
     ...s.products.filter((p) => !stats.some((x) => x.productId === p.id)).map((p) => ({ key: p.id, productId: p.id, name: p.name, qty: 0, revenue: 0 })),
   ];
   const needle = q.trim().toLowerCase();
-  const low = s.products.filter((p) => p.stock !== null && p.stock <= p.lowAt);
+  const low = s.products.filter((p) => stockIsLow(p) || stockIsOut(p));
   const byQty = [...stats].sort((a, b) => b.qty - a.qty);
   return (
     <div className="adm-in space-y-5">

@@ -875,6 +875,21 @@ html:has(.landing) { scroll-behavior: smooth; }
 
 /* Grounding shadow. Kept OUT of the animated subtree on purpose: a filter
    anywhere above a transform animation forces a main-thread repaint per frame. */
+/* The still cake (phones, reduced data, reduced motion). The turntable is
+   too heavy to send to a phone, so the cake breathes instead of spinning —
+   one compositor-only transform, no repaint, no decode per frame. */
+@keyframes cake-breathe {
+  from { transform: translate3d(0, 0, 0) rotate(-1.1deg) scale(1); }
+  to   { transform: translate3d(0, -1.6%, 0) rotate(1.1deg) scale(1.015); }
+}
+.hero-cake-still {
+  animation: cake-breathe 9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  transform-origin: 50% 88%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-cake-still { animation: none; }
+}
+
 .hero-cake-shadow {
   position: absolute; left: 50%; bottom: 4%; translate: -50% 0;
   width: calc(var(--cake) * 0.62); height: calc(var(--cake) * 0.15);
@@ -953,6 +968,13 @@ html:has(.landing) { scroll-behavior: smooth; }
 .grain {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
+}
+/* A full-screen `mix-blend-mode` layer takes the hero off the fast path on
+   mobile GPUs: every scroll frame has to re-blend the whole viewport. The
+   grain is a 5%-opacity texture nobody can see on a 6-inch screen, so phones
+   simply don't get it. */
+@media (max-width: 767px) {
+  .grain { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1309,4 +1331,102 @@ html:has(.landing) { scroll-behavior: smooth; }
 
 @media print {
   .brand-roses { display: none !important; }
+}
+
+/* ===========================================================================
+   The landing page's opening curtain (app/components/LandingLoader.tsx)
+
+   It covers the viewport while the hero's photographs decode, then lifts.
+
+   Two independent escape hatches, because a loading screen that sticks is far
+   worse than no loading screen at all:
+     • `curtain-give-up` fades it out at 4s on its own, in CSS, so a page whose
+       JavaScript never arrives still becomes usable.
+     • `<noscript>` in the page removes it outright.
+   =========================================================================== */
+.landing-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  background: radial-gradient(120% 90% at 50% 30%, #fffdf6 0%, #fbf8ee 45%, #f3ecd2 100%);
+  /* The CSS-only safety net. Opacity first so the fade is composited, then
+     visibility, so it stops swallowing taps the moment it is invisible. */
+  animation: curtain-give-up 0.6s ease 3.4s both;
+  will-change: opacity;
+}
+
+@keyframes curtain-give-up {
+  from { opacity: 1; }
+  to   { opacity: 0; visibility: hidden; pointer-events: none; }
+}
+
+/* What the component sets once the hero is genuinely ready. It wins over the
+   fallback above, which is why it re-declares the animation away. */
+.landing-loader-done {
+  animation: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.55s cubic-bezier(0.3, 0, 0.2, 1),
+    visibility 0s linear 0.55s;
+}
+
+.landing-loader-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.82;
+  animation: curtain-mark 0.8s cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+.landing-loader-rose {
+  font-family: var(--font-wordmark-src), Impact, "Arial Narrow", sans-serif;
+  font-size: clamp(42px, 13vw, 76px);
+  letter-spacing: 0.02em;
+  color: #b01e28;
+}
+.landing-loader-sub {
+  font-family: var(--lux-display, var(--font-poppins), "Segoe UI", Arial, sans-serif);
+  font-weight: 300;
+  font-size: clamp(26px, 8vw, 46px);
+  color: #8e2570;
+}
+
+/* A thin gold line that fills — honest about being indeterminate, because we
+   genuinely do not know how long a photograph takes on a train. */
+.landing-loader-bar {
+  position: relative;
+  width: min(180px, 46vw);
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(201, 169, 97, 0.25);
+}
+.landing-loader-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #c9a961 45%, #b01e28);
+  transform: translate3d(-100%, 0, 0);
+  animation: curtain-bar 1.25s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+
+@keyframes curtain-bar {
+  from { transform: translate3d(-100%, 0, 0); }
+  to   { transform: translate3d(100%, 0, 0); }
+}
+@keyframes curtain-mark {
+  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Anyone who asked for less motion gets the page, not a show. */
+@media (prefers-reduced-motion: reduce) {
+  .landing-loader { display: none; }
 }

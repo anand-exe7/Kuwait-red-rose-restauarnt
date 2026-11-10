@@ -6,7 +6,17 @@ import { rupee } from "./money";
 import { BEST_SELLER_SLOTS, useAdmin } from "./Store";
 import { Badge, Btn, Empty, Field, Icon, Kpi, Modal, Page, PageHead, SearchBox, Switch, cx, inputCls } from "./kit";
 import { playAlertSound } from "../../lib/sound";
-import { MENU_UNITS, variantLabel, type MenuUnit, type MenuVariant } from "../../lib/menuStore";
+import {
+  MENU_UNITS,
+  lowVariants,
+  stockIsLow,
+  stockIsOut,
+  variantIsLow,
+  variantIsOut,
+  variantLabel,
+  type MenuUnit,
+  type MenuVariant,
+} from "../../lib/menuStore";
 
 /* ── Stock-alert preferences ───────────────────────────────────────────────
    Two separate switches, because they annoy two different people: the sound
@@ -42,7 +52,7 @@ const fileToDataUrl = (f: File) =>
 
 /* One size row while it is being typed. Numbers stay strings until save, so a
    half-typed "1." doesn't become 1 under the cursor. */
-type SizeRow = { id: string; amount: string; unit: MenuUnit; price: string; stock: string };
+type SizeRow = { id: string; amount: string; unit: MenuUnit; price: string; stock: string; lowAt: string };
 
 type Form = {
   id?: string;
@@ -68,8 +78,8 @@ const newSizeId = () => `v-${Date.now().toString(36)}-${Math.floor(Math.random()
 /** The sizes a new product starts with when the admin turns sizes on — the
  *  three a cake shop actually sells, so the common case is two taps. */
 const STARTER_SIZES = (): SizeRow[] => [
-  { id: newSizeId(), amount: "500", unit: "g", price: "", stock: "0" },
-  { id: newSizeId(), amount: "1", unit: "kg", price: "", stock: "0" },
+  { id: newSizeId(), amount: "500", unit: "g", price: "", stock: "0", lowAt: "" },
+  { id: newSizeId(), amount: "1", unit: "kg", price: "", stock: "0", lowAt: "" },
 ];
 
 const toSizeRows = (variants: MenuVariant[]): SizeRow[] =>
@@ -79,21 +89,26 @@ const toSizeRows = (variants: MenuVariant[]): SizeRow[] =>
     unit: v.unit,
     price: String(v.price),
     stock: v.stock == null ? "" : String(v.stock),
+    lowAt: v.lowAt == null ? "" : String(v.lowAt),
   }));
 
 /** Form rows → what gets saved. Anything without a real amount is dropped. */
 function toVariants(rows: SizeRow[]): MenuVariant[] {
   return rows
-    .map((r) => {
+    .map((r): MenuVariant | null => {
       const amount = Number(r.amount);
       if (!Number.isFinite(amount) || amount <= 0) return null;
       const stock = r.stock.trim() === "" ? null : Number(r.stock);
+      // Blank = this size has no threshold of its own and falls back to the
+      // product's, so clearing the box is a real choice, not a 0.
+      const lowAt = r.lowAt.trim() === "" ? null : Number(r.lowAt);
       return {
         id: r.id,
         amount,
         unit: r.unit,
         price: Number(r.price) || 0,
         stock: stock == null || !Number.isFinite(stock) ? null : stock,
+        lowAt: lowAt == null || !Number.isFinite(lowAt) ? null : lowAt,
       } satisfies MenuVariant;
     })
     .filter((v): v is MenuVariant => v !== null);
@@ -118,11 +133,21 @@ function ProductSummaryList({ products, empty, showStock, showStatus }: { produc
           {p.image ? <img src={thumb(p.image)} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" loading="lazy" /> : <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 font-bold text-slate-400">{p.name[0]}</span>}
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13.5px] font-semibold text-slate-900">{p.name}</p>
-            <p className="truncate text-[11.5px] text-slate-500">{p.category} · {rupee(p.price)}</p>
+            {/* For a product sold in sizes, "3 left" across four sizes says
+                nothing useful. Name the sizes that are actually short. */}
+            {p.variants?.length ? (
+              <p className="truncate text-[11.5px] text-amber-700">
+                {lowVariants(p)
+                  .map((v) => `${variantLabel(v)} · ${v.stock ?? 0} left`)
+                  .join("  ·  ") || `${p.category} · from ${rupee(p.price)}`}
+              </p>
+            ) : (
+              <p className="truncate text-[11.5px] text-slate-500">{p.category} · {rupee(p.price)}</p>
+            )}
           </div>
           <div className="shrink-0 text-right text-[12px]">
             {showStock && (
-              <span className={cx("adm-num font-bold", p.stock === 0 ? "text-red-600" : p.stock !== null && p.stock <= p.lowAt ? "text-amber-600" : "text-slate-700")}>
+              <span className={cx("adm-num font-bold", stockIsOut(p) ? "text-red-600" : stockIsLow(p) ? "text-amber-600" : "text-slate-700")}>
                 {p.stock === null ? "∞" : p.stock} {p.stock !== null && "left"}
               </span>
             )}
@@ -220,12 +245,18 @@ function StockCell({ p }: { p: Product }) {
         </span>
       );
     const total = tracked.reduce((a, v) => a + (v.stock ?? 0), 0);
-    const tone = total <= 0 ? "text-red-600" : total <= p.lowAt ? "text-amber-600" : "text-slate-900";
+    /* The colour follows the SIZES, not the total. Four sizes with two left
+       each add up to eight — a healthy-looking number for a product whose
+       every size is one sale from disappearing. */
+    const needy = lowVariants(p);
+    const tone = stockIsOut(p) ? "text-red-600" : needy.length ? "text-amber-600" : "text-slate-900";
     return (
       <span className="inline-flex min-w-0 flex-col leading-tight">
         <b className={cx("text-[14px] font-extrabold", tone)}>{total}</b>
-        <span className="text-[11px] text-slate-400">
-          across {tracked.length} size{tracked.length === 1 ? "" : "s"} · edit per size
+        <span className={cx("text-[11px]", needy.length ? "font-semibold text-amber-700" : "text-slate-400")}>
+          {needy.length
+            ? `${needy.map(variantLabel).join(", ")} running low`
+            : `across ${tracked.length} size${tracked.length === 1 ? "" : "s"} · edit per size`}
         </span>
       </span>
     );
@@ -311,8 +342,12 @@ export default function InventoryPage() {
   }, []);
 
   const cats = categories;
-  const low = s.products.filter((p) => p.stock !== null && p.stock > 0 && p.stock <= p.lowAt);
-  const out = s.products.filter((p) => p.stock !== null && p.stock <= 0);
+  /* A product sold in sizes is low when ANY size is, not when the sizes added
+     up happen to fall under one number — four sizes with two left each total
+     eight and looked perfectly healthy while all four were about to vanish
+     from the menu. stockIsLow / stockIsOut hold that rule in one place. */
+  const low = s.products.filter(stockIsLow);
+  const out = s.products.filter(stockIsOut);
 
   /* Opening Inventory with something sold out or running low puts it in front
      of you once, rather than leaving it to a small number in the corner. The
@@ -336,7 +371,20 @@ export default function InventoryPage() {
      a baseline and stays quiet. After that, any product newly joining the
      sold-out list rings once. Tracked by product id, not by the count, or
      selling out one thing while restocking another would stay silent. */
-  const outIds = useMemo(() => out.map((p) => p.id).sort().join(","), [out]);
+  /* Keyed per SIZE as well as per product, so a 1kg selling out rings even
+     while the 500g of the same cake is still on the shelf — that is the whole
+     point of tracking sizes separately. */
+  const outIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const p of s.products) {
+      if (p.variants?.length) {
+        for (const v of p.variants) if (variantIsOut(v)) ids.push(`${p.id}:${v.id}`);
+      } else if (p.stock !== null && p.stock <= 0) {
+        ids.push(p.id);
+      }
+    }
+    return ids.sort().join(",");
+  }, [s.products]);
   const knownOut = useRef<Set<string> | null>(null);
   // Read through a ref so the effect does NOT re-run when the switch is
   // flipped: flipping it is not a product going out of stock.
@@ -360,8 +408,8 @@ export default function InventoryPage() {
     if (q && !`${p.name} ${p.category} ${p.description}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (filter === "menu") return p.active;
     if (filter === "hidden") return !p.active;
-    if (filter === "low") return p.stock !== null && p.stock > 0 && p.stock <= p.lowAt;
-    if (filter === "out") return p.stock !== null && p.stock <= 0;
+    if (filter === "low") return stockIsLow(p);
+    if (filter === "out") return stockIsOut(p);
     return true;
   });
 
@@ -421,6 +469,29 @@ export default function InventoryPage() {
     toast({ kind: "ok", title: `"${name}" deleted.` });
   };
 
+  /* Why the save button is off.
+     It used to be `price === ""` alone, which quietly made the button
+     unclickable for every product sold in sizes: turning sizes on hides the
+     single price box, so that field stays empty for ever and nothing on
+     screen said so. Now the rule follows the form — with sizes, the sizes
+     carry the price — and whatever is still missing is named under the
+     button instead of left to guesswork. */
+  const saveBlock = ((): string | null => {
+    if (!form) return null;
+    if (!form.name.trim()) return "Give the product a name.";
+    if (!form.category.trim()) return "Pick a category.";
+    if (form.sizes.length === 0) {
+      if (form.price.trim() === "") return "Add a price, or turn sizes on and price each size.";
+      return null;
+    }
+    const missingAmount = form.sizes.some((r) => !(Number(r.amount) > 0));
+    if (missingAmount) return "Every size needs a “How much”. Fill it in, or remove that size.";
+    const missingPrice = form.sizes.some((r) => !(Number(r.price) > 0));
+    if (missingPrice) return "Every size needs its own price.";
+    return null;
+  })();
+  const canSave = !!form && saveBlock === null;
+
   const save = async () => {
     if (!form) return;
     const variants = toVariants(form.sizes);
@@ -445,6 +516,10 @@ export default function InventoryPage() {
     const r = await act<Product>("product.save", {
       ...form,
       variants,
+      // The form keeps numbers as strings while they are being typed; the
+      // store expects a number here or the threshold saves as text and every
+      // `<=` comparison against it quietly goes string-wise.
+      lowAt: form.lowAt.trim() === "" ? undefined : Number(form.lowAt),
       // With sizes, the price and the count both come from the sizes.
       price: variants.length ? Math.min(...variants.map((v) => v.price)) : Number(form.price) || 0,
       stock: variants.length ? null : form.track ? form.stock : null,
@@ -637,7 +712,7 @@ export default function InventoryPage() {
                               {t}
                             </Badge>
                           ))}
-                          {p.stock !== null && p.stock <= 0 ? <Badge tone="red">Sold out</Badge> : p.stock !== null && p.stock <= p.lowAt ? <Badge tone="amber">Low</Badge> : null}
+                          {stockIsOut(p) ? <Badge tone="red">Sold out</Badge> : stockIsLow(p) ? <Badge tone="amber">Low</Badge> : null}
                         </p>
                       </div>
                     </div>
@@ -678,19 +753,24 @@ export default function InventoryPage() {
                       </p>
                       <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {p.variants.map((v) => {
-                          const soldOut = v.stock !== null && v.stock <= 0;
+                          const soldOut = variantIsOut(v);
+                          const isLow = variantIsLow(v, p.lowAt);
                           return (
                             <li
                               key={v.id}
-                              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                              className={cx(
+                                "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border bg-white px-3 py-2",
+                                soldOut ? "border-red-200 bg-red-50/50" : isLow ? "border-amber-200 bg-amber-50/50" : "border-slate-200",
+                              )}
                             >
                               <b className="shrink-0 text-[13px] text-slate-900">{variantLabel(v)}</b>
                               <span className="shrink-0 text-[13px] font-bold text-slate-900">{rupee(v.price)}</span>
+                              {soldOut ? <Badge tone="red">Sold out</Badge> : isLow ? <Badge tone="amber">Low</Badge> : null}
                               <span className="ml-auto shrink-0 text-[12px]">
                                 {v.stock === null ? (
                                   <span className="text-slate-400">∞ untracked</span>
                                 ) : (
-                                  <span className={soldOut ? "font-bold text-red-600" : v.stock <= p.lowAt ? "font-bold text-amber-600" : "text-slate-600"}>
+                                  <span className={soldOut ? "font-bold text-red-600" : isLow ? "font-bold text-amber-600" : "text-slate-600"}>
                                     {v.stock} in stock
                                   </span>
                                 )}
@@ -816,8 +896,16 @@ export default function InventoryPage() {
         wide
         footer={
           <>
+            {/* Say what is missing. A greyed-out button with no reason is the
+                whole complaint this replaces. */}
+            {saveBlock && (
+              <span className="flex basis-full items-center gap-1.5 text-left text-[12px] font-semibold text-amber-700 sm:mr-auto sm:basis-0 sm:flex-1">
+                <Icon name="alert" size={14} className="shrink-0" />
+                {saveBlock}
+              </span>
+            )}
             <Btn onClick={() => setForm(null)}>Cancel</Btn>
-            <Btn kind="red" disabled={busy || !form?.name.trim() || form?.price === "" || !form?.category.trim()} onClick={save}>
+            <Btn kind="red" disabled={busy || !canSave} onClick={save}>
               {form?.id ? "Save product" : "Add product"}
             </Btn>
           </>
@@ -961,7 +1049,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
   const addRow = () =>
     setForm({
       ...form,
-      sizes: [...rows, { id: newSizeId(), amount: "", unit: rows[rows.length - 1]?.unit ?? "g", price: "", stock: "0" }],
+      sizes: [...rows, { id: newSizeId(), amount: "", unit: rows[rows.length - 1]?.unit ?? "g", price: "", stock: "0", lowAt: "" }],
     });
 
   return (
@@ -1004,7 +1092,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                       <Icon name="trash" size={14} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                     {/* The amount leads — it is what the customer is buying. */}
                     <Field label="How much *" className="sm:col-span-1">
                       <input
@@ -1058,10 +1146,42 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                         onChange={(e) => setRow(r.id, { stock: e.target.value })}
                       />
                     </Field>
+                    {/* Each size gets its own warning line. A 500 g that goes
+                        ten a day and a 2 kg that goes one a week cannot share
+                        one number — and the total across sizes hides both. */}
+                    <Field label="Alert at" hint={`Blank = use ${form.lowAt || "4"}`}>
+                      <input
+                        className={cx(inputCls, r.stock.trim() !== "" && Number(r.stock) <= Number(r.lowAt || form.lowAt || 0) ? "border-amber-400 bg-amber-50" : "")}
+                        type="number"
+                        min={0}
+                        value={r.lowAt}
+                        placeholder={form.lowAt || "4"}
+                        disabled={r.stock.trim() === ""}
+                        onChange={(e) => setRow(r.id, { lowAt: e.target.value })}
+                      />
+                    </Field>
                   </div>
                 </div>
               );
             })}
+          </div>
+
+          {/* The fallback threshold for every size that has none of its own,
+              so turning sizes on never takes the low-stock warning away. */}
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+            <span className="min-w-0 flex-1 text-[12px] leading-snug text-amber-900">
+              <b className="block text-[12.5px]">Low-stock alert</b>
+              Warn me when any size falls to this, unless that size sets its own.
+            </span>
+            <input
+              className={cx(inputCls, "h-9 w-20 shrink-0 text-center font-bold")}
+              type="number"
+              min={0}
+              value={form.lowAt}
+              placeholder="4"
+              aria-label="Low-stock alert for sizes without their own"
+              onChange={(e) => setForm({ ...form, lowAt: e.target.value })}
+            />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">

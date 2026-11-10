@@ -15,7 +15,7 @@ const box = "rounded-[18px] border border-slate-100 bg-white p-4 shadow-[0_2px_1
 const lbl = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700";
 const big = "h-10 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100";
 /* Kuwait numbers are 8 digits; a pasted "+965…" has that prefix stripped so
-   the stored number stays bare. The country code is reattached at the wa.me
+   the stored number stays bare. The country code is reattached in the link
    link in `toKuwaitWa`. Accept up to 15 digits (ITU E.164 max) so visitors
    with a non-Kuwait number still fit. */
 const kuwaitDigits = (v: string) => {

@@ -17,6 +17,7 @@ import {
 } from "../../lib/couponStore";
 import { publicLink } from "../../lib/publicUrl";
 import { BRAND } from "../../lib/brand";
+import { WA, openWhatsApp } from "../../lib/waLink";
 import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, Switch, WaIcon, inputCls, cx } from "./kit";
 
 function randomCode(len = 7) {
@@ -248,19 +249,19 @@ function SendModal({ coupon, onClose }: { coupon: Coupon; onClose: () => void })
     // customer's phone. The link always goes in the message — a missing link
     // is worse than one the shop has to fix by setting their site address.
     const link = publicLink(`/coupon/${encodeURIComponent(coupon.code)}`);
-    const greet = name ? `Hi ${name}! \u{1F44B}` : "Hi! \u{1F44B}";
+    const greet = name ? `Hi ${name}! ${WA.wave}` : `Hi! ${WA.wave}`;
     const lines = [
       greet,
-      `You've got a *${coupon.discountPercent}% OFF* coupon from *${BRAND.name}* \u{1F339}${validTill ? ` — valid till ${validTill}` : ""}.`,
+      `You've got a *${coupon.discountPercent}% OFF* coupon from *${BRAND.name}* ${WA.rose}${validTill ? ` — valid till ${validTill}` : ""}.`,
       "",
       `Your code: *${coupon.code}*`,
       coupon.minOrder > 0 ? `Minimum order: KD ${coupon.minOrder.toFixed(3)}.` : "",
       "",
-      `\u{1F381} Open your coupon and order: ${link}`,
+      `${WA.gift} Open your coupon and order: ${link}`,
     ].filter(Boolean);
-    const msg = encodeURIComponent(lines.join("\n"));
-    const withCc = digits.length === 8 ? `965${digits}` : digits;
-    window.open(`https://wa.me/${withCc}?text=${msg}`, "_blank", "noopener,noreferrer");
+    // Plain text in — waLink adds the country code and does the single round
+    // of URL-encoding. Encoding it here as well turned every % into %25.
+    openWhatsApp(digits, lines.join("\n"));
     onClose();
   };
 

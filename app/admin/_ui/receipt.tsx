@@ -4,6 +4,7 @@ import { fmtDateTime } from "./kit";
 import { BRAND } from "../../lib/brand";
 import { publicLink } from "../../lib/publicUrl";
 import { shopIdentity } from "../../lib/shop";
+import { WA } from "../../lib/waLink";
 
 const PAY = { cash: "Cash", upi: "UPI", card: "Card", split: "Cash + Card", none: "—" } as const;
 
@@ -33,14 +34,19 @@ export const invoiceUrl = (b: Bill, publicUrl = "") =>
   publicLink(`/invoice/${encodeURIComponent(b.invoiceNo)}`, publicUrl);
 
 /** WhatsApp confirmation we send the guest. Short, with a few emojis so the
- *  message reads like something a human would type, and a bare invoice link. */
+ *  message reads like something a human would type, and a bare invoice link.
+ *
+ *  Emoji come from the safe-list in app/lib/waLink.ts and are never typed as
+ *  characters here — see the note at the top of that file. The receipt emoji
+ *  this used to open with (U+1F9FE) is a 2018 addition and showed as a box on
+ *  older phones; it is a bookmark now. */
 export function billText(b: Bill, shop: string, publicUrl = "") {
-  const greet = b.customerName ? `Hi ${b.customerName.split(" ")[0]}! 👋` : `Hi there! 👋`;
+  const greet = b.customerName ? `Hi ${b.customerName.split(" ")[0]}! ${WA.wave}` : `Hi there! ${WA.wave}`;
   const L = [
     greet,
-    `Thanks for choosing *${shop}* 🌹`,
+    `Thanks for choosing *${shop}* ${WA.rose}`,
     "",
-    `🧾 Invoice *${b.invoiceNo}*`,
+    `${WA.bookmark} Invoice *${b.invoiceNo}*`,
     `Items (${b.itemCount}): ${rupee(b.subtotal)}`,
   ];
   // Say what came off and what went on, so the total on the message and the
@@ -51,28 +57,23 @@ export function billText(b: Bill, shop: string, publicUrl = "") {
   if (b.extra > 0) L.push(`Extra: ${rupee(b.extra)}`);
   if (b.isGst && b.gstAmount > 0) L.push(`VAT (${b.gstPercent}%): ${rupee(b.gstAmount)}`);
   L.push(
-    `💰 Total: *${rupee(b.total)}*`,
-    `💳 Paid by ${PAY[b.payment]}`,
+    `${WA.money} Total: *${rupee(b.total)}*`,
+    `${WA.card} Paid by ${PAY[b.payment]}`,
     "",
-    `View your invoice 👇`,
+    `View your invoice ${WA.down}`,
     invoiceUrl(b, publicUrl),
     "",
-    `See you again soon! ✨`,
+    `See you again soon! ${WA.sparkle}`,
   );
   return L.join("\n");
 }
 
-/* Kuwait numbers are 8 digits with +965 as the country code. A customer can
-   also paste a full international number (e.g. 965…), in which case we don't
-   prefix anything. */
-export const toKuwaitWa = (phone: string) => {
-  const d = (phone || "").replace(/\D/g, "");
-  if (!d) return "";
-  if (d.startsWith("965")) return d;
-  if (d.length === 8) return `965${d}`;
-  return d; // treat as already-international
-};
-export const waLink = (phone: string, text: string) => `https://wa.me/${toKuwaitWa(phone)}?text=${encodeURIComponent(text)}`;
+/* The number normaliser and the link builder moved to app/lib/waLink.ts, so
+   the invoice, the order hand-off, the coupon and the enquiry all produce the
+   same URL. Re-exported under the old names: every caller here already says
+   `waLink`, and the point of the move was to have one builder, not to rename
+   things across four pages. */
+export { toWaNumber as toKuwaitWa, waLink } from "../../lib/waLink";
 
 /* ---------- print formats ---------- */
 export type PrintFormat = { kind: "thermal"; roll: 2 | 3 } | { kind: "sheet"; size: "A3" | "A4" | "A5" };

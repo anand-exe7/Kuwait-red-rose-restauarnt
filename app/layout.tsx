@@ -31,8 +31,18 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Red Rose",
   },
+  /* The shop's own logo is the favicon, everywhere.
+     The old app/favicon.ico is gone on purpose: Next's file convention emits
+     its <link rel="icon"> ahead of anything declared here, so while that file
+     existed the browser kept picking it and nothing set below could win.
+     /finallogo.jpeg is already loaded by the nav and the footer, so pointing
+     the tab icon at it costs no extra request. */
   icons: {
-    icon: "/icon-192.png",
+    icon: [
+      { url: "/finallogo.jpeg", type: "image/jpeg" },
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+    ],
+    shortcut: "/finallogo.jpeg",
     apple: "/apple-touch-icon.png",
   },
 };
