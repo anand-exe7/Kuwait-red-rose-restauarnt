@@ -43,6 +43,12 @@ export interface MenuVariant {
   price: number;
   /** Count on the shelf for THIS size. null = not tracked. */
   stock: number | null;
+  /** Warn when this size's own count drops to this. null = use the product's
+   *  threshold. A 500g that sells ten a day and a 2kg that sells one a week
+   *  cannot share one number, which is why the alert lives per size.
+   *  Older rows saved before per-size alerts existed have no key at all,
+   *  hence the `?` — both readers normalise it to null. */
+  lowAt?: number | null;
 }
 
 /** How a size is written everywhere a human reads it: 500g, 1kg, 1.5kg, 250ml, 1L.
@@ -67,17 +73,19 @@ function variantsFrom(raw: unknown): MenuVariant[] {
   if (!Array.isArray(raw)) return [];
   const units = new Set(MENU_UNITS.map((u) => u.v));
   return raw
-    .map((x, i) => {
+    .map((x, i): MenuVariant | null => {
       const o = (x ?? {}) as Record<string, unknown>;
       const unit = String(o.unit ?? '') as MenuUnit;
       const amount = Number(o.amount);
       if (!units.has(unit) || !Number.isFinite(amount) || amount <= 0) return null;
+      const lowAt = o.lowAt == null ? null : Number(o.lowAt);
       return {
         id: String(o.id ?? `v${i}`),
         amount,
         unit,
         price: Number(o.price) || 0,
         stock: o.stock == null ? null : Number(o.stock),
+        lowAt: lowAt == null || !Number.isFinite(lowAt) ? null : lowAt,
       } satisfies MenuVariant;
     })
     .filter((v): v is MenuVariant => v !== null);
@@ -87,6 +95,54 @@ function variantsFrom(raw: unknown): MenuVariant[] {
 export function variantsSoldOut(variants: MenuVariant[]): boolean {
   if (variants.length === 0) return false;
   return variants.every((v) => v.stock != null && v.stock <= 0);
+}
+
+/** The threshold that applies to one size: its own if set, otherwise the
+ *  product's. One function so the table, the badge, the KPI tile and the
+ *  pop-up cannot disagree about when a size counts as low. */
+export function variantLowAt(v: MenuVariant, productLowAt: number): number {
+  return v.lowAt == null || !Number.isFinite(v.lowAt) ? productLowAt : v.lowAt;
+}
+
+/** Running low — still has some, but at or under its threshold. */
+export function variantIsLow(v: MenuVariant, productLowAt: number): boolean {
+  return v.stock != null && v.stock > 0 && v.stock <= variantLowAt(v, productLowAt);
+}
+
+export function variantIsOut(v: MenuVariant): boolean {
+  return v.stock != null && v.stock <= 0;
+}
+
+/* ── Product-level stock status ────────────────────────────────────────────
+   For a product sold in sizes, the single count shown in the table is the
+   sizes added up — which is exactly the wrong number to alert on. Four sizes
+   with two left each total eight: above any sensible threshold, while every
+   one of them is about to disappear from the menu. So a sized product is low
+   when ANY of its sizes is low (or already out, while others are not), and
+   sold out only when every size is. */
+export function stockIsLow(p: { stock: number | null; lowAt: number; variants?: MenuVariant[] }): boolean {
+  const variants = p.variants ?? [];
+  if (variants.length) {
+    const tracked = variants.filter((v) => v.stock != null);
+    if (!tracked.length) return false;
+    if (tracked.every(variantIsOut)) return false; // that is "sold out", not "low"
+    return tracked.some((v) => variantIsLow(v, p.lowAt) || variantIsOut(v));
+  }
+  return p.stock !== null && p.stock > 0 && p.stock <= p.lowAt;
+}
+
+export function stockIsOut(p: { stock: number | null; variants?: MenuVariant[] }): boolean {
+  const variants = p.variants ?? [];
+  if (variants.length) {
+    const tracked = variants.filter((v) => v.stock != null);
+    return tracked.length > 0 && tracked.every(variantIsOut);
+  }
+  return p.stock !== null && p.stock <= 0;
+}
+
+/** The sizes of a product that need attention, for the alert pop-up. */
+export function lowVariants(p: { lowAt: number; variants?: MenuVariant[] }): MenuVariant[] {
+  return (p.variants ?? []).filter((v) => variantIsLow(v, p.lowAt) || variantIsOut(v));
 }
 
 export interface MenuItem {

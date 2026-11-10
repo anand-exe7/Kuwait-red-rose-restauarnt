@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useAdmin } from "./Store";
 import { Btn, Icon, Modal, cx, type IconName } from "./kit";
 import { BRAND } from "../../lib/brand";
+import { stockIsLow, stockIsOut } from "../../lib/menuStore";
 
 type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[] };
 
@@ -79,7 +80,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   /* Somebody has actually asked to pay — that badge pulses, because a guest is
      sitting there waiting while it does. */
   const asking = openTabs.filter((f) => f.billRequested).length;
-  const low = s.products.filter((p) => p.active && p.stock !== null && p.stock <= p.lowAt).length;
+  /* Counts sizes, not just the product total: a cake whose 1kg is gone while
+     its 500g is fine is something the owner needs to see from any page. */
+  const low = s.products.filter((p) => p.active && (stockIsLow(p) || stockIsOut(p))).length;
 
 
   const badge: Record<string, React.ReactNode> = {

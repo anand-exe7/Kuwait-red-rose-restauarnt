@@ -1,8 +1,8 @@
 "use client";
 
-// WhatsApp order dispatch — builds the pre-filled message and opens
-// https://wa.me/<number>?text=<encoded> in a new tab. The shop's number lives
-// in NEXT_PUBLIC_SHOP_WHATSAPP (digits only, no + or spaces).
+// WhatsApp order dispatch — builds the pre-filled message and opens the
+// chat in a new tab. The shop's number lives in NEXT_PUBLIC_SHOP_WHATSAPP
+// (digits only, no + or spaces).
 //
 // This is a client-side deep link, not an API send: the customer sees the
 // message in their own WhatsApp and taps Send. The order has already been
@@ -12,6 +12,11 @@ import type { Order, OrderItem, DeliveryAddress, CustomerInfo } from './orderSto
 import { formatKWD } from './currency';
 import { shopAddress, shopMapUrl, shopName, shopPhone } from './shop';
 import { resolveOrderNo } from './invoice';
+import { WA, openWhatsApp } from './waLink';
+
+/* The link itself, the emoji and the one round of URL-encoding all live in
+   ./waLink — see the note at the top of that file for why. Nothing here
+   builds a URL or types an emoji character of its own. */
 
 export function shopWhatsAppNumber(): string | null {
   const raw = process.env.NEXT_PUBLIC_SHOP_WHATSAPP;
@@ -65,8 +70,8 @@ export interface WhatsAppOrderInput {
 export function buildOrderMessage({ order, mode, customer, address, deliveryFee = 0, pickupTime, note }: WhatsAppOrderInput): string {
   const header =
     mode === 'delivery'
-      ? `🌹 New DELIVERY order — ${shopName()}`
-      : `🌹 New TAKEAWAY order — ${shopName()}`;
+      ? `${WA.rose} New DELIVERY order — ${shopName()}`
+      : `${WA.rose} New TAKEAWAY order — ${shopName()}`;
 
   // Not an invoice yet. The shop still has to accept this order and the
   // kitchen still has to cook it, so the customer gets an ORDER number — the
@@ -133,14 +138,14 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
   return lines.join('\n');
 }
 
-/** Open wa.me in a new tab with the pre-filled message. Returns false if the
- *  shop number isn't configured — caller should surface that to the user. */
+/** Open the shop's chat in a new tab with the pre-filled message. Returns
+ *  false if the shop number isn't configured — the caller should surface
+ *  that to the user. */
 export function sendOrderToShop(input: WhatsAppOrderInput): boolean {
   const number = shopWhatsAppNumber();
   if (!number) return false;
-  const text = buildOrderMessage(input);
-  const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
-  // Open in a new tab so the order confirmation page stays visible.
-  window.open(url, '_blank', 'noopener,noreferrer');
+  // Plain text in; waLink does the single round of encoding. Opened in a new
+  // tab so the order confirmation page stays visible behind it.
+  openWhatsApp(number, buildOrderMessage(input));
   return true;
 }
