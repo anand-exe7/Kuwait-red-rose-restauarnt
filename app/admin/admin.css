@@ -98,6 +98,7 @@ html:has(.adm) {
 }
 .adm {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--paper);
   color: var(--ink);
   font-family: var(--body);

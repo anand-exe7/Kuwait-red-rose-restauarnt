@@ -33,14 +33,21 @@
   --color-brand-ink: #2a1a12;
 }
 
+/* `100vw` is the viewport INCLUDING the classic scrollbar, so on any desktop
+   browser that reserves one it is ~15px wider than the space a block actually
+   has — it caused overflow rather than preventing it. `100%` is the real
+   containing width. */
 html, body {
-  max-width: 100vw;
+  max-width: 100%;
 }
-/* `hidden` on body would make it a scroll container, and every scroll-driven
-   animation below would then bind to a box that never scrolls. `clip` cuts
-   the overflow without that side effect. html's value moves to the viewport. */
-html { overflow-x: hidden; }
-body { overflow-x: clip; }
+
+/* Deliberately NO `overflow-x: hidden` here.
+   It used to sit on <html> and was hiding genuine layout overflow rather than
+   fixing it: content still ran past the right edge, it just became
+   unreachable instead of visibly broken. Every overflow it was covering is
+   fixed at its source below and in the components. Leaving the axis visible
+   means any regression shows up immediately in the audit and on a device,
+   instead of silently clipping a button off the screen. */
 
 /* Always reserve the scrollbar's width. Every sheet, drawer and modal in the
    app locks body scrolling while it is open; without this the scrollbar
@@ -52,6 +59,58 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ===================================================================
+   Responsive safety net
+   These replace the blanket `overflow-x: hidden` that used to hide the
+   symptoms. Each one removes a *cause* of horizontal overflow rather than
+   clipping the result.
+   =================================================================== */
+
+/* These live in @layer base ON PURPOSE. Unlayered CSS beats *every* layered
+   rule in the cascade, so when this block sat outside a layer it silently
+   overrode Tailwind's own utilities: `h-full` on an iframe lost to a blanket
+   `height: auto` (which is how the Visit map collapsed to the 150px default
+   iframe height), and `min-w-5` on a badge lost to `min-width: 0`. In `base`
+   the utilities layer wins, which is what the comments below assume. */
+@layer base {
+  /* A flex/grid item's default `min-width: auto` is the single most common
+     source of overflow: it refuses to shrink below its content's intrinsic
+     width, so one long word, price or email pushes the whole row — and then
+     the page — wider than the screen. Resetting it to 0 lets items shrink to
+     the space they actually have. Anything that must NOT shrink opts out with
+     `shrink-0` or an explicit `min-w-*`, which now genuinely win. */
+  :where(.flex > *, .grid > *, .inline-flex > *) {
+    min-width: 0;
+  }
+
+  /* Replaced media must never exceed its column. Tailwind's preflight covers
+     img/video; these are the ones it misses.
+     NOTE: deliberately no `height` rule here. An iframe has no intrinsic
+     aspect ratio, so `height: auto` resolves to the HTML default of 150px and
+     flattens every embed — the map included. Height stays with the element. */
+  :where(img, svg, video, canvas, iframe, embed, object) {
+    max-width: 100%;
+  }
+
+  /* Unbroken strings — long item names, IBANs, order ids, URLs, Kuwaiti phone
+     numbers — otherwise set the minimum width of their container and force the
+     page wide. `break-word` breaks only when the word genuinely cannot fit, so
+     normal copy still wraps on spaces. */
+  :where(p, h1, h2, h3, h4, h5, h6, span, a, li, dd, dt, td, th, label, button) {
+    overflow-wrap: break-word;
+  }
+
+  /* Tables are the one element that legitimately needs more width than a phone
+     has. Give them an internal scroller instead of letting them widen the
+     document. */
+  :where(.table-scroll) {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
 }
 
 /* Smooth in-page jumps (Our Story, Gifting…) on the landing page only. */
@@ -134,10 +193,21 @@ html:has(.landing) { scroll-behavior: smooth; }
     letter-spacing: clamp(0.1em, 0.9vw, 0.24em);
     text-transform: uppercase;
     line-height: 1;
-    white-space: nowrap;
+    /* Was `nowrap`, which meant a long label could only ever overflow its own
+       pill — `max-width: 100%` then clipped the text instead of fitting it.
+       Allowing a wrap lets the pill grow taller rather than wider, which is
+       the one direction it always has room in. */
+    white-space: normal;
+    text-wrap: balance;
+    min-width: 0;
+    /* Keeps a single very long word (an email, a coupon code) inside the pill. */
+    overflow-wrap: anywhere;
     transition: background-color 0.35s ease, color 0.35s ease, border-color 0.35s ease,
       box-shadow 0.35s ease, transform 0.35s ease;
   }
+  /* The icon that trails most labels must never be the thing that pushes the
+     text out of the pill. */
+  .btn > svg { flex: none; }
   .btn:active { transform: scale(0.98); }
   .btn svg { transition: transform 0.35s ease; }
   .btn:hover svg { transform: translateX(3px); }

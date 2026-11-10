@@ -237,7 +237,6 @@ const RIBBON = [
   'Hand-tied gift boxes',
   'Same-day delivery across Kuwait',
   'Arabic & French pâtisserie',
-  'Since 2012',
 ];
 
 export default async function Home() {
@@ -321,8 +320,8 @@ export default async function Home() {
           >
             <span className="h-px w-8 bg-gradient-to-r from-transparent to-brand-gold/70 sm:w-16" />
             <span className="whitespace-nowrap font-body text-[9px] font-medium uppercase tracking-[0.34em] text-brand-gold-light/90 sm:text-[10px] sm:tracking-[0.42em]">
-              <span className="sm:hidden">Kuwait · Since 2012</span>
-              <span className="hidden sm:inline">Handcrafted in Kuwait · Since 2012</span>
+              <span className="sm:hidden">{BRAND.area} · {BRAND.city}</span>
+              <span className="hidden sm:inline">Handcrafted in {BRAND.area} · {BRAND.city}</span>
             </span>
             <span className="h-px w-8 bg-gradient-to-l from-transparent to-brand-gold/70 sm:w-16" />
           </div>
@@ -477,7 +476,7 @@ export default async function Home() {
                 {/* Customize your box */}
                 <Link
                   href="/menu"
-                  className="group order-2 flex flex-col items-center justify-center gap-3 text-center anim-fade-up sm:order-1 sm:flex-row sm:gap-5 sm:text-left lg:justify-start"
+                  className="group order-2 flex min-w-0 flex-col items-center justify-center gap-3 text-center anim-fade-up sm:order-1 sm:flex-row sm:gap-5 sm:text-left lg:justify-start"
                   style={{ animationDelay: '520ms' }}
                 >
                   <div className="relative shrink-0">
@@ -488,7 +487,7 @@ export default async function Home() {
                         alt=""
                         width={92}
                         height={92}
-                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-1.5 group-hover:rotate-[-4deg] sm:h-[88px] sm:w-[88px]"
+                        className="h-[clamp(46px,15vw,68px)] w-[clamp(46px,15vw,68px)] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-1.5 group-hover:rotate-[-4deg] sm:h-[88px] sm:w-[88px]"
                       />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -496,7 +495,7 @@ export default async function Home() {
                         alt=""
                         width={92}
                         height={92}
-                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-1.5 group-hover:rotate-[4deg] sm:h-[88px] sm:w-[88px]"
+                        className="h-[clamp(46px,15vw,68px)] w-[clamp(46px,15vw,68px)] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-1.5 group-hover:rotate-[4deg] sm:h-[88px] sm:w-[88px]"
                       />
                     </div>
                     <span className="absolute -bottom-1 -right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-brand-wine font-body text-[16px] font-light leading-none text-brand-cream shadow-md ring-[3px] ring-brand-cream transition-transform duration-500 group-hover:rotate-90 sm:h-8 sm:w-8">
@@ -504,15 +503,15 @@ export default async function Home() {
                     </span>
                   </div>
 
-                  <div>
-                    <p className="font-body text-[9px] font-medium uppercase tracking-[0.3em] text-brand-gold-dark sm:text-[9.5px]">
+                  <div className="min-w-0 max-w-full">
+                    <p className="font-body text-[9px] font-medium uppercase tracking-[0.24em] text-brand-gold-dark sm:tracking-[0.3em] sm:text-[9.5px]">
                       Build your own
                     </p>
-                    <p className="mt-1.5 font-display text-[25px] font-medium leading-[0.95] text-brand-wine sm:text-[32px]">
+                    <p className="mt-1.5 font-display text-[clamp(18px,6vw,25px)] font-medium leading-[0.95] text-brand-wine sm:text-[32px]">
                       Customize
                       <em className="block font-normal italic text-brand-red">your box</em>
                     </p>
-                    <span className="mt-2 inline-flex items-center gap-1.5 font-body text-[9.5px] font-medium uppercase tracking-[0.22em] text-brand-red sm:text-[10px]">
+                    <span className="mt-2 inline-flex max-w-full flex-wrap items-center justify-center gap-1.5 font-body text-[9.5px] font-medium uppercase tracking-[0.14em] text-brand-red sm:justify-start sm:tracking-[0.22em] sm:text-[10px]">
                       Start building
                       <ArrowRight size={12} strokeWidth={1.8} className="transition-transform duration-300 group-hover:translate-x-1" />
                     </span>
@@ -541,7 +540,7 @@ export default async function Home() {
                   style={{ animationDelay: '600ms' }}
                 >
                   <div
-                    className="relative w-full max-w-[188px] overflow-hidden rounded-[1.5rem] px-5 py-5 text-white shadow-[0_22px_46px_-18px_rgba(74,21,21,0.7)] transition-transform duration-500 hover:-translate-y-1 sm:max-w-[236px] sm:rounded-[1.75rem] sm:px-7"
+                    className="relative w-full max-w-[188px] overflow-hidden rounded-[1.5rem] px-3 py-5 text-white sm:px-5 shadow-[0_22px_46px_-18px_rgba(74,21,21,0.7)] transition-transform duration-500 hover:-translate-y-1 sm:max-w-[236px] sm:rounded-[1.75rem] sm:px-7"
                     style={{
                       backgroundImage: 'linear-gradient(150deg, #7d1017 0%, #580c0d 54%, #380607 100%)',
                     }}
@@ -557,7 +556,7 @@ export default async function Home() {
                         to={50}
                         suffix="K+"
                         delay={700}
-                        className="lining-nums bg-clip-text font-display text-[50px] font-semibold tabular-nums leading-[0.85] text-transparent sm:text-[62px]"
+                        className="lining-nums bg-clip-text font-display text-[clamp(28px,9.5vw,50px)] font-semibold tabular-nums leading-[0.85] text-transparent sm:text-[62px]"
                         style={{ backgroundImage: 'linear-gradient(180deg, #fff8ec 0%, #f2d9a8 58%, #d9b26a 100%)' }}
                       />
                       <span className="mt-2.5 h-px w-14 bg-gradient-to-r from-transparent via-brand-gold/70 to-transparent" />
@@ -655,7 +654,7 @@ export default async function Home() {
           <Cutout src="petal-b" className="right-[3%] top-8 w-[40px] max-sm:hidden" p0={120} p1={-140} r0={-20} r1={70} f={6} />
           <div className={`${CONTAINER} grid items-center gap-16 lg:grid-cols-2 lg:gap-20`}>
             <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-              <p className="eyebrow text-brand-gold-dark">Our Story · Since 2012</p>
+              <p className="eyebrow text-brand-gold-dark">Our Story · {BRAND.area}</p>
               <h2 className="heading mt-5 text-brand-wine">
                 Kuwait&apos;s Finest <em className="text-brand-red">Flavors</em>
               </h2>
@@ -727,9 +726,9 @@ export default async function Home() {
 
               <div className="absolute -left-3 -top-6 flex h-[92px] w-[92px] flex-col sm:-left-9 sm:-top-9 items-center justify-center rounded-full bg-brand-cream text-center shadow-[0_18px_40px_-16px_rgba(74,21,21,0.5)] ring-1 ring-brand-gold/40 sm:h-[112px] sm:w-[112px]">
                 <span aria-hidden className="absolute inset-[5px] rounded-full border border-brand-gold/35" />
-                <span className="font-display text-[13px] italic leading-none text-brand-gold-dark sm:text-[15px]">Est.</span>
-                <span className="lining-nums mt-1 font-display text-[26px] font-semibold leading-none text-brand-wine sm:text-[32px]">
-                  2012
+                <span className="font-display text-[13px] italic leading-none text-brand-gold-dark sm:text-[15px]">Our shop</span>
+                <span className="mt-1 max-w-[76px] text-balance font-display text-[15px] font-semibold leading-tight text-brand-wine sm:max-w-[92px] sm:text-[18px]">
+                  {BRAND.area}
                 </span>
               </div>
             </div>
@@ -877,7 +876,7 @@ export default async function Home() {
                   Explore the menu
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </Link>
-                <a href="tel:+96522000000" className="text-link text-white/80 hover:text-white">
+                <a href={BRAND.telHref} className="text-link text-white/80 hover:text-white">
                   Call the shop
                   <ArrowRight size={13} strokeWidth={1.8} />
                 </a>
@@ -968,8 +967,8 @@ export default async function Home() {
 
               {/* Four across on a wide screen — the admin uploads four, and
                   they read as one row rather than three and a stray. */}
-              <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                {media.gallery.map((url, i) => {
+              <div className="mt-10 grid grid-cols-2 gap-3 sm:mt-12 sm:gap-5 lg:grid-cols-4">
+                {media.gallery.slice(0, 4).map((url, i) => {
                   const caption = (media.captions[url] ?? '').trim();
                   return (
                     <figure
@@ -985,7 +984,7 @@ export default async function Home() {
                         className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.05]"
                       />
                       {caption && (
-                        <figcaption className="absolute left-4 top-4 rounded-full bg-brand-cream/95 px-3.5 py-1.5 font-body text-[9.5px] font-bold uppercase tracking-[0.2em] text-brand-wine shadow-sm backdrop-blur-sm sm:text-[10.5px]">
+                        <figcaption className="absolute left-2 top-2 max-w-[calc(100%-1rem)] truncate rounded-full bg-brand-cream/95 px-2.5 py-1 font-body text-[8.5px] font-bold uppercase tracking-[0.14em] text-brand-wine shadow-sm backdrop-blur-sm sm:left-4 sm:top-4 sm:max-w-[calc(100%-2rem)] sm:px-3.5 sm:py-1.5 sm:text-[10.5px] sm:tracking-[0.2em]">
                           {caption}
                         </figcaption>
                       )}
@@ -1006,8 +1005,8 @@ export default async function Home() {
               <p className="eyebrow eyebrow-center text-brand-gold-dark">Watch</p>
               <h2 className="heading mt-5 text-brand-wine">In <em className="text-brand-red">motion</em></h2>
             </div>
-            <div className="mx-auto mt-12 grid max-w-4xl grid-cols-2 gap-4 sm:grid-cols-4">
-              {media.videos.map((url) => (
+            <div className="mx-auto mt-10 grid max-w-4xl grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-4">
+              {media.videos.slice(0, 4).map((url) => (
                 <div key={url} className="aspect-[9/16] overflow-hidden rounded-2xl border border-brand-gold/25 bg-black shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)]">
                   <video src={url} className="h-full w-full object-cover" controls playsInline preload="metadata" />
                 </div>
@@ -1059,7 +1058,7 @@ export default async function Home() {
               <div className="relative h-72 sm:h-96 lg:col-span-3 lg:h-auto lg:min-h-[480px]">
                 <iframe
                   title={`${BRAND.fullName} — ${BRAND.area}, ${BRAND.city}`}
-                  src="https://www.google.com/maps?q=29.3339,48.0777&z=16&output=embed"
+                  src={BRAND.mapEmbedUrl}
                   className="absolute inset-0 h-full w-full border-0 [filter:grayscale(0.4)_sepia(0.18)_contrast(1.03)]"
                   loading="lazy"
                   referrerPolicy="no-referrer-when-downgrade"
@@ -1076,22 +1075,20 @@ export default async function Home() {
                 <dl className="mt-8 divide-y divide-brand-gold/20 border-y border-brand-gold/20">
                   <InfoRow icon={MapPin} label="Address">
                     {BRAND.address}
-                    <br />
-                    Kuwait City
                   </InfoRow>
                   <InfoRow icon={Clock} label="Hours">
                     Open daily · <span className="tabular-nums">8:00 – 23:00</span>
                   </InfoRow>
                   <InfoRow icon={Phone} label="Telephone">
-                    <a href="tel:+96522000000" className="tabular-nums transition-colors hover:text-brand-red">
-                      +965 2200 0000
+                    <a href={`tel:${BRAND.phone.replace(/[^\d+]/g, "")}`} className="tabular-nums transition-colors hover:text-brand-red">
+                      {BRAND.phone}
                     </a>
                   </InfoRow>
                 </dl>
 
                 <div className="mt-9 flex flex-wrap gap-3">
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${BRAND.fullName}, ${BRAND.address}`)}`}
+                    href={BRAND.mapUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn btn-red px-7"
@@ -1099,7 +1096,7 @@ export default async function Home() {
                     Get directions
                     <ArrowRight size={13} strokeWidth={1.8} />
                   </a>
-                  <a href="tel:+96522000000" className="btn btn-outline px-7">
+                  <a href={BRAND.telHref} className="btn btn-outline px-7">
                     Call us
                   </a>
                 </div>
@@ -1170,8 +1167,8 @@ export default async function Home() {
                 <span>
                   Open daily · <span className="tabular-nums">8:00 – 23:00</span>
                 </span>
-                <a href="tel:+96522000000" className="tabular-nums transition-colors hover:text-brand-gold-light">
-                  +965 2200 0000
+                <a href={BRAND.telHref} className="tabular-nums transition-colors hover:text-brand-gold-light">
+                  {BRAND.phoneDisplay}
                 </a>
               </address>
             </div>
@@ -1184,8 +1181,8 @@ export default async function Home() {
               <p className="mt-2 font-body text-[13px] font-light leading-relaxed text-white/60">
                 Call ahead for Eid hampers, wedding favours and corporate boxes — we&apos;ll match them to your colours.
               </p>
-              <a href="tel:+96522000000" className="mt-5 inline-flex items-center gap-2 font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-gold-light transition-colors hover:text-white">
-                +965 2200 0000
+              <a href={BRAND.telHref} className="mt-5 inline-flex items-center gap-2 font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-gold-light transition-colors hover:text-white">
+                {BRAND.phoneDisplay}
                 <ArrowRight size={13} strokeWidth={1.8} />
               </a>
             </div>
@@ -1347,7 +1344,7 @@ function Seal() {
         <circle cx="60" cy="60" r="34" fill="none" stroke="currentColor" strokeOpacity="0.4" strokeWidth="0.8" />
         <text fill="currentColor" fontSize="8" fontWeight="500" style={{ fontFamily: 'var(--lux-body)' }}>
           <textPath href="#seal-ring" textLength="280" lengthAdjust="spacing">
-            BAKED FRESH · EVERY MORNING · SINCE 2012 ·
+            BAKED FRESH · EVERY MORNING · KUWAIT ·
           </textPath>
         </text>
       </svg>

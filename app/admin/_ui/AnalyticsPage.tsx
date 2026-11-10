@@ -19,8 +19,14 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Single-series column chart: thin red columns, value on hover/focus. */
 function Columns({ data, height = 200, empty }: { data: { label: string; full: string; value: number }[]; height?: number; empty?: string }) {
   const max = Math.max(...data.map((d) => d.value), 0);
+  // Below ~34px a column's label ("JAN") no longer fits and breaks mid-word, so
+  // the chart scrolls sideways inside its card instead of crushing the labels.
+  // On a 7-day chart this floor is under any real card width, so nothing
+  // scrolls there; only the 12-month chart does, and only on a phone.
+  const minWidth = data.length * 34;
   return (
-    <div>
+    <div className="adm-scroll -mx-1 max-w-full overflow-x-auto px-1">
+     <div style={{ minWidth }}>
       <div className="relative flex items-end gap-1 sm:gap-2" style={{ height }} role="img" aria-label={data.map((d) => `${d.full}: ${rupee(d.value)}`).join(", ")}>
         {!max && empty && <p className="absolute inset-0 grid place-items-center text-[13px] text-slate-400">{empty}</p>}
         {data.map((d, i) => {
@@ -43,11 +49,12 @@ function Columns({ data, height = 200, empty }: { data: { label: string; full: s
       </div>
       <div className="mt-2 flex gap-1 border-t border-slate-100 pt-3 sm:gap-2">
         {data.map((d) => (
-          <span key={d.full} className="flex-1 text-center text-[10.5px] font-semibold uppercase text-slate-500">
+          <span key={d.full} className="min-w-0 flex-1 whitespace-nowrap text-center text-[10.5px] font-semibold uppercase text-slate-500">
             {d.label}
           </span>
         ))}
       </div>
+     </div>
     </div>
   );
 }

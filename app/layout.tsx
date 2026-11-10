@@ -40,7 +40,9 @@ export const viewport: Viewport = {
   themeColor: "#b01e28",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // No maximumScale / userScalable: pinch-zoom must stay available. Capping it
+  // locks out anyone who relies on zoom to read, and iOS ignores the cap anyway
+  // while still counting it against accessibility.
   viewportFit: "cover",
 };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { AdminState, Product } from "./types";
 import { rupee } from "./money";
 import { BEST_SELLER_SLOTS, useAdmin } from "./Store";
@@ -257,6 +257,15 @@ export default function InventoryPage() {
   const [renaming, setRenaming] = useState("");
   const [newCatName, setNewCatName] = useState("");
   const [alertOpen, setAlertOpen] = useState(false);
+  /** Products whose sizes are currently unfolded in the table. */
+  const [openSizes, setOpenSizes] = useState<Set<string>>(() => new Set());
+  const toggleSizes = (id: string) =>
+    setOpenSizes((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Default to on; the real stored value is read after mount so the server and
   // the first client render agree (localStorage doesn't exist on the server).
   const [soundOn, setSoundOn] = useState(true);
@@ -412,7 +421,13 @@ export default function InventoryPage() {
       // With sizes, the price and the count both come from the sizes.
       price: variants.length ? Math.min(...variants.map((v) => v.price)) : Number(form.price) || 0,
       stock: variants.length ? null : form.track ? form.stock : null,
-      weightGrams: form.weightGrams.trim() === "" ? null : Number(form.weightGrams),
+      // Sizes carry their own amount/unit, so a leftover top-level weight
+      // would quietly keep pricing delivery from the pre-sizes value.
+      weightGrams: variants.length
+        ? null
+        : form.weightGrams.trim() === ""
+          ? null
+          : Number(form.weightGrams),
     });
     setBusy(false);
     if (!r.ok) {
@@ -562,13 +577,32 @@ export default function InventoryPage() {
             </thead>
             <tbody>
               {list.map((p) => (
-                <tr key={p.id} className={cx("border-b border-slate-100 last:border-0 hover:bg-slate-50/50", !p.active && "opacity-60")}>
+                <Fragment key={p.id}>
+                <tr className={cx("border-b border-slate-100 last:border-0 hover:bg-slate-50/50", !p.active && "opacity-60")}>
                   <td className={td}>
                     <div className="flex items-center gap-3">
                       {p.image ? <img src={thumb(p.image)} alt="" className="h-11 w-11 rounded-xl object-cover" loading="lazy" /> : <span className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100 font-bold text-slate-400">{p.name[0]}</span>}
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 font-semibold text-slate-900">
-                          {p.name}
+                          {p.variants?.length ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleSizes(p.id)}
+                              aria-expanded={openSizes.has(p.id)}
+                              aria-label={`${openSizes.has(p.id) ? "Hide" : "Show"} the sizes of ${p.name}`}
+                              className="inline-flex min-w-0 items-center gap-1.5 rounded-lg text-left hover:text-red-700"
+                            >
+                              <Icon
+                                name="chevron"
+                                size={15}
+                                className={cx("shrink-0 text-slate-400 transition-transform", openSizes.has(p.id) ? "rotate-90" : "rotate-0")}
+                              />
+                              <span className="truncate">{p.name}</span>
+                              <Badge tone="slate">{p.variants.length} size{p.variants.length === 1 ? "" : "s"}</Badge>
+                            </button>
+                          ) : (
+                            <span className="truncate">{p.name}</span>
+                          )}
                         </p>
                         <p className="mt-0.5 flex flex-wrap gap-1">
                           {p.tags.map((t) => (
@@ -609,6 +643,39 @@ export default function InventoryPage() {
                     </span>
                   </td>
                 </tr>
+                {p.variants?.length && openSizes.has(p.id) ? (
+                  <tr key={`${p.id}-sizes`} className="border-b border-slate-100 bg-slate-50/60 last:border-0">
+                    <td colSpan={6} className="px-4 py-3">
+                      <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                        Sizes of {p.name}
+                      </p>
+                      <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        {p.variants.map((v) => {
+                          const soldOut = v.stock !== null && v.stock <= 0;
+                          return (
+                            <li
+                              key={v.id}
+                              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                            >
+                              <b className="shrink-0 text-[13px] text-slate-900">{variantLabel(v)}</b>
+                              <span className="shrink-0 text-[13px] font-bold text-slate-900">{rupee(v.price)}</span>
+                              <span className="ml-auto shrink-0 text-[12px]">
+                                {v.stock === null ? (
+                                  <span className="text-slate-400">∞ untracked</span>
+                                ) : (
+                                  <span className={soldOut ? "font-bold text-red-600" : v.stock <= p.lowAt ? "font-bold text-amber-600" : "text-slate-600"}>
+                                    {v.stock} in stock
+                                  </span>
+                                )}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
               ))}
             </tbody>
           </table>
@@ -759,17 +826,19 @@ export default function InventoryPage() {
                   <input className={inputCls} type="number" min={0} step="0.5" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="1.500" />
                 </Field>
               )}
-              <Field label="Weight (grams)" hint="What one of these weighs. Delivery is charged by the weight of the basket.">
-                <input
-                  className={inputCls}
-                  type="number"
-                  min={0}
-                  step="10"
-                  value={form.weightGrams}
-                  onChange={(e) => setForm({ ...form, weightGrams: e.target.value })}
-                  placeholder="500"
-                />
-              </Field>
+              {form.sizes.length === 0 && (
+                <Field label="Weight (grams)" hint="What one of these weighs. Delivery is charged by the weight of the basket.">
+                  <input
+                    className={inputCls}
+                    type="number"
+                    min={0}
+                    step="10"
+                    value={form.weightGrams}
+                    onChange={(e) => setForm({ ...form, weightGrams: e.target.value })}
+                    placeholder="500"
+                  />
+                </Field>
+              )}
               <SizesField form={form} setForm={setForm} />
 
               {/* No sizes → the product is one thing with one count. */}
