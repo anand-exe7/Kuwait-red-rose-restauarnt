@@ -25,13 +25,49 @@ export interface WeightTier {
 export interface DeliveryArea {
   id: string;
   name: string;
-  /** Flat fee, used when this area has no weight brackets. */
+  /** Legacy flat fee. Nothing charges it any more — an area is priced by its
+   *  weight brackets and nothing else. Kept only so an old row still parses
+   *  and the column can stay in the database. */
   fee: number;
-  /** Weight brackets, cheapest first. Empty = charge the flat fee. */
+  /** Weight brackets, lightest first. An area with none is not priced yet and
+   *  cannot be delivered to. */
   tiers: WeightTier[];
-  minOrder: number | null; // null = use the general minimum order
+  /** Legacy per-area minimum order. No longer set by the admin. */
+  minOrder: number | null;
   active: boolean;
   sort: number;
+}
+
+/** An area can only be ordered to once the admin has given it at least one
+ *  weight bracket. There is no flat fee to fall back on. */
+export function areaIsPriced(area: Pick<DeliveryArea, 'tiers'>): boolean {
+  return (area.tiers?.length ?? 0) > 0;
+}
+
+/** "750 g" / "1.5 kg" — one weight, written the way a customer reads it. */
+export function gramsLabel(g: number): string {
+  if (g <= 0) return '0 g';
+  if (g < 1000) return `${Math.round(g)} g`;
+  const kg = g / 1000;
+  return `${kg % 1 === 0 ? kg : kg.toFixed(kg < 10 ? 2 : 1).replace(/0+$/, '').replace(/\.$/, '')} kg`;
+}
+
+/** "Up to 1 kg" · "1 kg – 2 kg" · "2 kg and above" — one bracket as a label. */
+export function tierLabel(t: WeightTier): string {
+  if (t.maxG === null) return `${gramsLabel(t.minG)} and above`;
+  if (t.minG <= 0) return `Up to ${gramsLabel(t.maxG)}`;
+  return `${gramsLabel(t.minG)} – ${gramsLabel(t.maxG)}`;
+}
+
+/** The bracket a basket of this weight falls into, or null when the area has
+ *  no brackets at all. */
+export function tierForWeight(tiers: WeightTier[], grams: number): WeightTier | null {
+  if (!tiers || tiers.length === 0) return null;
+  const hit = tiers.find((t) => grams >= t.minG && (t.maxG === null || grams <= t.maxG));
+  if (hit) return hit;
+  // Lighter than the lightest bracket → the lightest one; heavier than every
+  // bracket → the heaviest, so an order can never slip through unpriced.
+  return grams < tiers[0].minG ? tiers[0] : tiers[tiers.length - 1];
 }
 
 export function parseTiers(raw: unknown): WeightTier[] {
@@ -51,21 +87,27 @@ export function parseTiers(raw: unknown): WeightTier[] {
     .sort((a, b) => a.minG - b.minG);
 }
 
-/** What delivery costs for a basket of this weight in this area. */
-export function feeForWeight(area: Pick<DeliveryArea, 'fee' | 'tiers'>, grams: number): number {
-  if (!area.tiers || area.tiers.length === 0) return area.fee;
-  const hit = area.tiers.find((t) => grams >= t.minG && (t.maxG === null || grams <= t.maxG));
-  // Heavier than every bracket → the heaviest bracket's fee, so an order can
-  // never slip through free just because nobody added a bracket for it.
-  return hit ? hit.fee : area.tiers[area.tiers.length - 1].fee;
+/** What delivery costs for a basket of this weight in this area. 0 when the
+ *  area has no brackets — such an area is not offered at checkout at all
+ *  (see areaIsPriced), so this never silently gives away a free delivery. */
+export function feeForWeight(area: Pick<DeliveryArea, 'tiers'>, grams: number): number {
+  return tierForWeight(area.tiers ?? [], grams)?.fee ?? 0;
 }
 
 export function rowToArea(r: Record<string, unknown>): DeliveryArea {
+  const fee = Number(r.fee ?? 0);
+  /* Areas created before delivery was priced by weight carry a single flat
+     `fee` and no brackets — and a database without the `tiers` column gives
+     us none either. Reading that old fee as one open bracket (0 g and above)
+     keeps those areas deliverable at exactly the price they already charged,
+     until the admin sets real brackets. An area with neither brackets nor a
+     fee stays unpriced, and the checkout refuses it. */
+  const stored = parseTiers(r.tiers);
   return {
     id: String(r.id),
     name: String(r.name ?? ''),
-    fee: Number(r.fee ?? 0),
-    tiers: parseTiers(r.tiers),
+    fee,
+    tiers: stored.length > 0 ? stored : fee > 0 ? [{ minG: 0, maxG: null, fee }] : [],
     minOrder: r.min_order === null || r.min_order === undefined ? null : Number(r.min_order),
     active: r.active !== false,
     sort: Number(r.sort ?? 0),

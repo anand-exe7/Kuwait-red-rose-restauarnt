@@ -43,7 +43,7 @@ export default function LoginForm({ role, next }: { role: Role; next: string }) 
   };
 
   return (
-    <div className="min-h-screen w-full bg-brand-cream text-brand-ink flex items-center justify-center p-4">
+    <div className="min-h-[100svh] w-full bg-brand-cream text-brand-ink flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}

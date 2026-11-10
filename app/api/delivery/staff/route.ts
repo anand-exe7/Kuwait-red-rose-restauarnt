@@ -196,21 +196,27 @@ export async function POST(request: NextRequest) {
         return rest;
       };
       const missingTiers = (m: string) => /tiers|schema cache|could not find the .* column/i.test(m || '');
+      // The brackets ARE the price now, so an area saved without them is an
+      // area nobody can order to. The caller is told, rather than being shown
+      // a cheerful "saved" for a half-saved area.
+      let tiersDropped = false;
       if (typeof body.id === 'string' && body.id) {
         let res = await sb.from('delivery_areas').update(row).eq('id', body.id);
         if (res.error && missingTiers(res.error.message)) {
+          tiersDropped = true;
           res = await sb.from('delivery_areas').update(withoutTiers()).eq('id', body.id);
         }
         if (res.error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
-        return { id: body.id };
+        return { id: body.id, tiersDropped };
       }
       const id = newId('AR');
       let res = await sb.from('delivery_areas').insert({ id, ...row, created_at: Date.now() });
       if (res.error && missingTiers(res.error.message)) {
+        tiersDropped = true;
         res = await sb.from('delivery_areas').insert({ id, ...withoutTiers(), created_at: Date.now() });
       }
       if (res.error) throw new HttpError(500, 'Could not save the area. Has supabase/delivery_areas.sql been run?');
-      return { id };
+      return { id, tiersDropped };
     }
 
     if (action === 'areas.delete') {

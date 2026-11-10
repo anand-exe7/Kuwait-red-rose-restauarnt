@@ -13,7 +13,7 @@ import Link from 'next/link';
 import {
   ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X,
   Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone,
-  ClipboardList, CalendarClock, Home, Receipt, Clock, PlusCircle,
+  ClipboardList, CalendarClock, Home, Receipt, Clock, PlusCircle, ChevronRight,
 } from 'lucide-react';
 import {
   addOrder, type DeliveryAddress, type OrderMode,
@@ -31,6 +31,7 @@ import {
 } from '../lib/menuStore';
 import { formatKWD } from '../lib/currency';
 import PickupTime from '../components/PickupTime';
+import DeliveryAreaPicker, { type DeliveryZone } from '../components/DeliveryAreaPicker';
 import {
   validateCoupon,
   subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot,
@@ -38,7 +39,7 @@ import {
 import {
   subscribeToAreas, getAreasSnapshot, getAreasServerSnapshot, activeAreas,
 } from '../lib/deliveryAreaStore';
-import { feeForWeight, type WeightTier } from '../lib/delivery/shared';
+import { areaIsPriced, feeForWeight, gramsLabel, tierForWeight, tierLabel } from '../lib/delivery/shared';
 import { landingFonts } from '../fonts';
 import BrandMark from '../components/BrandMark';
 import SignInGate from '../components/SignInGate';
@@ -59,16 +60,18 @@ const PETALS = [
   { src: 'petal-a', left: '90%', w: '18px', dur: 23, delay: 9, sway: -44 },
 ];
 
-// Fallback delivery zones + fee (KD) — used only until an admin adds zones in
-// Admin → Delivery Zones. Once zones exist in the database they take over here,
-// so delivery pricing is fully admin-editable but never empty.
-const FALLBACK_ZONES: { name: string; fee: number }[] = [
-  { name: 'Al Asimah (Capital)', fee: 1.0 },
-  { name: 'Hawalli', fee: 1.0 },
-  { name: 'Farwaniya', fee: 1.25 },
-  { name: 'Mubarak Al-Kabeer', fee: 1.5 },
-  { name: 'Ahmadi', fee: 1.75 },
-  { name: 'Jahra', fee: 2.0 },
+// Fallback delivery zones — used only until an admin adds areas in
+// Admin → Delivery areas & prices. Once areas exist in the database they take
+// over here, so delivery pricing is fully admin-editable but never empty.
+// Each fallback is one open bracket ("any weight"), because an area is priced
+// by its weight brackets and by nothing else.
+const FALLBACK_ZONES: DeliveryZone[] = [
+  { name: 'Al Asimah (Capital)', tiers: [{ minG: 0, maxG: null, fee: 1.0 }] },
+  { name: 'Hawalli', tiers: [{ minG: 0, maxG: null, fee: 1.0 }] },
+  { name: 'Farwaniya', tiers: [{ minG: 0, maxG: null, fee: 1.25 }] },
+  { name: 'Mubarak Al-Kabeer', tiers: [{ minG: 0, maxG: null, fee: 1.5 }] },
+  { name: 'Ahmadi', tiers: [{ minG: 0, maxG: null, fee: 1.75 }] },
+  { name: 'Jahra', tiers: [{ minG: 0, maxG: null, fee: 2.0 }] },
 ];
 
 const EMPTY_ADDRESS: DeliveryAddress = {
@@ -186,6 +189,7 @@ export default function MenuPage() {
   // the admin, the chef's ticket and the waiter, and prints on the invoice.
   const [remark, setRemark] = useState('');
   const [address, setAddress] = useState<DeliveryAddress>(EMPTY_ADDRESS);
+  const [areaSheetOpen, setAreaSheetOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   // The frosted strip behind the floating nav, and the solid Review Order pill,
@@ -365,25 +369,36 @@ export default function MenuPage() {
     return acc + (line?.grams ?? 0) * qty;
   }, 0);
   const liveAreas = React.useMemo(() => activeAreas(areas), [areas]);
-  const deliveryZones = React.useMemo(() => {
-    if (!liveAreas.length) return FALLBACK_ZONES.map(z => ({ name: z.name, fee: z.fee, tiers: [] as WeightTier[] }));
-    return liveAreas.map(x => ({ name: x.name, fee: x.fee, tiers: x.tiers ?? [] }));
+  const deliveryZones: DeliveryZone[] = React.useMemo(() => {
+    if (!liveAreas.length) return FALLBACK_ZONES;
+    return liveAreas.map(x => ({ name: x.name, tiers: x.tiers ?? [] }));
   }, [liveAreas]);
-  /** What delivery costs for this basket in this area — the weight bracket the
-   *  order falls into, or the area's flat fee when it has no brackets. */
+  /** Every line of the basket with the weight it contributes — what the area
+   *  sheet shows, so the customer can see where the kilos came from. */
+  const weighedLines = React.useMemo(
+    () => Object.entries(cart).map(([key, qty]) => {
+      const line = resolveLine(key, menu);
+      return { name: line?.name ?? '', qty, grams: line?.grams ?? 0 };
+    }).filter(l => l.name),
+    [cart, menu],
+  );
+  /** What delivery costs for this basket in this area: the fee of the weight
+   *  bracket the order falls into. An area with no brackets has no price, so
+   *  it cannot be chosen at all (see the sheet). */
   const feeForZone = (name: string) => {
     const z = deliveryZones.find(x => x.name === name);
     if (!z) return 0;
-    return feeForWeight({ fee: z.fee, tiers: z.tiers }, cartGrams);
+    return feeForWeight({ tiers: z.tiers }, cartGrams);
   };
   // Goods total (what the order stores). Delivery is charged on top and shown
   // separately at checkout + in the WhatsApp message, so the stored total stays
   // consistent with the itemised receipt.
   const grandTotal = Math.max(0, cartTotal - discount);
   const deliveryFee = selectedMode === 'delivery' ? feeForZone(address.governorate) : 0;
-  const deliveryIsByWeight =
-    selectedMode === 'delivery' &&
-    (deliveryZones.find(z => z.name === address.governorate)?.tiers.length ?? 0) > 0;
+  /** The bracket the basket landed in, named on the checkout summary. */
+  const deliveryTier = selectedMode === 'delivery'
+    ? tierForWeight(deliveryZones.find(z => z.name === address.governorate)?.tiers ?? [], cartGrams)
+    : null;
   const payableTotal = grandTotal + deliveryFee;
 
   const applyCoupon = () => {
@@ -580,8 +595,16 @@ export default function MenuPage() {
       return;
     }
     if (selectedMode === 'delivery') {
-      if (!address.governorate || !address.area || !address.street || !address.building) {
-        setFormError('Please complete at least Governorate, Area, Street, and Building.');
+      if (!address.governorate) { setFormError('Please choose your delivery area.'); return; }
+      if (!address.area || !address.street || !address.building) {
+        setFormError('Please fill in the block, the street and the building.');
+        return;
+      }
+      // An area with no weight brackets has no price. The sheet will not let
+      // one be picked, but a stale saved address could still carry one.
+      const zone = deliveryZones.find(z => z.name === address.governorate);
+      if (!zone || !areaIsPriced(zone)) {
+        setFormError(`We can't price delivery to ${address.governorate} right now — please choose another area or call the shop.`);
         return;
       }
     }
@@ -859,10 +882,6 @@ export default function MenuPage() {
             </div>
           </div>
         </div>
-
-        <svg aria-hidden viewBox="0 0 1440 120" preserveAspectRatio="none" className="absolute inset-x-0 bottom-[-1px] z-40 h-12 w-full fill-brand-cream sm:h-20">
-          <path d="M0,86 C300,24 1080,24 1440,86 L1440,120 L0,120 Z" />
-        </svg>
       </section>
 
       {/* Live dine-in tab — one open bill the customer keeps adding to until the
@@ -992,9 +1011,9 @@ export default function MenuPage() {
             No items in this category yet.
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] sm:gap-6 md:gap-8">
             {filteredMenu.map(item => (
-              <div key={item.id} id={`menu-item-${item.id}`} className="menu-item-card group relative flex flex-col overflow-hidden rounded-2xl border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
+              <div key={item.id} id={`menu-item-${item.id}`} className="menu-item-card group relative flex min-w-0 flex-col overflow-hidden rounded-2xl [container-type:inline-size] border border-brand-gold/25 bg-white shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-all duration-500 hover:-translate-y-1.5 hover:border-brand-gold/60 hover:shadow-[0_34px_60px_-28px_rgba(143,23,32,0.55)] sm:rounded-[1.75rem]">
                 <div className="relative aspect-[4/3] w-full flex-shrink-0 overflow-hidden bg-brand-sand">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-[1.07]" /> : <ImageFallback name={item.name} />}
@@ -1018,7 +1037,7 @@ export default function MenuPage() {
 
                 <div className="flex flex-1 flex-col p-3 sm:p-5 md:p-6">
                   <h4
-                    className="font-wordmark text-[16px] uppercase leading-[1.02] tracking-[0.012em] text-brand-wine sm:text-[26px] md:text-[28px]"
+                    className="font-wordmark text-[clamp(16px,6cqw,28px)] uppercase leading-[1.02] tracking-[0.012em] text-brand-wine [overflow-wrap:anywhere]"
                     style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                   >
                     {item.name}
@@ -1026,13 +1045,13 @@ export default function MenuPage() {
                   <p className="mt-2 mb-3 hidden line-clamp-2 font-body text-[13px] font-light leading-relaxed text-brand-ink/60 sm:mt-4 sm:mb-5 sm:block">
                     {item.description}
                   </p>
-                  <div className="mt-auto flex flex-col items-stretch gap-2 border-t border-brand-gold/25 pt-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pt-4">
-                    <div className="min-w-0 shrink-0">
+                  <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-brand-gold/25 pt-2.5 sm:pt-4">
+                    <div className="min-w-0">
                       {hasSizes(item) && (
                         <span className="mr-1 font-body text-[9px] font-bold uppercase tracking-[0.18em] text-brand-ink/40">from</span>
                       )}
                       <span
-                        className="lining-nums font-wordmark text-[18px] leading-none text-brand-red sm:text-[26px] md:text-[28px]"
+                        className="lining-nums font-wordmark text-[clamp(17px,5.5cqw,28px)] leading-none text-brand-red"
                         style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left', display: 'inline-block' }}
                       >
                         {formatKWD(hasSizes(item) ? Math.min(...item.variants!.map(v => v.price)) : item.price)}
@@ -1058,12 +1077,12 @@ export default function MenuPage() {
                       <button
                         onClick={() => setSizingFor(item.id)}
                         disabled={isSoldOut(item.id)}
-                        className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5"
+                        className="btn btn-wine w-full min-w-0 flex-auto justify-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 @[15rem]:w-auto @[15rem]:flex-none @[15rem]:gap-2 @[15rem]:px-5 @[15rem]:py-3"
                       >
                         <Plus size={13} /> {isSoldOut(item.id) ? 'Sold out' : qtyOf(item) > 0 ? `${qtyOf(item)} · Change size` : 'Choose size'}
                       </button>
                     ) : cart[item.id] ? (
-                      <div className="qty-pop flex w-full items-center justify-between gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5 sm:w-auto sm:shrink-0 sm:justify-start sm:gap-2 sm:p-1">
+                      <div className="qty-pop flex w-full items-center justify-between gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5 @[15rem]:w-auto @[15rem]:justify-start @[15rem]:gap-2 @[15rem]:p-1">
                         <button onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-all hover:scale-105 hover:text-brand-red active:scale-95 sm:h-9 sm:w-9"><Minus size={13} /></button>
                         <span key={cart[item.id]} className="qty-bump w-5 text-center font-wordmark text-base text-brand-wine sm:text-xl" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{cart[item.id]}</span>
                         <button
@@ -1077,7 +1096,7 @@ export default function MenuPage() {
                       <button
                         onClick={() => addToCart(item.id)}
                         disabled={isSoldOut(item.id)}
-                        className="btn btn-wine w-full justify-center gap-1.5 px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 sm:w-auto sm:shrink-0 sm:gap-2 sm:px-6 sm:py-3.5"
+                        className="btn btn-wine w-full min-w-0 flex-auto justify-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[10px] transition-transform hover:scale-[1.03] active:scale-95 disabled:pointer-events-none disabled:opacity-40 @[15rem]:w-auto @[15rem]:flex-none @[15rem]:gap-2 @[15rem]:px-5 @[15rem]:py-3"
                       >
                         <Plus size={13} /> {isSoldOut(item.id) ? 'Sold out' : 'Add'}
                       </button>
@@ -1096,7 +1115,7 @@ export default function MenuPage() {
 
       {/* Floating checkout CTA (mobile + anywhere) */}
       {!isCartOpen && cartItemCount > 0 && (
-        <div className="anim-review-rise fixed bottom-6 left-0 right-0 z-30 px-4">
+        <div className="anim-review-rise fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-30 px-4">
           <button
             onClick={() => setIsCartOpen(true)}
             className="btn pill-shine mx-auto flex w-full max-w-xl justify-between px-6 py-5 text-white transition-transform hover:-translate-y-0.5 active:translate-y-0"
@@ -1223,19 +1242,23 @@ export default function MenuPage() {
                               className="anim-cart-item-in flex items-center gap-3 rounded-[1.25rem] border border-brand-gold/25 bg-white p-2.5 shadow-[0_10px_24px_-18px_rgba(74,21,21,0.4)] transition-shadow hover:shadow-[0_14px_28px_-18px_rgba(74,21,21,0.55)]"
                               style={{ '--i': idx } as React.CSSProperties}
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              {item.image ? <img src={item.image} alt={item.name} className="h-14 w-14 rounded-xl bg-brand-sand object-cover" /> : <ImageFallback name={item.name} className="h-14 w-14 rounded-xl" />}
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-brand-sand">
+                                {item.image
+                                  ? /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                                  : <ImageFallback name={item.name} />}
+                              </div>
                               <div className="min-w-0 flex-1">
                                 <h4
                                   className="mb-1 block line-clamp-1 font-wordmark text-[15px] uppercase leading-tight tracking-[0.012em] text-brand-wine"
                                   style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                                 >{line.name}</h4>
                                 <p
-                                  className="block font-wordmark text-[15px] leading-none text-brand-red"
+                                  className="block whitespace-nowrap font-wordmark text-[15px] leading-none text-brand-red"
                                   style={{ transform: 'scaleY(1.08)', transformOrigin: 'bottom left' }}
                                 >{formatKWD(line.price * qty)}</p>
                               </div>
-                              <div className="flex items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
+                              <div className="flex shrink-0 items-center gap-1 rounded-full border border-brand-gold/50 bg-brand-cream p-0.5">
                                 <button onClick={() => removeFromCart(id)} aria-label={`Remove one ${line.name}`} className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-brand-wine shadow-sm transition-transform hover:scale-105 hover:text-brand-red active:scale-95"><Minus size={12} /></button>
                                 <span key={qty} className="qty-bump w-5 text-center font-wordmark text-[15px] text-brand-wine" style={{ display: 'inline-block', transform: 'scaleY(1.08)' }}>{qty}</span>
                                 <button
@@ -1254,10 +1277,10 @@ export default function MenuPage() {
                     {cartItemCount > 0 && (
                       <div className="rounded-b-[2rem] border-t border-brand-gold/25 bg-brand-sand/60 p-4 pb-6 md:rounded-bl-[2rem] md:rounded-br-none md:p-5">
                         <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65"><span>Subtotal</span><span className="font-medium text-brand-ink">{formatKWD(cartTotal)}</span></div>
-                        <div className="mb-3 flex items-end justify-between border-t border-brand-gold/30 pt-3">
-                          <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine">Total</span>
+                        <div className="mb-3 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-brand-gold/30 pt-3">
+                          <span className="min-w-0 font-body text-[10px] font-medium uppercase tracking-[0.22em] text-brand-wine">Total</span>
                           <span
-                            className="font-wordmark text-[32px] leading-none text-brand-red"
+                            className="shrink-0 whitespace-nowrap font-wordmark text-[clamp(24px,7vw,32px)] leading-none text-brand-red"
                             style={{ display: 'inline-block', transform: 'scaleY(1.08)', transformOrigin: 'bottom right' }}
                           >{formatKWD(cartTotal)}</span>
                         </div>
@@ -1381,26 +1404,58 @@ export default function MenuPage() {
 
                       {selectedMode === 'delivery' && (
                         <>
-                          <Field label="Delivery area" required>
-                            <select value={address.governorate} onChange={e => setAddress(a => ({ ...a, governorate: e.target.value }))} className="input-plain">
-                              <option value="">Select your area…</option>
-                              {deliveryZones.map(z => {
-                                const f = feeForWeight({ fee: z.fee, tiers: z.tiers }, cartGrams);
-                                return <option key={z.name} value={z.name}>{z.name} · {f > 0 ? formatKWD(f) : 'Free'}</option>;
-                              })}
-                            </select>
+                          {/* The area is a sheet, not a dropdown: the price
+                              depends on the weight of the basket, and a list of
+                              bare names cannot say that. */}
+                          <div className="block">
+                            <span className="mb-1.5 block font-body text-[11px] font-medium uppercase tracking-[0.22em] text-brand-wine/70">
+                              Delivery area<span className="ml-1 text-brand-red">*</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setAreaSheetOpen(true)}
+                              className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition ${
+                                address.governorate
+                                  ? 'border-brand-red/40 bg-white'
+                                  : 'border-brand-gold/35 bg-white hover:border-brand-red/40'
+                              }`}
+                            >
+                              <MapPin size={17} className="shrink-0 text-brand-gold-dark" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate font-body text-[14.5px] font-bold text-brand-wine">
+                                  {address.governorate || 'Choose your area'}
+                                </span>
+                                <span className="block font-body text-[11.5px] text-brand-ink/55">
+                                  {address.governorate
+                                    ? `${gramsLabel(cartGrams)}${deliveryTier ? ` · ${tierLabel(deliveryTier)}` : ''}`
+                                    : `Your order weighs ${gramsLabel(cartGrams)} — tap to see the price`}
+                                </span>
+                              </span>
+                              {address.governorate && (
+                                <span className="shrink-0 font-wordmark text-[19px] leading-none text-brand-red">
+                                  {deliveryFee > 0 ? formatKWD(deliveryFee) : 'Free'}
+                                </span>
+                              )}
+                              <ChevronRight size={16} className="shrink-0 text-brand-ink/35" />
+                            </button>
+                          </div>
+
+                          {/* The address itself. Block, street and building are
+                              what a driver actually navigates by, so they get
+                              the room; floor and flat are two digits each. */}
+                          <Field label="Block" required>
+                            <input value={address.area} onChange={e => setAddress(a => ({ ...a, area: e.target.value }))} placeholder="Block 10" className="input-plain" />
                           </Field>
-                          <div className="grid grid-cols-2 gap-4">
-                            <Field label="Area / Block" required><input value={address.area} onChange={e => setAddress(a => ({ ...a, area: e.target.value }))} placeholder="Block 10" className="input-plain" /></Field>
-                            <Field label="Street" required><input value={address.street} onChange={e => setAddress(a => ({ ...a, street: e.target.value }))} placeholder="23" className="input-plain" /></Field>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <Field label="Avenue"><input value={address.avenue ?? ''} onChange={e => setAddress(a => ({ ...a, avenue: e.target.value }))} className="input-plain" /></Field>
-                            <Field label="Building" required><input value={address.building} onChange={e => setAddress(a => ({ ...a, building: e.target.value }))} className="input-plain" /></Field>
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <Field label="Floor"><input value={address.floor ?? ''} onChange={e => setAddress(a => ({ ...a, floor: e.target.value }))} className="input-plain" /></Field>
-                            <Field label="Apartment"><input value={address.apartment ?? ''} onChange={e => setAddress(a => ({ ...a, apartment: e.target.value }))} className="input-plain" /></Field>
+                          <Field label="Street" required>
+                            <input value={address.street} onChange={e => setAddress(a => ({ ...a, street: e.target.value }))} placeholder="Street 23" className="input-plain" />
+                          </Field>
+                          <Field label="House / Building" required>
+                            <input value={address.building} onChange={e => setAddress(a => ({ ...a, building: e.target.value }))} placeholder="Building 7" className="input-plain" />
+                          </Field>
+                          <div className="grid grid-cols-3 gap-3">
+                            <Field label="Avenue"><input value={address.avenue ?? ''} onChange={e => setAddress(a => ({ ...a, avenue: e.target.value }))} placeholder="—" className="input-plain" /></Field>
+                            <Field label="Floor"><input value={address.floor ?? ''} onChange={e => setAddress(a => ({ ...a, floor: e.target.value }))} placeholder="—" className="input-plain" /></Field>
+                            <Field label="Flat"><input value={address.apartment ?? ''} onChange={e => setAddress(a => ({ ...a, apartment: e.target.value }))} placeholder="—" className="input-plain" /></Field>
                           </div>
                           <Field label="Landmark (optional)">
                             <input value={address.landmark ?? ''} onChange={e => setAddress(a => ({ ...a, landmark: e.target.value }))} placeholder="next to the pharmacy" className="input-plain" />
@@ -1478,21 +1533,21 @@ export default function MenuPage() {
                         <div className="mb-2 flex justify-between font-body text-[13px] font-light text-brand-ink/65">
                           <span>
                             Delivery{address.governorate ? ` · ${address.governorate}` : ''}
-                            {deliveryIsByWeight && cartGrams > 0 && (
+                            {cartGrams > 0 && (
                               <span className="ml-1 text-[11px] text-brand-ink/45">
-                                ({cartGrams >= 1000 ? `${(cartGrams / 1000).toFixed(cartGrams % 1000 === 0 ? 0 : 1)} kg` : `${cartGrams} g`})
+                                ({gramsLabel(cartGrams)}{deliveryTier ? ` · ${tierLabel(deliveryTier)}` : ''})
                               </span>
                             )}
                           </span>
                           <span className="font-medium text-brand-ink">{address.governorate ? formatKWD(deliveryFee) : '—'}</span>
                         </div>
                       )}
-                      <div className="mb-4 flex items-end justify-between border-t border-brand-gold/30 pt-3">
-                        <span className="font-body text-[11px] font-medium uppercase tracking-[0.24em] text-brand-wine">
+                      <div className="mb-4 flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-t border-brand-gold/30 pt-3">
+                        <span className="min-w-0 flex-1 font-body text-[11px] font-medium uppercase tracking-[0.2em] text-brand-wine">
                           {selectedMode === 'table' ? 'Total · Settled on your tab' : `Grand total · Cash on ${selectedMode === 'delivery' ? 'delivery' : 'pickup'}`}
                         </span>
                         <span
-                          className="font-wordmark text-[32px] text-brand-red"
+                          className="shrink-0 whitespace-nowrap font-wordmark text-[clamp(24px,7vw,32px)] leading-none text-brand-red"
                           style={{ display: 'inline-block', transform: 'scaleY(1.08)', transformOrigin: 'bottom right' }}
                         >{formatKWD(payableTotal)}</span>
                       </div>
@@ -1502,7 +1557,11 @@ export default function MenuPage() {
                         ) : selectedMode === 'table' ? (
                           attachToTab ? <><PlusCircle size={18} /> Add to tab</> : <><Send size={18} /> Place order</>
                         ) : (
-                          <><Send size={18} /> Place order & send on WhatsApp</>
+                          <>
+                            <Send size={18} />
+                            <span className="max-[400px]:hidden">Place order &amp; send on WhatsApp</span>
+                            <span className="min-[401px]:hidden">Place order</span>
+                          </>
                         )}
                       </button>
                     </div>
@@ -1512,6 +1571,18 @@ export default function MenuPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Where are we delivering, and what does it cost for THIS basket. */}
+      {areaSheetOpen && (
+        <DeliveryAreaPicker
+          zones={deliveryZones}
+          grams={cartGrams}
+          lines={weighedLines}
+          value={address.governorate}
+          onPick={name => setAddress(a => ({ ...a, governorate: name }))}
+          onClose={() => setAreaSheetOpen(false)}
+        />
       )}
 
       <SignInGate
@@ -1599,7 +1670,7 @@ function SizeSheet({
           </button>
         </div>
 
-        <ul className="max-h-[52vh] divide-y divide-brand-gold/20 overflow-y-auto custom-scrollbar">
+        <ul className="max-h-[52dvh] divide-y divide-brand-gold/20 overflow-y-auto custom-scrollbar">
           {variants.map(v => {
             const key = cartKey(product.id, v.id);
             const qty = cart[key] ?? 0;
@@ -1738,7 +1809,7 @@ function CustomerProfileModal({
       onClick={onClose}
     >
       <div
-        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-brand-gold/30 bg-brand-cream shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]"
+        className="relative flex max-h-[90dvh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-brand-gold/30 bg-brand-cream shadow-[0_30px_60px_-20px_rgba(30,0,4,0.55)]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}

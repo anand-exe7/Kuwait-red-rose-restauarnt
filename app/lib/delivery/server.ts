@@ -1,7 +1,7 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  DEFAULT_SETTINGS, type DeliveryArea, type DeliverySettings, type PricingMode, feeForDistance, feeForWeight,
+  DEFAULT_SETTINGS, type DeliveryArea, type DeliverySettings, type PricingMode, areaIsPriced, feeForDistance, feeForWeight,
   haversineKm, hoursLabel, isOpenNow, rowToArea, rowToSettings,
 } from './shared';
 
@@ -129,7 +129,11 @@ export async function buildQuote(
     const areas = target.areaId ? await loadAreas(sb, true) : [];
     area = areas.find((a) => a.id === target.areaId) ?? null;
     if (!area) missingTarget = 'Please choose your delivery area.';
-    else {
+    else if (!areaIsPriced(area)) {
+      // No weight brackets means nobody has said what delivery there costs.
+      // Refusing is the only safe answer: there is no flat fee to fall back on.
+      missingTarget = `Delivery to ${area.name} is not priced yet — please call the shop.`;
+    } else {
       fee = feeForWeight(area, grams);
       minOrder = area.minOrder ?? s.minOrder;
     }
