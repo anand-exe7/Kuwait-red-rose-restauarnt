@@ -69,6 +69,26 @@ export function shopTelHref(): string {
   return d ? `tel:+${d}` : '';
 }
 
+/**
+ * Optional SECOND contact number. Deliberately separate from the primary one:
+ * it is shown only on the landing page and footer (never on a receipt or
+ * invoice), so adding/removing it is a single .env edit. Empty when
+ * NEXT_PUBLIC_SHOP_PHONE_2 is unset, so every call site hides it cleanly.
+ */
+export function shopPhone2Display(): string {
+  const raw = val(process.env.NEXT_PUBLIC_SHOP_PHONE_2).replace(/\D/g, '');
+  if (!raw) return '';
+  if (raw.startsWith('965') && raw.length === 11) return `+965 ${raw.slice(3, 7)} ${raw.slice(7)}`;
+  if (raw.length === 8) return `+965 ${raw.slice(0, 4)} ${raw.slice(4)}`;
+  return `+${raw}`;
+}
+
+/** The second number as a `tel:` target. Empty when none is configured. */
+export function shopTel2Href(): string {
+  const d = shopPhone2Display().replace(/[^\d]/g, '');
+  return d ? `tel:+${d}` : '';
+}
+
 /** Map coordinates for the shop pin, e.g. "29.2000989". Empty when unset. */
 export function shopMapLat(): string {
   return val(process.env.NEXT_PUBLIC_SHOP_MAP_LAT);

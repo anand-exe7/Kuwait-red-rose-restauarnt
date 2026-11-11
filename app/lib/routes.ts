@@ -3,8 +3,12 @@
 // Change a slug here and the gate + links follow automatically.
 import type { Role } from './session';
 
+/* Each slug is also the NAME OF THE FOLDER under app/ that serves it, so the
+   two have to be changed together — `app/admin-secure-portal-xyz-345` here is
+   the same string as the directory on disk. Next builds the route from the
+   folder; this map is what the gate in proxy.ts reads. */
 export const ROLE_SLUGS: Record<Role, string> = {
-  admin: 'admin',
+  admin: 'admin-secure-portal-xyz-345',
   waiter: 'waiter-dashboard-def-456',
   chef: 'chef-station-abc-123',
 };

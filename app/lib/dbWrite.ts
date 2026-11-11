@@ -39,8 +39,8 @@ function handleExpiredSession() {
   if (promptedForLogin || typeof window === 'undefined') return;
   promptedForLogin = true;
   const here = window.location.pathname;
-  if (here.startsWith('/admin') && !here.startsWith('/admin/login')) {
-    window.location.assign('/admin/login');
+  if (here.startsWith('/admin-secure-portal-xyz-345') && !here.startsWith('/admin-secure-portal-xyz-345/login')) {
+    window.location.assign('/admin-secure-portal-xyz-345/login');
   }
 }
 
