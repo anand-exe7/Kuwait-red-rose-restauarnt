@@ -914,10 +914,10 @@ export default function InventoryPage() {
         {form && (
           <div className="grid gap-5 md:grid-cols-[1fr_220px]">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name *" className="sm:col-span-2">
+              <Field label="Name" required className="sm:col-span-2">
                 <input className={inputCls} value={form.name} maxLength={80} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Black Forest Slice" />
               </Field>
-              <Field label="Category *">
+              <Field label="Category" required>
                 <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                   {!form.category && <option value="">Select category…</option>}
                   {(form.category && !cats.includes(form.category) ? [...cats, form.category] : cats).map((c) => (
@@ -937,7 +937,7 @@ export default function InventoryPage() {
               {/* With sizes on, the price is per size — a single price box
                   next to a list of sizes is just a number nobody charges. */}
               {form.sizes.length === 0 && (
-                <Field label="Price (KD) *">
+                <Field label="Price (KD)" required>
                   <input className={inputCls} type="number" min={0} step="0.5" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="1.500" />
                 </Field>
               )}
@@ -1094,7 +1094,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                   </div>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                     {/* The amount leads — it is what the customer is buying. */}
-                    <Field label="How much *" className="sm:col-span-1">
+                    <Field label="How much" required labelNowrap className="sm:col-span-1">
                       <input
                         className={cx(inputCls, "text-[16px] font-extrabold")}
                         type="number"
@@ -1106,7 +1106,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                         onChange={(e) => setRow(r.id, { amount: e.target.value })}
                       />
                     </Field>
-                    <Field label="Unit *">
+                    <Field label="Unit" required labelNowrap>
                       <select
                         className={cx(inputCls, "font-bold")}
                         value={r.unit}
@@ -1124,7 +1124,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                         </optgroup>
                       </select>
                     </Field>
-                    <Field label="Price (KD) *">
+                    <Field label="Price" required labelNowrap>
                       <input
                         className={inputCls}
                         type="number"
@@ -1136,7 +1136,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                         onChange={(e) => setRow(r.id, { price: e.target.value })}
                       />
                     </Field>
-                    <Field label="In stock" hint="Blank = not tracked">
+                    <Field label="In stock" labelNowrap hint="Blank = not tracked">
                       <input
                         className={inputCls}
                         type="number"
@@ -1149,7 +1149,7 @@ function SizesField({ form, setForm }: { form: Form; setForm: (f: Form) => void 
                     {/* Each size gets its own warning line. A 500 g that goes
                         ten a day and a 2 kg that goes one a week cannot share
                         one number — and the total across sizes hides both. */}
-                    <Field label="Alert at" hint={`Blank = use ${form.lowAt || "4"}`}>
+                    <Field label="Alert at" labelNowrap hint={`Blank = use ${form.lowAt || "4"}`}>
                       <input
                         className={cx(inputCls, r.stock.trim() !== "" && Number(r.stock) <= Number(r.lowAt || form.lowAt || 0) ? "border-amber-400 bg-amber-50" : "")}
                         type="number"

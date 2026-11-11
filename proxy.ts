@@ -8,9 +8,9 @@ import { roleForPath } from './app/lib/routes';
 // (In Next.js 16 the old `middleware.ts` convention is renamed to `proxy.ts`.)
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  // Admin has its own sign-in page at /admin/login — never gate it, or the
+  // Admin has its own sign-in page under its slug — never gate it, or the
   // user gets bounced in a loop before they can submit the form.
-  if (pathname === '/admin/login') return NextResponse.next();
+  if (pathname === '/admin-secure-portal-xyz-345/login') return NextResponse.next();
 
   const requiredRole = roleForPath(pathname);
   if (!requiredRole) return NextResponse.next();
@@ -22,11 +22,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Admin → the dedicated /admin/login page; chef and waiter still share
-  // the generic /login page.
+  // Admin → its own login page; chef and waiter still share /login.
   const loginUrl =
     requiredRole === 'admin'
-      ? new URL('/admin/login', request.url)
+      ? new URL('/admin-secure-portal-xyz-345/login', request.url)
       : new URL('/login', request.url);
   if (requiredRole !== 'admin') {
     loginUrl.searchParams.set('role', requiredRole);
@@ -38,8 +37,12 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Only guard the secret role slugs; everything else (customer, takeaway, home,
   // login, api, static assets) is public.
+  //
+  // These have to be written out in full: Next reads the matcher statically at
+  // build time, so it cannot be built from ROLE_SLUGS. Change a slug there and
+  // you must change it here and rename the folder under app/ to match.
   matcher: [
-    '/admin/:path*',
+    '/admin-secure-portal-xyz-345/:path*',
     '/waiter-dashboard-def-456/:path*',
     '/chef-station-abc-123/:path*',
   ],

@@ -1336,11 +1336,13 @@ html:has(.landing) { scroll-behavior: smooth; }
 /* ===========================================================================
    The landing page's opening curtain (app/components/LandingLoader.tsx)
 
-   It covers the viewport while the hero's photographs decode, then lifts.
+   The same deep red and the same radial light as the hero underneath it, so
+   when the curtain lifts there is no cut — the seal and the wordmark rise
+   away and the hero is already there.
 
    Two independent escape hatches, because a loading screen that sticks is far
    worse than no loading screen at all:
-     • `curtain-give-up` fades it out at 4s on its own, in CSS, so a page whose
+     • `curtain-give-up` lifts it at 3.4s on its own, in CSS, so a page whose
        JavaScript never arrives still becomes usable.
      • `<noscript>` in the page removes it outright.
    =========================================================================== */
@@ -1348,82 +1350,189 @@ html:has(.landing) { scroll-behavior: smooth; }
   position: fixed;
   inset: 0;
   z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 26px;
-  background: radial-gradient(120% 90% at 50% 30%, #fffdf6 0%, #fbf8ee 45%, #f3ecd2 100%);
-  /* The CSS-only safety net. Opacity first so the fade is composited, then
-     visibility, so it stops swallowing taps the moment it is invisible. */
-  animation: curtain-give-up 0.6s ease 3.4s both;
-  will-change: opacity;
-}
-
-@keyframes curtain-give-up {
-  from { opacity: 1; }
-  to   { opacity: 0; visibility: hidden; pointer-events: none; }
-}
-
-/* What the component sets once the hero is genuinely ready. It wins over the
-   fallback above, which is why it re-declares the animation away. */
-.landing-loader-done {
-  animation: none;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 0.55s cubic-bezier(0.3, 0, 0.2, 1),
-    visibility 0s linear 0.55s;
-}
-
-.landing-loader-mark {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 0.82;
-  animation: curtain-mark 0.8s cubic-bezier(0.2, 0.85, 0.25, 1) both;
-}
-.landing-loader-rose {
-  font-family: var(--font-wordmark-src), Impact, "Arial Narrow", sans-serif;
-  font-size: clamp(42px, 13vw, 76px);
-  letter-spacing: 0.02em;
-  color: #b01e28;
-}
-.landing-loader-sub {
-  font-family: var(--lux-display, var(--font-poppins), "Segoe UI", Arial, sans-serif);
-  font-weight: 300;
-  font-size: clamp(26px, 8vw, 46px);
-  color: #8e2570;
-}
-
-/* A thin gold line that fills — honest about being indeterminate, because we
-   genuinely do not know how long a photograph takes on a train. */
-.landing-loader-bar {
-  position: relative;
-  width: min(180px, 46vw);
-  height: 2px;
+  display: grid;
+  place-items: center;
   overflow: hidden;
-  border-radius: 999px;
-  background: rgba(201, 169, 97, 0.25);
+  background:
+    radial-gradient(65% 42% at 50% 62%, rgba(255, 152, 160, 0.18) 0%, transparent 70%),
+    radial-gradient(120% 88% at 50% 14%, #f2404f 0%, #dc2a38 26%, #b81a27 56%, #8e1019 80%, #6d0810 100%);
+  /* The CSS-only safety net. */
+  animation: curtain-give-up 0.9s cubic-bezier(0.7, 0, 0.3, 1) 3.4s both;
+  will-change: transform, opacity;
 }
-.landing-loader-bar::after {
+
+/* A vignette, so the gold reads against the red at the edges too. */
+.landing-loader::after {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent, #c9a961 45%, #b01e28);
-  transform: translate3d(-100%, 0, 0);
-  animation: curtain-bar 1.25s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(58, 3, 9, 0.45) 0%, transparent 22%, transparent 70%, rgba(58, 3, 9, 0.4) 100%);
 }
 
-@keyframes curtain-bar {
-  from { transform: translate3d(-100%, 0, 0); }
-  to   { transform: translate3d(100%, 0, 0); }
+/* The lift. Not a fade: the whole sheet travels up and takes a little scale
+   with it, which is what makes it read as a curtain rather than a dialog
+   disappearing. */
+@keyframes curtain-give-up {
+  from { transform: translate3d(0, 0, 0); opacity: 1; }
+  to   { transform: translate3d(0, -100%, 0); opacity: 1; visibility: hidden; }
 }
-@keyframes curtain-mark {
-  from { opacity: 0; transform: translate3d(0, 14px, 0); }
+
+.landing-loader-done {
+  animation: none;
+  transform: translate3d(0, -100%, 0);
+  opacity: 1;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.95s cubic-bezier(0.76, 0, 0.24, 1),
+    visibility 0s linear 0.95s;
+}
+/* The contents leave a beat before the sheet does, so the curtain is already
+   empty by the time it clears the top of the screen. */
+.landing-loader-done .ll-stage {
+  opacity: 0;
+  transform: translate3d(0, -18px, 0) scale(0.97);
+  transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.5, 0, 0.75, 0);
+}
+.landing-loader-done .ll-petal { opacity: 0; transition: opacity 0.35s ease; }
+
+.ll-stage {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(18px, 4vw, 26px);
+  padding: 0 24px;
+}
+
+/* ---------- the seal ---------- */
+.ll-seal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(92px, 26vw, 128px);
+  aspect-ratio: 1;
+  animation: ll-seal-in 1s cubic-bezier(0.2, 0.9, 0.24, 1) both;
+}
+.ll-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+}
+.ll-ring-track {
+  stroke: rgba(236, 216, 166, 0.22);
+  stroke-width: 2;
+}
+/* One arc chasing the ring. stroke-dasharray on a circle of r=55 whose
+   circumference is ~345.6: a 90-unit dash is roughly a quarter turn. */
+.ll-ring-arc {
+  stroke: #ecd8a6;
+  stroke-width: 2.5;
+  stroke-dasharray: 90 256;
+  transform-origin: 50% 50%;
+  animation: ll-ring-spin 1.5s cubic-bezier(0.6, 0.1, 0.35, 0.95) infinite;
+  filter: drop-shadow(0 0 6px rgba(236, 216, 166, 0.55));
+}
+.ll-mark {
+  width: 72%;
+  height: 72%;
+  border-radius: 9999px;
+  object-fit: cover;
+  box-shadow: 0 10px 30px -10px rgba(30, 0, 4, 0.8);
+  animation: ll-mark-breathe 3.2s ease-in-out infinite alternate;
+}
+
+@keyframes ll-ring-spin { to { transform: rotate(360deg); } }
+@keyframes ll-mark-breathe {
+  from { transform: scale(1); }
+  to   { transform: scale(1.045); }
+}
+@keyframes ll-seal-in {
+  from { opacity: 0; transform: translate3d(0, 10px, 0) scale(0.86); }
   to   { opacity: 1; transform: none; }
+}
+
+/* ---------- the wordmark ---------- */
+.ll-word {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+}
+.ll-letter {
+  display: block;
+  font-family: var(--font-wordmark-src), Impact, 'Arial Narrow', sans-serif;
+  font-size: clamp(34px, 11vw, 62px);
+  line-height: 0.9;
+  letter-spacing: 0.012em;
+  color: #fbf8ee;
+  text-shadow: 0 2px 1px rgba(90, 3, 12, 0.4), 0 16px 34px rgba(28, 0, 4, 0.5);
+  /* Each letter arrives just after the one before it. */
+  animation: ll-letter-rise 0.72s cubic-bezier(0.2, 0.85, 0.25, 1) both;
+  animation-delay: calc(220ms + var(--n, 0) * 55ms);
+}
+/* The second word takes the gold, the way the hero splits RED / ROSE. */
+.ll-letter:nth-child(n + 5) { color: #ecd8a6; }
+.ll-space { width: clamp(10px, 3vw, 18px); }
+
+@keyframes ll-letter-rise {
+  from { opacity: 0; transform: translate3d(0, 0.5em, 0) scaleY(1.15); }
+  to   { opacity: 1; transform: none; }
+}
+
+.ll-tag {
+  margin: 0;
+  font-family: var(--lux-body, var(--font-poppins), 'Segoe UI', Arial, sans-serif);
+  font-size: clamp(9px, 2.4vw, 10.5px);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: rgba(236, 216, 166, 0.72);
+  animation: ll-tag-in 0.9s ease 0.68s both;
+}
+@keyframes ll-tag-in {
+  from { opacity: 0; letter-spacing: 0.24em; }
+  to   { opacity: 1; letter-spacing: 0.42em; }
+}
+
+/* ---------- petals ---------- */
+.ll-petal {
+  position: absolute;
+  top: -14%;
+  z-index: 1;
+  display: block;
+  background: url('/cutouts/petal-a.webp') center / contain no-repeat;
+  opacity: 0;
+  pointer-events: none;
+  animation: ll-petal-fall var(--d, 7s) linear var(--delay, 0s) infinite both;
+}
+.ll-petal-0 { left: 14%; width: 30px; height: 30px; --d: 7.5s; --delay: -1s; --sway: 46px; }
+.ll-petal-1 { left: 72%; width: 22px; height: 22px; --d: 9s;   --delay: -4s; --sway: -38px; }
+.ll-petal-2 { left: 47%; width: 17px; height: 17px; --d: 11s;  --delay: -7s; --sway: 28px; }
+
+@keyframes ll-petal-fall {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  12%  { opacity: 0.75; }
+  88%  { opacity: 0.75; }
+  100% { transform: translate3d(var(--sway, 40px), 128vh, 0) rotate(300deg); opacity: 0; }
+}
+
+/* ---------- holding the hero ---------- */
+/* While the curtain is up, the hero's entrance is paused mid-frame so it can
+   play as the curtain lifts instead of behind it. Only ever set by JS, and
+   JS removes it on an unconditional timer, so a failure leaves the page
+   animating normally rather than frozen. */
+html.rr-loading .landing [class*='anim-'],
+html.rr-loading .landing .burst-fly,
+html.rr-loading .landing .float,
+html.rr-loading .landing .petal-fall {
+  animation-play-state: paused !important;
 }
 
 /* Anyone who asked for less motion gets the page, not a show. */

@@ -4,6 +4,7 @@ import "./globals.css";
 import PwaRegister from "./components/PwaRegister";
 import NumberInputGuard from "./components/NumberInputGuard";
 import { BRAND } from './lib/brand';
+import { siteOrigin } from './lib/publicUrl';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -24,7 +25,47 @@ export const metadata: Metadata = {
     default: BRAND.fullName,
     template: "%s · Red Rose",
   },
-  description: "Order Red Rose sweets from your table, right from your phone.",
+  description:
+    "Red Rose Sweets — fresh baklava, maamoul, Arabic & French pastry and gift hampers in Al Qurain, Kuwait. Order online for same-day delivery.",
+  keywords: [
+    "Red Rose Sweets",
+    "Kuwait sweets",
+    "baklava Kuwait",
+    "maamoul",
+    "Arabic sweets Al Qurain",
+    "French pastry Kuwait",
+    "Medjool dates",
+    "gift hampers Kuwait",
+    "same-day sweets delivery Kuwait",
+  ],
+  // Absolute base for every canonical / OG / sitemap URL. Reads the configured
+  // origin, falling back to the registered domain so it is never relative.
+  metadataBase: new URL(siteOrigin()),
+  openGraph: {
+    type: "website",
+    siteName: BRAND.fullName,
+    locale: "en_KW",
+    title: BRAND.fullName,
+    description:
+      "Fresh baklava, maamoul, Arabic & French pastry and gift hampers in Al Qurain, Kuwait — order online for same-day delivery.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: BRAND.fullName,
+    description:
+      "Fresh baklava, maamoul, Arabic & French pastry and gift hampers in Al Qurain, Kuwait — order online for same-day delivery.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -38,12 +79,14 @@ export const metadata: Metadata = {
      /finallogo.jpeg is already loaded by the nav and the footer, so pointing
      the tab icon at it costs no extra request. */
   icons: {
+    // ?v=2 busts the browser's sticky favicon cache after the logo was
+    // regenerated. Bump the number again on any future logo change.
     icon: [
-      { url: "/finallogo.jpeg", type: "image/jpeg" },
-      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/finallogo.jpeg?v=2", type: "image/jpeg" },
+      { url: "/icon-192.png?v=2", type: "image/png", sizes: "192x192" },
     ],
-    shortcut: "/finallogo.jpeg",
-    apple: "/apple-touch-icon.png",
+    shortcut: "/finallogo.jpeg?v=2",
+    apple: "/apple-touch-icon.png?v=2",
   },
 };
 

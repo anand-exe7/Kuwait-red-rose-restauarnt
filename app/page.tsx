@@ -11,7 +11,10 @@ import {
   ArrowRight,
   type LucideIcon,
 } from 'lucide-react';
+import type { Metadata } from 'next';
 import { BRAND } from './lib/brand';
+import { siteOrigin } from './lib/publicUrl';
+import { shopMapLat, shopMapLng } from './lib/shop';
 import { formatKWD } from './lib/currency';
 import { landingFonts } from './fonts';
 import HeroNav from './components/HeroNav';
@@ -100,9 +103,10 @@ const IMAGES = {
   chocolates: 'photo-1481391319762-47dff72954d9', // an open box of chocolates
 } as const;
 
-// A `src` can be an Unsplash id (built into a URL) or a full http(s) URL — the
-// latter is what admin-uploaded homepage photos use, so we pass those through.
-const isFullUrl = (s: string) => /^https?:\/\//.test(s);
+// A `src` can be an Unsplash id (built into a URL), a full http(s) URL (what
+// admin-uploaded homepage photos use), or a local /public asset path. The last
+// two are passed straight through; only a bare Unsplash id gets a built URL.
+const isFullUrl = (s: string) => /^https?:\/\//.test(s) || s.startsWith('/');
 /* q=90 and widths up to 2K. The cards are ~270 CSS px wide but sit on retina
    and 3x phone screens, where a 1100px copy is already being stretched — that
    is why the photos looked soft. `auto=format` still ships AVIF/WebP, so the
@@ -135,11 +139,14 @@ const FOOTER_LINKS = [
   { label: 'Contact', href: '#contact' },
 ];
 
+// Curated, locally-stored photographs (public/images/flavors). Served as-is —
+// no external hotlink, no broken-link risk. The admin can still override any
+// slot in Admin → Homepage → Kuwait's Finest Flavours (media.finest wins).
 const FLAVOURS = [
-  { src: IMAGES.dates, label: 'Medjool dates', from: 'The Gulf' },
-  { src: IMAGES.saffron, label: 'Saffron', from: 'Iran' },
-  { src: IMAGES.pistachios, label: 'Pistachios', from: 'Aleppo' },
-  { src: IMAGES.baklavaTray, label: 'Baklava', from: 'Our kitchen' },
+  { src: '/images/flavors/arabic-sweets.webp', label: 'Arabic Sweets', from: 'Baklava & maamoul' },
+  { src: '/images/flavors/cream-cheese.webp', label: 'Cream Cheese Bottles', from: 'Chilled & creamy' },
+  { src: '/images/flavors/cakes.webp', label: 'Cakes', from: 'Celebration' },
+  { src: '/images/flavors/bites.webp', label: 'Bites', from: 'Mini treats' },
 ];
 
 const PROMISES: { icon: LucideIcon; title: string; text: string }[] = [
@@ -252,6 +259,77 @@ const RIBBON = [
   'Arabic & French pâtisserie',
 ];
 
+const ORIGIN = siteOrigin();
+
+// The home page is the one indexable marketing page, so it carries the rich
+// title/description, the canonical, and the structured data. (Everything else
+// is the menu, a staff console, or a private per-customer document.)
+export const metadata: Metadata = {
+  title: { absolute: 'Red Rose Sweets — Baklava & Arabic Pastry in Al Qurain, Kuwait' },
+  description:
+    'Red Rose Sweets in Al Qurain, Kuwait — fresh baklava, maamoul, kunafa, Medjool dates and French pastry, hand-tied gift hampers and same-day delivery across Kuwait.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Red Rose Sweets',
+    locale: 'en_KW',
+    url: '/',
+    title: 'Red Rose Sweets — Baklava & Arabic Pastry in Al Qurain, Kuwait',
+    description:
+      'Fresh baklava, maamoul, kunafa and French pastry, gift hampers and same-day delivery across Kuwait.',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Red Rose Sweets — Baklava & Arabic Pastry in Kuwait',
+    description:
+      'Fresh baklava, maamoul, kunafa and French pastry, gift hampers and same-day delivery across Kuwait.',
+  },
+};
+
+// JSON-LD. Bakery is a LocalBusiness type Google reads for rich results (name,
+// address, opening hours, phone, map); WebSite ties the pages to the business.
+const BAKERY_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'Bakery',
+  '@id': `${ORIGIN}/#bakery`,
+  name: BRAND.fullName,
+  url: ORIGIN,
+  image: `${ORIGIN}/finallogo.jpeg`,
+  logo: `${ORIGIN}/finallogo.jpeg`,
+  telephone: BRAND.phoneDisplay.replace(/[^\d+]/g, ''),
+  priceRange: '$$',
+  servesCuisine: ['Middle Eastern', 'Arabic sweets', 'French pastry'],
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: BRAND.address,
+    addressLocality: BRAND.area,
+    addressCountry: 'KW',
+  },
+  ...(shopMapLat() && shopMapLng()
+    ? { geo: { '@type': 'GeoCoordinates', latitude: shopMapLat(), longitude: shopMapLng() } }
+    : {}),
+  hasMap: BRAND.mapUrl,
+  areaServed: BRAND.city,
+  openingHoursSpecification: [
+    {
+      '@type': 'OpeningHoursSpecification',
+      dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+      opens: '08:00',
+      closes: '23:00',
+    },
+  ],
+};
+
+const WEBSITE_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  '@id': `${ORIGIN}/#website`,
+  name: BRAND.fullName,
+  url: ORIGIN,
+  inLanguage: 'en',
+  publisher: { '@id': `${ORIGIN}/#bakery` },
+};
+
 export default async function Home() {
   const [media, bestSellers] = await Promise.all([fetchHomeMedia(), fetchBestSellers()]);
   const finestSrc = (i: number) => media.finest[i] || FLAVOURS[i].src;
@@ -265,6 +343,9 @@ export default async function Home() {
     <div
       className={`landing ${landingFonts} min-h-screen w-full overflow-x-clip bg-brand-cream font-body text-brand-ink`}
     >
+      {/* Structured data for search engines (Bakery + WebSite). */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(BAKERY_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBSITE_LD) }} />
       {/* Photographs on this page are served from Unsplash and from Supabase
           storage. Opening those connections while the HTML is still being
           parsed takes a DNS lookup + TLS handshake (easily 300 ms on mobile
@@ -351,6 +432,13 @@ export default async function Home() {
           </div>
 
           <div className="relative mt-[2.5svh] flex min-h-0 w-full flex-1 flex-col justify-center sm:mt-[1svh]">
+            {/* The page's single semantic H1. Visually hidden: the hero
+                wordmark below is decorative and split around the cake, so it
+                can't carry the heading — this gives search engines and screen
+                readers one clear, keyword-rich H1. */}
+            <h1 className="sr-only">
+              Red Rose Sweets — baklava, maamoul &amp; Arabic and French pastry in {BRAND.area}, {BRAND.city}
+            </h1>
             {/* Phone: RED ROSE on one line with the cake beneath.
                 Tablet up: the words hold the edges and the cake floats over
                 the gap between them. Layout lives in globals.css. */}
@@ -683,10 +771,10 @@ export default async function Home() {
                 Kuwait&apos;s Finest <em className="text-brand-red">Flavors</em>
               </h2>
               <p className="lede rise mt-6 max-w-md text-brand-ink/65">
-                We source Medjool dates from the Gulf, saffron from Iran and
-                pistachios from Aleppo, then fold them into recipes our family has
-                baked for three generations. Nothing is frozen, and nothing leaves
-                the kitchen a day old.
+                From flaky Arabic sweets and chilled cream-cheese bottles to
+                celebration cakes and bite-size treats — every piece is baked
+                fresh by hand, the way our family has for three generations.
+                Nothing is frozen, and nothing leaves the kitchen a day old.
               </p>
 
               <ul className="mt-9 w-full max-w-md border-t border-brand-gold/25 text-left">
@@ -717,67 +805,59 @@ export default async function Home() {
             </div>
 
             {/* ── The mosaic ─────────────────────────────────────────────
-                Four photographs in a six-column grid: a near-square anchor,
-                two small squares stacked beside it, and a wide cinematic
-                band closing the block.
-
-                The previous try made the anchor a 3:4 portrait running the
-                full height of the group, which on a wide screen turned into
-                a single towering photograph with a thin ladder of pictures
-                pinned next to it — and `object-cover` on a box that tall
-                crops a plate of dates down to three dates. This shape keeps
-                the anchor big without letting it run away: it takes its
-                height from the two squares beside it, so nothing is ever
-                more than a little taller than it is wide, and the band along
-                the bottom gives the group a base to sit on.
+                A tall hero on the left with three landscape tiles stacked
+                beside it. The hero carries no aspect of its own: it spans the
+                three rows the right-hand tiles define, so it is always a
+                little taller than it is wide — never a runaway tower — and the
+                three origins read down the side like a list.
 
                 One set of markup at every width. The proportions hold on a
                 phone because the grid is fractional, so there is no second
                 copy of these photographs for a phone to download. */}
             <div className="relative mx-auto w-full max-w-[560px] lg:max-w-none">
               <div
-                className="parallax grid grid-cols-6 gap-2.5 sm:gap-4"
+                className="parallax grid grid-cols-12 gap-2.5 sm:gap-4"
                 style={{ '--p0': '28px', '--p1': '-28px' } as React.CSSProperties}
               >
-                {/* The anchor. No aspect of its own — it fills the height the
-                    two squares to its right define, which is what keeps it
-                    roughly square instead of a tower. */}
+                {/* The hero. No aspect of its own — it fills the height the
+                    three tiles to its right define, which keeps it a calm
+                    portrait instead of a tower. */}
                 <Photo
                   i={0}
                   feature
                   src={finestSrc(0)}
                   label={FLAVOURS[0].label}
                   from={FLAVOURS[0].from}
-                  className="col-span-4 row-span-2"
-                  sizes="(min-width: 1024px) 32vw, (min-width: 640px) 30vw, 60vw"
+                  className="col-span-7 row-span-3"
+                  sizes="(min-width: 1024px) 34vw, (min-width: 640px) 40vw, 54vw"
                 />
+                {/* Three landscape tiles stacked down the side — saffron,
+                    pistachios, baklava — each one defining a third of the
+                    hero's height. */}
                 <Photo
                   i={1}
                   src={finestSrc(1)}
                   label={FLAVOURS[1].label}
                   from={FLAVOURS[1].from}
-                  className="col-span-2 aspect-square"
-                  sizes="(min-width: 1024px) 16vw, (min-width: 640px) 15vw, 30vw"
+                  className="col-span-5 aspect-[5/3]"
+                  sizes="(min-width: 1024px) 24vw, (min-width: 640px) 28vw, 40vw"
                 />
                 <Photo
                   i={2}
                   src={finestSrc(2)}
                   label={FLAVOURS[2].label}
                   from={FLAVOURS[2].from}
-                  className="col-span-2 aspect-square"
-                  sizes="(min-width: 1024px) 16vw, (min-width: 640px) 15vw, 30vw"
+                  className="col-span-5 aspect-[5/3]"
+                  sizes="(min-width: 1024px) 24vw, (min-width: 640px) 28vw, 40vw"
                 />
-                {/* The closing band, full width and letterboxed. Marked as a
-                    feature too: it is the widest photograph on the page, so
-                    it needs the same large source ladder as the anchor. */}
                 <Photo
                   i={3}
                   feature
                   src={finestSrc(3)}
                   label={FLAVOURS[3].label}
                   from={FLAVOURS[3].from}
-                  className="col-span-6 aspect-[16/6]"
-                  sizes="(min-width: 1024px) 48vw, (min-width: 640px) 46vw, 92vw"
+                  className="col-span-5 aspect-[5/3]"
+                  sizes="(min-width: 1024px) 24vw, (min-width: 640px) 28vw, 40vw"
                 />
               </div>
 
@@ -934,7 +1014,7 @@ export default async function Home() {
                     className="rise flex gap-5 border-b border-white/15 py-5"
                     style={{ '--i': i + 2 } as React.CSSProperties}
                   >
-                    <span className="pt-1.5 font-display text-[15px] italic text-brand-gold-light/80">
+                    <span className="w-7 shrink-0 whitespace-nowrap pt-1.5 font-display text-[15px] italic tabular-nums text-brand-gold-light/80">
                       {String(i + 1).padStart(2, '0')}
                     </span>
                     <div>
@@ -1171,6 +1251,14 @@ export default async function Home() {
                     <a href={BRAND.telHref} className="tabular-nums transition-colors hover:text-brand-red">
                       {BRAND.phoneDisplay}
                     </a>
+                    {BRAND.phone2Display && (
+                      <>
+                        <span className="px-1.5 text-brand-ink/30">·</span>
+                        <a href={BRAND.tel2Href} className="tabular-nums transition-colors hover:text-brand-red">
+                          {BRAND.phone2Display}
+                        </a>
+                      </>
+                    )}
                   </InfoRow>
                 </dl>
 
@@ -1256,6 +1344,11 @@ export default async function Home() {
                 <a href={BRAND.telHref} className="tabular-nums transition-colors hover:text-brand-gold-light">
                   {BRAND.phoneDisplay}
                 </a>
+                {BRAND.phone2Display && (
+                  <a href={BRAND.tel2Href} className="tabular-nums transition-colors hover:text-brand-gold-light">
+                    {BRAND.phone2Display}
+                  </a>
+                )}
               </address>
             </div>
 
