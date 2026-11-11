@@ -163,9 +163,6 @@ export default function StockPage() {
           options={[
             { v: "all", t: "All" },
             { v: "sale", t: "Sold" },
-            { v: "restock", t: "Added" },
-            { v: "adjust", t: "Corrected" },
-            { v: "waste", t: "Wasted" },
             { v: "return", t: "Returned" },
           ]}
         />

@@ -108,9 +108,9 @@ export default function CouponsPage() {
                   value={form.code}
                   onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
                   placeholder="E.G. SUMMER20"
-                  className={cx(inputCls, "font-bold uppercase tracking-wide")}
+                  className={cx(inputCls, "min-w-0 flex-1 font-bold uppercase tracking-wide")}
                 />
-                <Btn kind="red" icon="zap" onClick={() => setForm((f) => ({ ...f, code: randomCode() }))}>Generate</Btn>
+                <Btn kind="red" icon="zap" className="shrink-0 whitespace-nowrap" onClick={() => setForm((f) => ({ ...f, code: randomCode() }))}>Generate</Btn>
               </div>
             </Field>
             <div className="grid grid-cols-2 gap-4">

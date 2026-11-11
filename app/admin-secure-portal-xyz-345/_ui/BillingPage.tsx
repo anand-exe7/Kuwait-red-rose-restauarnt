@@ -71,7 +71,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const [mType, setMType] = useState<DiscountType>("amount");
   const [mVal, setMVal] = useState("");
   const [extra, setExtra] = useState("");
-  const [isGst, setIsGst] = useState(true);
+  const [isGst, setIsGst] = useState(false);
   const [gstPct, setGstPct] = useState(DEFAULT_GST);
   const [pay, setPay] = useState<PayMethod>("cash");
   const [received, setReceived] = useState("");
@@ -403,7 +403,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                     step="0.5"
                     inputMode="decimal"
                     className="h-10 w-24 rounded-xl border border-slate-300 bg-white px-3 text-[14px] outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
-                    placeholder="₹ Price"
+                    placeholder="KD Price"
                     value={l.price}
                     onChange={(e) => setLine(l.key, { price: e.target.value })}
                     aria-label="Price"
@@ -517,7 +517,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               <span className={lbl}>Manual discount</span>
               <div className="flex gap-2">
                 <select className="h-11 w-[84px] rounded-xl border border-slate-300 bg-white px-3 text-[14px] font-bold outline-none focus:border-slate-400" value={mType} onChange={(e) => setMType(e.target.value as DiscountType)} aria-label="Discount type">
-                  <option value="amount">₹</option>
+                  <option value="amount">KD</option>
                   <option value="percent">%</option>
                 </select>
                 <input type="number" min={0} inputMode="decimal" placeholder="0" className="h-11 flex-1 rounded-xl border border-slate-300 bg-white px-4 text-right text-[14px] outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100" value={mVal} onChange={(e) => setMVal(e.target.value)} aria-label="Discount value" />
@@ -622,7 +622,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               </div>
               {pay === "cash" ? (
                 <>
-                  <span className="mb-2 block text-[12px] font-bold text-slate-700">Amount Received (₹)</span>
+                  <span className="mb-2 block text-[12px] font-bold text-slate-700">Amount Received (KD)</span>
                   <input type="number" min={0} inputMode="decimal" placeholder={calc.total ? calc.total.toFixed(2) : "0.00"} className="h-12 w-full rounded-xl border border-slate-300 px-4 text-[18px] font-bold outline-none placeholder:text-slate-300 focus:border-slate-400 focus:ring-4 focus:ring-slate-100" value={received} onChange={(e) => setReceived(e.target.value)} />
                   {recv > 0 && (
                     <p className={cx("mt-2 flex justify-between text-[13px] font-semibold", change < 0 ? "text-red-600" : "text-emerald-600")}>
@@ -636,11 +636,11 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                   <p className="text-[12.5px] text-slate-500">Customer pays part in cash and part by card — enter how much of each.</p>
                   <div className="grid grid-cols-2 gap-2">
                     <label>
-                      <span className="mb-1 block text-[12px] font-bold text-slate-700">Cash (₹)</span>
+                      <span className="mb-1 block text-[12px] font-bold text-slate-700">Cash (KD)</span>
                       <input type="number" min={0} inputMode="decimal" placeholder="0.00" className="h-12 w-full rounded-xl border border-slate-300 px-3 text-[16px] font-bold outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100" value={splitCash} onChange={(e) => (setSplitCash(e.target.value), setSplitCard(rest(e.target.value)))} />
                     </label>
                     <label>
-                      <span className="mb-1 block text-[12px] font-bold text-slate-700">Card (₹)</span>
+                      <span className="mb-1 block text-[12px] font-bold text-slate-700">Card (KD)</span>
                       <input type="number" min={0} inputMode="decimal" placeholder="0.00" className="h-12 w-full rounded-xl border border-slate-300 px-3 text-[16px] font-bold outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100" value={splitCard} onChange={(e) => (setSplitCard(e.target.value), setSplitCash(rest(e.target.value)))} />
                     </label>
                   </div>

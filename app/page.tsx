@@ -106,7 +106,7 @@ const IMAGES = {
 // A `src` can be an Unsplash id (built into a URL), a full http(s) URL (what
 // admin-uploaded homepage photos use), or a local /public asset path. The last
 // two are passed straight through; only a bare Unsplash id gets a built URL.
-const isFullUrl = (s: string) => /^https?:\/\//.test(s) || s.startsWith('/');
+const isFullUrl = (s: string) => /^https?:\/\//.test(s) || s.startsWith('/') || s.startsWith('data:');
 /* q=90 and widths up to 2K. The cards are ~270 CSS px wide but sit on retina
    and 3x phone screens, where a 1100px copy is already being stretched — that
    is why the photos looked soft. `auto=format` still ships AVIF/WebP, so the

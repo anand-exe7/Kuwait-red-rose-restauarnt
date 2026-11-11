@@ -4,7 +4,11 @@
 // something. Rent, wages, gas, packaging, a repair: one row each, with a
 // category and the day the money actually went out.
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+
+// useLayoutEffect on the client (measure the pill before paint, no flash),
+// useEffect on the server (avoids the SSR warning).
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import type { Expense } from "./types";
 import { rupee } from "./money";
 import { expenseStats, rangeOf, type Period } from "./analytics";
@@ -93,6 +97,41 @@ export default function ExpensesPage() {
     for (const e of s.expenses) m.set(e.category, (m.get(e.category) ?? 0) + 1);
     return m;
   }, [s.expenses]);
+
+  /* Sliding segmented filter — the active red pill glides to whichever
+     category you tap instead of each chip flipping its own colour. We measure
+     the active button and move one absolutely-positioned indicator to it. */
+  const catTabs = useMemo(() => ["all", ...categories], [categories]);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const btnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pill, setPill] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  useIsoLayoutEffect(() => {
+    const move = () => {
+      const el = btnRefs.current[cat];
+      if (!el) return;
+      const next = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+      // Only update when the measurement actually changes — setting a fresh
+      // object every run would re-render → re-run this effect → infinite loop.
+      setPill((prev) =>
+        prev && prev.left === next.left && prev.top === next.top && prev.width === next.width && prev.height === next.height
+          ? prev
+          : next,
+      );
+    };
+    move();
+    // Re-measure after fonts/layout settle and whenever the window resizes.
+    const t = window.setTimeout(move, 60);
+    window.addEventListener("resize", move);
+    return () => { window.clearTimeout(t); window.removeEventListener("resize", move); };
+    // Primitive deps only — catTabs/usage are fresh refs each render and would
+    // otherwise make this effect run every render.
+  }, [cat, catTabs.length, s.expenses.length]);
+
+  const selectCat = (c: string) => {
+    setCat(c);
+    btnRefs.current[c]?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  };
 
   const createCategory = async () => {
     setBusy(true);
@@ -211,22 +250,32 @@ export default function ExpensesPage() {
       </div>
 
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="adm-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1">
-          {["all", ...categories].map((c) => {
+        <div ref={trackRef} className="adm-scroll relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-full bg-slate-100 p-1">
+          {/* the single sliding pill that glides to the active category */}
+          {pill && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute z-0 rounded-full bg-red-600 shadow-[0_4px_12px_-4px_rgba(220,38,38,.9)] transition-all duration-300 ease-out"
+              style={{ left: pill.left, top: pill.top, width: pill.width, height: pill.height }}
+            />
+          )}
+          {catTabs.map((c) => {
             const on = cat === c;
             return (
               <button
                 key={c}
+                ref={(el) => { btnRefs.current[c] = el; }}
                 type="button"
-                onClick={() => setCat(c)}
+                onClick={() => selectCat(c)}
+                aria-pressed={on}
                 className={cx(
-                  "h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-[12.5px] font-bold capitalize transition",
-                  on ? "bg-red-600 text-white shadow-[0_4px_10px_-4px_rgba(220,38,38,.9)]" : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  "relative z-10 h-9 shrink-0 whitespace-nowrap rounded-full px-4 text-[12.5px] font-bold capitalize transition-colors",
+                  on ? "text-white" : "text-slate-600 hover:text-slate-900",
                 )}
               >
                 <span className="flex items-center gap-1.5">
                   {c === "all" ? "All categories" : c}
-                  <span className={cx("adm-num rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums", on ? "bg-white/20 text-white/90" : "bg-white text-slate-500")}>
+                  <span className={cx("adm-num rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums transition-colors", on ? "bg-white/20 text-white/90" : "bg-white text-slate-500")}>
                     {c === "all" ? s.expenses.length : usage.get(c) ?? 0}
                   </span>
                 </span>
@@ -377,14 +426,14 @@ export default function ExpensesPage() {
           <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Create category</span>
           <div className="flex gap-2">
             <input
-              className={inputCls}
+              className={cx(inputCls, "min-w-0 flex-1")}
               value={newCatName}
               maxLength={40}
               placeholder="e.g. Electricity"
               onChange={(e) => setNewCatName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && newCatName.trim() && createCategory()}
             />
-            <Btn kind="red" disabled={busy || !newCatName.trim()} onClick={createCategory}>
+            <Btn kind="red" className="shrink-0 whitespace-nowrap" disabled={busy || !newCatName.trim()} onClick={createCategory}>
               Create
             </Btn>
           </div>
