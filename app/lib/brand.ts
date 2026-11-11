@@ -14,6 +14,8 @@ import {
   shopName,
   shopPhoneDisplay,
   shopTelHref,
+  shopPhone2Display,
+  shopTel2Href,
   shopOwner,
   shopPhone,
 } from './shop';
@@ -34,6 +36,10 @@ export const BRAND = {
   phoneDisplay: shopPhoneDisplay(),
   /** `tel:` target for that number. */
   telHref: shopTelHref(),
+  /** Optional second number — landing page + footer only. Empty when unset. */
+  phone2Display: shopPhone2Display(),
+  /** `tel:` target for the second number. Empty when unset. */
+  tel2Href: shopTel2Href(),
   /** Proprietor, printed on the invoice. */
   owner: shopOwner(),
   /** Google Maps place link used by every "find us" / "directions" button. */

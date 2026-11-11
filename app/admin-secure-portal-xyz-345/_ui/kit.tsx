@@ -313,10 +313,16 @@ export const inputCls =
 export const inputLineCls =
   "h-10 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[13.5px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-100";
 
-export function Field({ label, children, className, hint }: { label: string; children: React.ReactNode; className?: string; hint?: React.ReactNode }) {
+export function Field({ label, children, className, hint, required, labelNowrap }: { label: string; children: React.ReactNode; className?: string; hint?: React.ReactNode; required?: boolean; labelNowrap?: boolean }) {
   return (
     <label className={cx("block", className)}>
-      <span className={labelCls}>{label}</span>
+      <span className={cx(labelCls, labelNowrap && "whitespace-nowrap")}>
+        {label}
+        {/* Non-breaking space keeps the red required-mark bound to the last
+            word, so it can never orphan onto a line of its own (which is what
+            threw the compact size-row inputs out of alignment). */}
+        {required && <span className="text-red-500">&nbsp;*</span>}
+      </span>
       {children}
       {hint && <span className="mt-1 block text-[11px] text-slate-400">{hint}</span>}
     </label>

@@ -45,6 +45,14 @@ export function configuredSiteUrl(): string {
   );
 }
 
+/** The canonical production origin. Used for metadataBase, sitemap, robots and
+ *  canonical/OG URLs — so it must always be absolute, even when the env var is
+ *  not set at build time. Falls back to the registered domain. */
+export const CANONICAL_ORIGIN = 'https://redrosesweets.com';
+export function siteOrigin(): string {
+  return configuredSiteUrl() || CANONICAL_ORIGIN;
+}
+
 /**
  * Origin to put in a link we send to a customer.
  *

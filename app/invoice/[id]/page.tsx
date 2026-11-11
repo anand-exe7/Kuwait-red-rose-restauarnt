@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import InvoiceView from "./InvoiceView";
 import { BRAND } from "../../lib/brand";
-import "../../admin/admin.css";
+import "../../admin-secure-portal-xyz-345/admin.css";
 
 type Params = { id: string };
 
@@ -15,6 +15,8 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   return {
     title: isInvoice ? `Invoice ${ref}` : `Order #${ref}`,
     description: isInvoice ? `Your ${BRAND.name} invoice.` : `Track your ${BRAND.name} order.`,
+    // A private, per-customer document shared by link — never indexable.
+    robots: { index: false, follow: false },
   };
 }
 

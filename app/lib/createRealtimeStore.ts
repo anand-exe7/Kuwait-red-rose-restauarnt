@@ -71,8 +71,8 @@ export function createRealtimeStore<T extends { id: string | number }>(opts: {
 
   // ---------- Local-storage demo persistence ----------
   // When Supabase isn't configured we still want the whole app to feel real:
-  // orders placed in /menu should show up in /admin on another tab, bills
-  // closed in /admin should show up on the customer's /customer tab, etc.
+  // orders placed in /menu should show up in /admin-secure-portal-xyz-345 on another tab, bills
+  // closed in /admin-secure-portal-xyz-345 should show up on the customer's /customer tab, etc.
   // So in demo mode we persist each store's cache to localStorage and listen
   // for 'storage' events to resync. This hop is removed the moment Supabase
   // env vars appear — the Supabase path takes precedence.

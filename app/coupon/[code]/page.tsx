@@ -11,6 +11,8 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   return {
     title: `${clean} · Coupon`,
     description: `Your ${BRAND.name} coupon ${clean}.`,
+    // A personal, transient coupon link — not evergreen content, never indexed.
+    robots: { index: false, follow: false },
   };
 }
 

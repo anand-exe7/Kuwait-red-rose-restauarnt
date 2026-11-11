@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { Bill } from "../../admin/_ui/types";
-import { Sheet } from "../../admin/_ui/receipt";
+import type { Bill } from "../../admin-secure-portal-xyz-345/_ui/types";
+import { Sheet } from "../../admin-secure-portal-xyz-345/_ui/receipt";
 import { BRAND } from "../../lib/brand";
 import {
   subscribeToBills,
@@ -246,7 +246,7 @@ export default function InvoiceView({ id }: { id: string }) {
 
   return (
     <div className="adm">
-      <div className="overflow-hidden rounded-3xl bg-white shadow-[0_18px_42px_-18px_rgba(74,21,21,0.3)]">
+      <div className="inv-screen overflow-hidden rounded-3xl bg-white shadow-[0_18px_42px_-18px_rgba(74,21,21,0.3)]">
         <Sheet b={bill} shop={BRAND.fullName} size="A4" hideSize />
       </div>
       <div className="mt-5 flex flex-wrap gap-3">
