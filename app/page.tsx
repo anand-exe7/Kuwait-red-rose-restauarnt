@@ -1164,7 +1164,7 @@ export default async function Home() {
             <div className="mx-auto mt-10 grid max-w-4xl grid-cols-2 gap-3 sm:mt-12 sm:gap-4 lg:grid-cols-4">
               {media.videos.slice(0, 4).map((url) => (
                 <div key={url} className="aspect-[9/16] overflow-hidden rounded-2xl border border-brand-gold/25 bg-black shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)]">
-                  <video src={url} className="h-full w-full object-cover" controls playsInline preload="metadata" />
+                  <video src={url} className="h-full w-full object-cover" autoPlay loop muted playsInline preload="metadata" />
                 </div>
               ))}
             </div>
