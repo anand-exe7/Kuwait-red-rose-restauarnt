@@ -389,6 +389,42 @@ html:has(.adm) {
 .inv--a5 .inv__tot { font-size: 12pt !important; padding: 2.4mm 2mm !important; margin-top: 2mm; }
 .inv--a5 .inv__foot { margin-top: 7mm; font-size: 7.5pt; }
 
+/* On a phone the customer's A4 invoice is read on screen, not printed. The
+   sheet above is sized for paper — mm/pt units, a side-by-side header and
+   billed-to row, and a half-width totals rail — which overflows and wraps
+   badly on a narrow screen. Below 640px we restyle the ON-SCREEN sheet
+   (.inv-screen, the customer invoice only) to stack vertically and use screen
+   units. Printing and the admin's .inv--a{n} paper previews are untouched. */
+@media screen and (max-width: 640px) {
+  .inv-screen .inv { padding: 22px 18px; font-size: 13px; }
+
+  .inv-screen .inv__head { flex-direction: column; gap: 12px; padding-bottom: 16px; }
+  .inv-screen .inv__head h1 { font-size: 21px; }
+  .inv-screen .inv__head p { font-size: 11.5px; margin-top: 4px; }
+  .inv-screen .inv__meta { text-align: left; min-width: 0; }
+  .inv-screen .inv__meta h2 { font-size: 12px; margin-bottom: 5px; letter-spacing: 0.2em; }
+  .inv-screen .inv__meta p { font-size: 12px; }
+  .inv-screen .inv__meta .inv__no b { font-size: 15px; }
+
+  .inv-screen .inv__to { flex-direction: column; gap: 14px; margin: 16px 0 8px; padding: 14px 16px; border-radius: 10px; }
+  .inv-screen .inv__r { text-align: left; }
+  .inv-screen .inv__to span { font-size: 10px; }
+  .inv-screen .inv__to b { font-size: 14px; }
+  .inv-screen .inv__to p { font-size: 12px; }
+
+  .inv-screen .inv__tbl { margin: 14px 0; }
+  .inv-screen .inv__tbl th { font-size: 10px; padding: 8px 6px; letter-spacing: 0.08em; }
+  .inv-screen .inv__tbl td { font-size: 12.5px; padding: 8px 6px; }
+  .inv-screen .inv__tbl th:first-child,
+  .inv-screen .inv__tbl td:first-child { width: 1%; white-space: nowrap; padding-left: 8px; }
+
+  .inv-screen .inv__sum { width: 100%; }
+  .inv-screen .inv__sum div { font-size: 13px; padding: 7px 2px; }
+  .inv-screen .inv__tot { font-size: 16px !important; padding: 12px 8px !important; margin-top: 10px; }
+
+  .inv-screen .inv__foot { flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 22px; font-size: 11px; }
+}
+
 /* Pagebreak helpers */
 @media print {
   .inv, .rcpt { page-break-inside: avoid; }

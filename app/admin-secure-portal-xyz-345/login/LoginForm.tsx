@@ -2,7 +2,7 @@
 
 // Admin sign-in — posts to the existing /api/auth/login (role=admin), which
 // sets the shared `rr_session` cookie that /chef-station, /waiter-dashboard and
-// this /admin all read. One password gate, one cookie.
+// this /admin-secure-portal-xyz-345 all read. One password gate, one cookie.
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -29,7 +29,7 @@ export default function LoginForm() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) return setErr(d.error ?? "Couldn't sign in.");
       // Full navigation so the new cookie is picked up by proxy.ts.
-      window.location.assign("/admin");
+      window.location.assign("/admin-secure-portal-xyz-345");
     } catch {
       setErr("Network problem — try again.");
     } finally {

@@ -9,6 +9,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminLayout({ children }: LayoutProps<"/admin">) {
+export default function AdminLayout({ children }: LayoutProps<"/admin-secure-portal-xyz-345">) {
   return <div className={`adm ${lexend.variable}`}>{children}</div>;
 }

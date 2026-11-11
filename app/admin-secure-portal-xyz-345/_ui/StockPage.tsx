@@ -247,7 +247,7 @@ export default function StockPage() {
               <Icon name="box" size={14} className="mt-0.5 shrink-0" />
               <span>
                 Change a count in{" "}
-                <Link href="/admin/inventory" className="font-bold text-red-600 hover:underline">
+                <Link href="/admin-secure-portal-xyz-345/inventory" className="font-bold text-red-600 hover:underline">
                   Inventory
                 </Link>{" "}
                 and it shows up here as &ldquo;Corrected&rdquo; or &ldquo;Added&rdquo;, with your name on it.

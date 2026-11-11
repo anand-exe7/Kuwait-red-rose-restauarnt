@@ -348,7 +348,7 @@ function TabDetail({
             Cancel {home ? "order" : "tab"}
           </Btn>
           <Link
-            href={`/admin/billing?tab=${encodeURIComponent(session.id)}`}
+            href={`/admin-secure-portal-xyz-345/billing?tab=${encodeURIComponent(session.id)}`}
             className={cx(
               "inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-[12.5px] font-extrabold uppercase tracking-wide text-white",
               home && readyToBill ? "bg-emerald-600 hover:bg-emerald-700"

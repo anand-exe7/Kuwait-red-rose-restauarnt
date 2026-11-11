@@ -93,7 +93,7 @@ export default function OrdersPage() {
       <PageHead
         title="Order Management"
         right={
-          <Link href="/admin/billing" className="inline-flex h-11 items-center gap-2 rounded-xl bg-red-600 px-5 text-[14px] font-bold text-white shadow-[0_6px_16px_-8px_rgba(220,38,38,.8)] hover:bg-red-700">
+          <Link href="/admin-secure-portal-xyz-345/billing" className="inline-flex h-11 items-center gap-2 rounded-xl bg-red-600 px-5 text-[14px] font-bold text-white shadow-[0_6px_16px_-8px_rgba(220,38,38,.8)] hover:bg-red-700">
             <Icon name="cart" size={18} /> Open POS
           </Link>
         }

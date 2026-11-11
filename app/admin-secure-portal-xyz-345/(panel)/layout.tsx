@@ -13,7 +13,7 @@ import Shell from "../_ui/Shell";
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const role = await verifySessionToken(token);
-  if (role !== "admin") redirect("/admin/login");
+  if (role !== "admin") redirect("/admin-secure-portal-xyz-345/login");
 
   // Empty seed — the Store in _ui/Store.tsx hydrates from Red Rose's live
   // Supabase stores on mount, so the first paint is instant but the numbers

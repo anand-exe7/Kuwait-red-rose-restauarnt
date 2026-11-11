@@ -16,17 +16,17 @@ type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "sta
 const NAV: Nav[] = [
   // The owner's own running order: what the counter touches most, then the
   // catalogue, then the things that are set once and left alone.
-  { href: "/admin/billing", label: "Billing", icon: "billing", roles: ["admin", "staff"] },
-  { href: "/admin/online", label: "Online orders", icon: "bag", roles: ["admin", "staff"] },
-  { href: "/admin/kitchen", label: "Open tabs", icon: "kitchen", roles: ["admin", "staff"] },
-  { href: "/admin/orders", label: "Orders", icon: "orders", roles: ["admin", "staff"] },
-  { href: "/admin/analytics", label: "Analytics", icon: "chart", roles: ["admin"] },
-  { href: "/admin/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
-  { href: "/admin/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
-  { href: "/admin/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
-  { href: "/admin/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
-  { href: "/admin/media", label: "Images & videos", icon: "image", roles: ["admin"] },
-  { href: "/admin/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/billing", label: "Billing", icon: "billing", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/online", label: "Online orders", icon: "bag", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/kitchen", label: "Open tabs", icon: "kitchen", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/orders", label: "Orders", icon: "orders", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/analytics", label: "Analytics", icon: "chart", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/media", label: "Images & videos", icon: "image", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
 ];
 
 const Cherry = () => (
@@ -86,16 +86,16 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
 
   const badge: Record<string, React.ReactNode> = {
-    "/admin/kitchen": kitchenPending ? (
+    "/admin-secure-portal-xyz-345/kitchen": kitchenPending ? (
       <span className="grid h-5 min-w-5 place-items-center rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">{kitchenPending}</span>
     ) : null,
-    "/admin/billing": billReq ? (
+    "/admin-secure-portal-xyz-345/billing": billReq ? (
       <span className={cx("grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[10px] font-bold", asking ? "adm-pulse bg-amber-500 text-white" : "bg-amber-400 text-amber-950")}>
         {billReq}
       </span>
     ) : null,
-    "/admin/inventory": low ? <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">{low}</span> : null,
-    "/admin/online": fresh ? <span className="adm-pulse grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{fresh}</span> : null,
+    "/admin-secure-portal-xyz-345/inventory": low ? <span className="grid h-5 min-w-5 place-items-center rounded-full bg-amber-100 px-1.5 text-[10px] font-bold text-amber-700">{low}</span> : null,
+    "/admin-secure-portal-xyz-345/online": fresh ? <span className="adm-pulse grid h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold text-white">{fresh}</span> : null,
   };
 
   useEffect(() => {
@@ -114,7 +114,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       // Even if the call fails we still leave the panel; the guard will send
       // the user to the login page on the next server request.
     }
-    router.replace("/admin/login");
+    router.replace("/admin-secure-portal-xyz-345/login");
     // Drop the cached RSC payload for the panel, otherwise Next can paint the
     // signed-in shell again from cache before the server re-checks the cookie.
     router.refresh();
@@ -125,7 +125,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   const renderSide = (mini: boolean) => (
     <div className="flex h-full flex-col">
-      <Link href={role === "admin" ? "/admin/billing" : "/admin/billing"} title={`${BRAND.name} · Admin`} className={cx("adm-side__brand flex items-center gap-3 pb-6 pt-6", mini ? "justify-center px-0" : "px-5")}>
+      <Link href={role === "admin" ? "/admin-secure-portal-xyz-345/billing" : "/admin-secure-portal-xyz-345/billing"} title={`${BRAND.name} · Admin`} className={cx("adm-side__brand flex items-center gap-3 pb-6 pt-6", mini ? "justify-center px-0" : "px-5")}>
         <Cherry />
         {!mini && (
           <span className="leading-tight">
@@ -193,7 +193,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             {BRAND.name} · {role === "admin" ? "Admin" : "Staff"}
           </b>
           {fresh > 0 && (
-            <Link href="/admin/online" className="shrink-0 rounded-full bg-red-600 px-3 py-1 text-[12px] font-bold text-white">
+            <Link href="/admin-secure-portal-xyz-345/online" className="shrink-0 rounded-full bg-red-600 px-3 py-1 text-[12px] font-bold text-white">
               {fresh} new
             </Link>
           )}

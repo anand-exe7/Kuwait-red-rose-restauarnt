@@ -14,7 +14,7 @@ async function readRole(): Promise<"admin" | null> {
 }
 
 /** Guard an admin-only panel page. Redirects staff / signed-out viewers. */
-export async function requireAdmin(fallback = "/admin/login"): Promise<void> {
+export async function requireAdmin(fallback = "/admin-secure-portal-xyz-345/login"): Promise<void> {
   const role = await readRole();
   if (!role) redirect(fallback);
 }

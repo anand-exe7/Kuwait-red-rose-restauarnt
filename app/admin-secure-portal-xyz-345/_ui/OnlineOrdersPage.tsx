@@ -181,7 +181,7 @@ export default function OnlineOrdersPage() {
             </span>
             <p className="text-[13.5px] font-semibold text-slate-600">
               Nothing waiting. Everything you&rsquo;ve accepted is in{" "}
-              <Link href="/admin/kitchen" className="font-bold text-red-600 hover:underline">
+              <Link href="/admin-secure-portal-xyz-345/kitchen" className="font-bold text-red-600 hover:underline">
                 Open tabs
               </Link>
               .
