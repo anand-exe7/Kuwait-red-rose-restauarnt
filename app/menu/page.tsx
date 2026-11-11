@@ -11,7 +11,7 @@
 import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
-  ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X,
+  ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X, Search,
   Bike, PackageCheck, MapPin, LogIn, LogOut, Send, QrCode, User, Mail, Phone,
   ClipboardList, CalendarClock, Home, Receipt, Clock, PlusCircle, ChevronRight,
 } from 'lucide-react';
@@ -143,6 +143,7 @@ function variantGrams(v: MenuVariant): number {
 
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState('All');
+  const [search, setSearch] = useState('');
   const [cart, setCart] = useState<Record<string, number>>({});
   /** The product whose size sheet is open, if any. */
   const [sizingFor, setSizingFor] = useState<string | null>(null);
@@ -299,7 +300,17 @@ export default function MenuPage() {
     () => ['All', ...Array.from(new Set([...MENU_CATEGORIES, ...menu.map(m => m.category)].filter(Boolean)))],
     [menu]
   );
-  const filteredMenu = activeCategory === 'All' ? menu : menu.filter(m => m.category === activeCategory);
+  const q = search.trim().toLowerCase();
+  const filteredMenu = menu.filter(m => {
+    const inCategory = activeCategory === 'All' || m.category === activeCategory;
+    if (!inCategory) return false;
+    if (!q) return true;
+    return (
+      m.name.toLowerCase().includes(q) ||
+      (m.description ?? '').toLowerCase().includes(q) ||
+      (m.category ?? '').toLowerCase().includes(q)
+    );
+  });
   // The landing page has four best-seller slots; this strip mirrors it, so it
   // shows the same four and never grows a fifth.
   const bestSellers = menu.filter(m => m.isBestSeller).slice(0, 4);
@@ -329,17 +340,28 @@ export default function MenuPage() {
   const qtyOf = (m: MenuItem) =>
     Object.entries(cart).reduce((a, [k, q]) => (splitKey(k).id === m.id ? a + q : a), 0);
 
+  // Mirror the basket to sessionStorage on every change, so it survives the
+  // Google sign-in round-trip (a full-page redirect) no matter which entry
+  // point opened the sign-in modal, plus an accidental reload. We persist from
+  // the cart mutators rather than a useEffect so the restore-on-mount (which
+  // uses plain setCart) can never be clobbered by an empty initial write.
+  const persistCart = (c: Record<string, number>) => {
+    try { sessionStorage.setItem(CART_STORAGE_KEY, JSON.stringify(c)); } catch { /* storage off — in-memory cart still works */ }
+  };
   const addToCart = (key: string) => setCart(p => {
     const left = stockLeft(key);
     const have = p[key] || 0;
     // Sold out, or the basket already holds everything on the shelf.
     if (left !== null && have >= left) return p;
-    return { ...p, [key]: have + 1 };
+    const next = { ...p, [key]: have + 1 };
+    persistCart(next);
+    return next;
   });
   const removeFromCart = (id: string) => setCart(p => {
     const n = { ...p };
     if (n[id] > 1) n[id]--;
     else delete n[id];
+    persistCart(n);
     return n;
   });
 
@@ -436,8 +458,9 @@ export default function MenuPage() {
     setIsCartOpen(true);
     setStep('mode');
     try {
+      // Only drop the resume flag — the cart stays mirrored by the sync effect
+      // so a reload mid-checkout still keeps the basket.
       sessionStorage.removeItem(RESUME_CHECKOUT_KEY);
-      sessionStorage.removeItem(CART_STORAGE_KEY);
     } catch { /* ignore */ }
   };
 
@@ -458,9 +481,12 @@ export default function MenuPage() {
     advanceToCheckoutMode();
   };
 
-  // On mount after returning from Google OAuth: restore the stashed cart +
-  // resume flag and open the drawer immediately, so the user sees the
-  // checkout picking up instead of landing on a bare menu while auth loads.
+  // On mount — including after returning from the Google OAuth redirect, which
+  // replaces the whole document — restore the cart that was persisted in
+  // sessionStorage. Google sign-in is a full-page round-trip, so the in-memory
+  // cart would otherwise be lost: the shopper would come back signed in but to
+  // an empty basket. The resume flag additionally re-opens the drawer so a
+  // checkout that triggered sign-in picks up where it left off.
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(CART_STORAGE_KEY);
@@ -679,6 +705,7 @@ export default function MenuPage() {
         setLastWhatsApp(null);
       }
       setCart({});
+      persistCart({});
       setAppliedCoupon(null);
       setCouponInput('');
       setRemark('');
@@ -713,13 +740,13 @@ export default function MenuPage() {
           scrolling underneath the gaps around it doesn't bleed through. */}
       <div
         aria-hidden
-        className={`fixed inset-x-0 top-0 z-30 h-[82px] bg-brand-cream/80 backdrop-blur-xl transition-opacity duration-300 sm:h-[88px] ${pastHero ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+        className={`fixed inset-x-0 top-0 z-30 h-[82px] bg-brand-cream/80 backdrop-blur-xl transition-opacity duration-300 sm:h-[88px] ${isCartOpen ? 'hidden' : ''} ${pastHero ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
         style={{
           maskImage: 'linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to bottom, #000 0%, #000 78%, transparent 100%)',
         }}
       />
-      <header className="fixed inset-x-0 top-0 z-40 px-2 pt-2 sm:px-5 sm:pt-4">
+      <header className={`fixed inset-x-0 top-0 z-40 px-2 pt-2 sm:px-5 sm:pt-4 ${isCartOpen ? 'hidden' : ''}`}>
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 rounded-full border border-brand-gold/25 bg-[#4f070c]/90 py-1 pl-1.5 pr-1.5 shadow-[0_18px_44px_-12px_rgba(35,0,4,0.6)] backdrop-blur-md sm:gap-3 sm:py-1.5 sm:pl-2">
           <BrandMark href="/" sub="Pastry · Kuwait" compact />
 
@@ -967,14 +994,37 @@ export default function MenuPage() {
         </div>
       )}
 
-      <div className="sticky top-[68px] z-30 mt-8 border-b border-brand-gold/20 bg-brand-cream/85 py-3 backdrop-blur-md md:mb-2">
-        <div className="no-scrollbar mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 md:justify-center md:gap-3 md:px-6">
-          {categories.map(cat => (
-            <button key={cat} onClick={() => setActiveCategory(cat)}
-              className={`btn shrink-0 px-5 py-3 text-[10px] md:px-7 ${activeCategory === cat ? 'btn-wine' : 'btn-outline bg-white/60'}`}>
-              {cat}
-            </button>
-          ))}
+      <div className={`sticky top-[68px] z-30 mt-8 border-b border-brand-gold/20 bg-brand-cream/85 py-3 backdrop-blur-md md:mb-2 ${isCartOpen ? 'hidden' : ''}`}>
+        <div className="mx-auto max-w-6xl px-4 md:px-6">
+          <label className="relative mx-auto mb-3 block max-w-md">
+            <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-brand-gold-dark" />
+            <input
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search our creations…"
+              aria-label="Search menu"
+              className="w-full rounded-full border border-brand-gold/30 bg-white/80 py-3 pl-11 pr-10 font-body text-[13px] text-brand-ink outline-none transition focus:border-brand-gold focus:bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-brand-wine/50 transition hover:bg-brand-cream hover:text-brand-wine"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </label>
+          <div className="no-scrollbar flex gap-2 overflow-x-auto md:justify-center md:gap-3">
+            {categories.map(cat => (
+              <button key={cat} onClick={() => setActiveCategory(cat)}
+                className={`btn shrink-0 px-5 py-3 text-[10px] md:px-7 ${activeCategory === cat ? 'btn-wine' : 'btn-outline bg-white/60'}`}>
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -993,7 +1043,7 @@ export default function MenuPage() {
 
         {filteredMenu.length === 0 ? (
           <p className="rounded-3xl border border-brand-gold/30 bg-white p-10 text-center font-body text-sm text-brand-wine/60">
-            No items in this category yet.
+            {q ? <>No creations match “{search.trim()}”.</> : 'No items in this category yet.'}
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] sm:gap-6 md:gap-8">

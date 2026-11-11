@@ -163,7 +163,7 @@ export default function ChefDashboard() {
             </span>
             {readyOrders.map(o => (
               <span key={o.id} className="shrink-0 whitespace-nowrap rounded-full bg-brand-cream px-3 py-1.5 font-body text-[11px] font-medium text-brand-wine sm:px-4 sm:py-2 sm:text-xs">
-                {orderLabel(o)} · #{o.id.split('-')[1]}
+                {orderLabel(o)} · #{resolveOrderNo({ sessionId: o.sessionId, id: o.id, createdAt: o.createdAt })}
               </span>
             ))}
           </div>
@@ -199,7 +199,7 @@ export default function ChefDashboard() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-display text-base font-semibold text-brand-wine sm:text-lg">#{order.id.split('-')[1]}</span>
+                        <span className="font-display text-base font-semibold text-brand-wine sm:text-lg">#{resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })}</span>
                         {order.source === 'customer' && (
                           <span className="rounded-full bg-brand-plum/10 px-2 py-0.5 font-body text-[8.5px] font-medium uppercase tracking-[0.16em] text-brand-plum sm:text-[9px]">Self</span>
                         )}
@@ -266,12 +266,7 @@ export default function ChefDashboard() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="flex flex-wrap items-center gap-x-2 gap-y-1 font-display text-xl font-semibold leading-none text-brand-wine sm:text-2xl">
-                        Ticket #{order.id.split('-')[1]}
-                        {(order.mode === 'takeaway' || order.mode === 'delivery') && (
-                          <span className="rounded-full bg-brand-wine px-2.5 py-1 font-body text-[11px] font-bold tracking-[0.1em] text-brand-gold-light">
-                            Order #{resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })}
-                          </span>
-                        )}
+                        Order #{resolveOrderNo({ sessionId: order.sessionId, id: order.id, createdAt: order.createdAt })}
                         {order.source === 'customer' && (
                           <span className="rounded-full bg-brand-plum/10 px-2 py-0.5 font-body text-[9px] font-medium uppercase tracking-[0.18em] text-brand-plum sm:px-2.5 sm:py-1">Self-order</span>
                         )}

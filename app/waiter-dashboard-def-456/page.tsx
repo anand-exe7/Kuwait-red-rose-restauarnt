@@ -1742,7 +1742,7 @@ function AlertsSheet({
                     <p className="truncate font-wordmark text-xl uppercase leading-none text-brand-wine">{orderLabel(t)}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-[11.5px] text-brand-ink/50">
                       <Clock size={11} /> {timeOf(t.createdAt)}
-                      <span className="font-mono opacity-60">#{t.id.split('-')[1]}</span>
+                      <span className="font-mono opacity-60">#{resolveOrderNo({ sessionId: t.sessionId, id: t.id, createdAt: t.createdAt })}</span>
                     </p>
                   </div>
                   {t.priority === 'high' && <Pill tone="red"><Flame size={10} /> Rush</Pill>}

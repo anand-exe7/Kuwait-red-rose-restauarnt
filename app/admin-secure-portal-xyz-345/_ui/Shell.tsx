@@ -20,6 +20,7 @@ const NAV: Nav[] = [
   { href: "/admin-secure-portal-xyz-345/online", label: "Online orders", icon: "bag", roles: ["admin", "staff"] },
   { href: "/admin-secure-portal-xyz-345/kitchen", label: "Open tabs", icon: "kitchen", roles: ["admin", "staff"] },
   { href: "/admin-secure-portal-xyz-345/orders", label: "Orders", icon: "orders", roles: ["admin", "staff"] },
+  { href: "/admin-secure-portal-xyz-345/tables", label: "Tables", icon: "tables", roles: ["admin", "staff"] },
   { href: "/admin-secure-portal-xyz-345/analytics", label: "Analytics", icon: "chart", roles: ["admin"] },
   { href: "/admin-secure-portal-xyz-345/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
   { href: "/admin-secure-portal-xyz-345/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },

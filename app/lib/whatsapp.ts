@@ -82,7 +82,6 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
   const lines: string[] = [
     header,
     `Order no. ${orderNo}`,
-    `Ticket ${order.id}`,
     '',
     '— Items —',
     formatItems(order.items),
@@ -99,7 +98,6 @@ export function buildOrderMessage({ order, mode, customer, address, deliveryFee 
   const fee = mode === 'delivery' ? (order.deliveryFee ?? deliveryFee) : 0;
   if (fee > 0) lines.push(`Delivery: ${formatKWD(fee)}`);
   lines.push(`Grand total: ${formatKWD(order.total)}`);
-  lines.push('Payment: Cash on ' + (mode === 'delivery' ? 'delivery' : 'pickup'));
   if (mode === 'takeaway' && pickupTime) {
     lines.push(`Pick-up time: ${pickupTime}`);
   }

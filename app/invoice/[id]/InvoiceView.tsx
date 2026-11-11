@@ -250,13 +250,6 @@ export default function InvoiceView({ id }: { id: string }) {
         <Sheet b={bill} shop={BRAND.fullName} size="A4" hideSize />
       </div>
       <div className="mt-5 flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="inline-flex h-11 items-center justify-center rounded-full bg-[#1a0f0a] px-5 text-[12px] font-bold uppercase tracking-wide text-white"
-        >
-          Print / Save PDF
-        </button>
         <a
           href="/menu"
           className="inline-flex h-11 items-center justify-center rounded-full bg-[#b01e28] px-5 text-[12px] font-bold uppercase tracking-wide text-white"
