@@ -8,7 +8,7 @@ import { Btn, Icon, Modal, cx, type IconName } from "./kit";
 import { BRAND } from "../../lib/brand";
 import { stockIsLow, stockIsOut } from "../../lib/menuStore";
 
-type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[] };
+type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[]; group?: "wholesale" };
 
 /* The panels Red Rose runs on, in the order the day runs in: take the money,
    accept what came in from the website, work the open tabs, then the records.
@@ -28,6 +28,14 @@ const NAV: Nav[] = [
   { href: "/admin-secure-portal-xyz-345/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
   { href: "/admin-secure-portal-xyz-345/media", label: "Images & videos", icon: "image", roles: ["admin"] },
   { href: "/admin-secure-portal-xyz-345/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
+
+  // Wholesale (B2B) — a self-contained billing world that sits apart from the
+  // restaurant POS. Its own catalogue, trade customers, bills and figures.
+  { href: "/admin-secure-portal-xyz-345/wholesale/billing", label: "Billing", icon: "billing", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/inventory", label: "Inventory", icon: "box", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/customers", label: "Customers", icon: "users", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/orders", label: "Orders", icon: "orders", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/analytics", label: "Analytics", icon: "chart", roles: ["admin"], group: "wholesale" },
 ];
 
 const Cherry = () => (
@@ -138,20 +146,30 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         )}
       </Link>
       <nav className="adm-side__scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-3" aria-label="Admin">
-        {nav.map((n) => {
+        {nav.map((n, i) => {
           const on = active(n.href);
+          // The wholesale block is set off from the restaurant pages by a
+          // labelled divider (a thin rule when the rail is collapsed to icons).
+          const startsGroup = n.group === "wholesale" && nav[i - 1]?.group !== "wholesale";
           return (
-            <Link
-              key={n.href}
-              href={n.href}
-              title={mini ? n.label : undefined}
-              className={cx("adm-link relative flex h-11 items-center rounded-xl text-[14px] font-semibold", on && "is-on", mini ? "justify-center px-0" : "gap-3 px-3")}
-            >
-              <Icon name={n.icon} size={19} />
-              {!mini && <span className="flex-1">{n.label}</span>}
-              {!mini && badge[n.href]}
-              {mini && badge[n.href] && <span className="adm-pulse absolute right-2 top-2 h-2 w-2 rounded-full bg-red-600 text-red-600" />}
-            </Link>
+            <div key={n.href}>
+              {startsGroup &&
+                (mini ? (
+                  <div className="mx-auto my-2 h-px w-8 bg-slate-200" />
+                ) : (
+                  <p className="mb-1 mt-4 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Wholesale</p>
+                ))}
+              <Link
+                href={n.href}
+                title={mini ? `Wholesale · ${n.label}` : undefined}
+                className={cx("adm-link relative flex h-11 items-center rounded-xl text-[14px] font-semibold", on && "is-on", mini ? "justify-center px-0" : "gap-3 px-3")}
+              >
+                <Icon name={n.icon} size={19} />
+                {!mini && <span className="flex-1">{n.label}</span>}
+                {!mini && badge[n.href]}
+                {mini && badge[n.href] && <span className="adm-pulse absolute right-2 top-2 h-2 w-2 rounded-full bg-red-600 text-red-600" />}
+              </Link>
+            </div>
           );
         })}
       </nav>
