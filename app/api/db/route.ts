@@ -46,6 +46,12 @@ const COLUMNS: Record<string, string[]> = {
   waiter_calls: ['id', 'table_number', 'resolved', 'created_at'],
   // Shop expenses — see supabase/expenses.sql. Admin-only, like the catalogue.
   expenses: ['id', 'title', 'category', 'amount', 'expense_date', 'notes', 'created_at'],
+  // Wholesale (B2B) module — see supabase/wholesale.sql. All admin-only.
+  wholesale_products: ['id', 'name', 'category', 'unit', 'wholesale_price', 'retail_price', 'cost_price', 'active', 'created_at'],
+  wholesale_customers: ['id', 'name', 'phone', 'note', 'created_at'],
+  wholesale_prices: ['id', 'customer_id', 'product_id', 'price', 'created_at'],
+  wholesale_bills: ['id', 'customer_id', 'customer_name', 'customer_phone', 'items', 'subtotal', 'discount',
+    'delivery_fee', 'extra', 'gst_percent', 'gst_amount', 'total', 'payment', 'created_at'],
 };
 
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
@@ -62,6 +68,10 @@ const DROPPABLE: Record<string, string[]> = {
   bills: ['invoice_no', 'payload'],
   coupons: ['targeted_only', 'sent_phones'],
   menu_items: ['is_best_seller', 'sku', 'cost', 'stock', 'low_stock_threshold', 'weight_grams', 'variants'],
+  // Columns added by the wholesale migration — if the owner hasn't re-run
+  // supabase/wholesale.sql yet, save the row without them instead of failing.
+  wholesale_products: ['cost_price'],
+  wholesale_bills: ['discount', 'delivery_fee', 'extra', 'gst_percent', 'gst_amount', 'payment'],
 };
 
 /** The column name out of a PostgREST "missing column" error, if that's what it is. */
@@ -98,8 +108,10 @@ type Ctx = { sb: SupabaseClient; role: Role | null; ip: string };
 
 async function adminOnlyWrite(ctx: Ctx, table: string, op: Op, values: Values, match: Match) {
   if (ctx.role !== 'admin') throw deny('Admin only');
+  // insertTolerant drops any DROPPABLE column the database doesn't have yet, so
+  // a pending migration degrades the row instead of rejecting it.
+  if (op === 'insert') return insertTolerant(ctx.sb, table, values);
   const q = ctx.sb.from(table);
-  if (op === 'insert') return q.insert(values);
   if (Object.keys(match).length === 0) throw bad('match is required');
   return op === 'update' ? q.update(values).match(match) : q.delete().match(match);
 }
@@ -431,6 +443,10 @@ export async function POST(request: NextRequest) {
       case 'tables':
       case 'app_settings':
       case 'expenses':
+      case 'wholesale_products':
+      case 'wholesale_customers':
+      case 'wholesale_prices':
+      case 'wholesale_bills':
         result = await adminOnlyWrite(ctx, table, op, values, match);
         break;
       case 'sessions': result = await sessionsWrite(ctx, op, values, match); break;
