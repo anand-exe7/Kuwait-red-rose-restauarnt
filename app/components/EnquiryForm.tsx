@@ -52,16 +52,16 @@ function buildEnquiryMessage(v: {
   note: string;
 }): string {
   const lines = [
-    `${WA.speech} New ENQUIRY — ${shopName()}`,
+    `${WA.speech} New CATERING REQUEST — ${shopName()}`,
     '',
     `Name: ${v.name.trim()}`,
     `Mobile: ${v.phone.trim()}`,
-    `Looking for: ${v.product.trim()}`,
+    `Catering for: ${v.product.trim()}`,
   ];
-  if (v.people.trim()) lines.push(`How many people: ${v.people.trim()}`);
+  if (v.people.trim()) lines.push(`Guests: ${v.people.trim()}`);
   if (v.when.trim()) lines.push(`Needed by: ${v.when.trim()}`);
   if (v.note.trim()) lines.push('', '— Their message —', v.note.trim());
-  lines.push('', 'Sent from the Red Rose website. This is an enquiry, not a placed order.');
+  lines.push('', 'Sent from the Red Rose website. This is a catering request, not a placed order.');
   return lines.join('\n');
 }
 
@@ -125,19 +125,19 @@ export default function EnquiryForm() {
           }}
         />
         <div className="relative">
-          <p className="eyebrow eyebrow-center text-brand-gold-dark">Something special</p>
+          <p className="eyebrow eyebrow-center text-brand-gold-dark">For every occasion</p>
           <h2 className="heading mt-5 text-brand-wine">
-            Ask Us <em className="text-brand-red">Anything</em>
+            Catering <em className="text-brand-red">Services</em>
           </h2>
           <p className="lede mx-auto mt-5 max-w-md text-brand-ink/65">
-            A wedding cake, a tray for the office, a flavour you cannot find on the menu — tell us
-            what you have in mind and we will reply on WhatsApp.
+            Weddings, engagements, office trays, Eid hampers and parties of any size — tell us the
+            occasion and the number of guests, and we will plan the menu with you on WhatsApp.
           </p>
 
           {sent ? (
             <div className="mx-auto mt-9 max-w-md rounded-2xl border border-brand-green/30 bg-brand-green/5 px-6 py-5">
               <p role="status" className="font-body text-[14px] font-light text-brand-ink/80">
-                Your enquiry is open in WhatsApp — press send there and {shopName()} will have it.
+                Your catering request is open in WhatsApp — press send there and {shopName()} will have it.
               </p>
               <button
                 type="button"
@@ -154,7 +154,7 @@ export default function EnquiryForm() {
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <button type="button" onClick={() => setOpen(true)} className="btn btn-red">
                 <MessageCircle size={14} strokeWidth={1.8} />
-                Make an enquiry
+                Book catering
               </button>
               <a href={shopTelHref()} className="btn btn-outline">
                 <Phone size={13} strokeWidth={1.8} />
@@ -177,7 +177,7 @@ export default function EnquiryForm() {
         >
           <button
             type="button"
-            aria-label="Close enquiry form"
+            aria-label="Close catering form"
             onClick={() => setOpen(false)}
             className="anim-cart-backdrop absolute inset-0 bg-[#2a1108]/55 backdrop-blur-[2px]"
           />
@@ -191,7 +191,7 @@ export default function EnquiryForm() {
                   id="enquiry-title"
                   className="font-display text-[26px] font-medium leading-none text-brand-wine sm:text-[30px]"
                 >
-                  Tell us what you <em className="font-normal italic text-brand-red">need</em>
+                  Plan your <em className="font-normal italic text-brand-red">catering</em>
                 </h3>
                 <p className="mt-2.5 font-body text-[12.5px] font-light text-brand-ink/55">
                   This opens WhatsApp with your message ready to send.
@@ -239,7 +239,7 @@ export default function EnquiryForm() {
             />
 
             <label htmlFor="eq-product" className={fieldLabel}>
-              What would you like *
+              Occasion / what you need *
             </label>
             <input
               id="eq-product"
@@ -247,14 +247,14 @@ export default function EnquiryForm() {
               onChange={(e) => setProduct(e.target.value)}
               required
               maxLength={120}
-              placeholder="Two-tier red velvet, fresh roses on top"
+              placeholder="Wedding reception, sweets and savouries"
               className={`${fieldInput} mb-5`}
             />
 
             <div className="mb-5 grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="eq-people" className={fieldLabel}>
-                  How many people
+                  How many guests
                 </label>
                 <input
                   id="eq-people"
@@ -301,7 +301,7 @@ export default function EnquiryForm() {
               {number ? 'Send on WhatsApp' : 'Send to the shop'}
             </button>
             <p className="mt-3 text-center font-body text-[11px] font-light text-brand-ink/45">
-              We only use your number to answer this enquiry.
+              We only use your number to reply about your catering.
             </p>
           </form>
         </div>

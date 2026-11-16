@@ -13,6 +13,7 @@ const PAY = { cash: "Cash", upi: "UPI", card: "Card", split: "Cash + Card", none
    comes off the bill's `mode` rather than off the delivery fee. */
 const MODE = { table: "Dine-in", standing: "Dine-in", takeaway: "Takeaway", delivery: "Delivery" } as const;
 export function orderTypeLabel(b: Bill): string {
+  if (/^WB-/i.test(b.invoiceNo)) return "Wholesale";
   const m = MODE[b.mode as keyof typeof MODE];
   if (m) return m;
   return b.source === "tab" ? "Customer tab" : "Counter";
