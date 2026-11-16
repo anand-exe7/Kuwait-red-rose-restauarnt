@@ -17,15 +17,14 @@ import { write } from "./dbWrite";
 /* ------------------------------------------------------------------ types */
 
 export type WholesaleUnit = "piece" | "gram";
-export type WholesalePayment = "cash" | "upi" | "card";
+export type WholesalePayment = "cash" | "upi" | "card" | "split";
 
-export const PAYMENT_LABEL: Record<WholesalePayment, string> = { cash: "Cash", upi: "UPI", card: "Card" };
-export const PAYMENTS: WholesalePayment[] = ["cash", "upi", "card"];
+export const PAYMENT_LABEL: Record<WholesalePayment, string> = { cash: "Cash", upi: "UPI", card: "Card", split: "Cash + Card" };
+export const PAYMENTS: WholesalePayment[] = ["cash", "upi", "card", "split"];
 
 export interface WholesaleProduct {
   id: string;
   name: string;
-  category: string;
   unit: WholesaleUnit;
   /** Charged price. For a piece product it is per piece; for a gram product
    *  it is per 100 g. */
@@ -87,6 +86,11 @@ export interface WholesaleBill {
   gstAmount: number;
   total: number;
   payment: WholesalePayment;
+  /** What the customer handed over (cash payments) — drives the change line. */
+  received: number;
+  /** For a split payment: how much was paid in cash and how much by card. */
+  cashAmount: number;
+  cardAmount: number;
   createdAt: number;
 }
 
@@ -131,6 +135,21 @@ const unitOf = (v: unknown): WholesaleUnit => (v === "gram" ? "gram" : "piece");
 export function wid(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
   return `${prefix}-${Date.now().toString(36).toUpperCase()}${rand}`;
+}
+
+/** The wholesale invoice number: WB-<year>-<5 random digits>, e.g.
+ *  WB-2026-48213. The year comes from the moment of billing, so it rolls to
+ *  WB-2027-… on 1 January with no code change. Retries until it is unused. */
+export function newWholesaleInvoiceNo(taken: Iterable<string>, when: number = Date.now()): string {
+  const used = new Set<string>();
+  for (const t of taken) used.add(String(t).toUpperCase());
+  const year = new Date(when).getFullYear();
+  for (let i = 0; i < 200; i++) {
+    const id = `WB-${year}-${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+    if (!used.has(id)) return id;
+  }
+  // Absurdly unlikely (200 collisions in a 100k space) — fall back to a unique tail.
+  return `WB-${year}-${String(Date.now() % 100000).padStart(5, "0")}`;
 }
 
 /** Deterministic id for a (customer, product) price, so re-pricing updates
@@ -197,7 +216,6 @@ function productFromRow(r: Record<string, unknown>): WholesaleProduct {
   return {
     id: String(r.id),
     name: String(r.name ?? ""),
-    category: String(r.category ?? ""),
     unit: unitOf(r.unit),
     wholesalePrice: num(r.wholesale_price),
     retailPrice: num(r.retail_price),
@@ -242,6 +260,7 @@ function billFromRow(r: Record<string, unknown>): WholesaleBill {
     };
   });
   const pay = String(r.payment ?? "cash");
+  const total = num(r.total);
   return {
     id: String(r.id),
     customerId: r.customer_id ? String(r.customer_id) : null,
@@ -254,8 +273,11 @@ function billFromRow(r: Record<string, unknown>): WholesaleBill {
     extra: num(r.extra),
     gstPercent: num(r.gst_percent),
     gstAmount: num(r.gst_amount),
-    total: num(r.total),
-    payment: (pay === "upi" || pay === "card" ? pay : "cash") as WholesalePayment,
+    total,
+    payment: (pay === "upi" || pay === "card" || pay === "split" ? pay : "cash") as WholesalePayment,
+    received: num(r.received, total),
+    cashAmount: num(r.cash_amount),
+    cardAmount: num(r.card_amount),
     createdAt: num(r.created_at),
   };
 }
@@ -300,13 +322,12 @@ function schemaHint(msg: string | undefined): string {
 /* ------------------------------------------------------------ product CRUD */
 
 export async function saveWholesaleProduct(
-  input: { id?: string; name: string; category: string; unit: WholesaleUnit; wholesalePrice: number; retailPrice: number; cost: number; active?: boolean },
+  input: { id?: string; name: string; unit: WholesaleUnit; wholesalePrice: number; retailPrice: number; cost: number; active?: boolean },
 ): Promise<Res> {
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Give the product a name." };
   const values = {
     name,
-    category: input.category.trim(),
     unit: input.unit,
     wholesale_price: round3(Math.max(0, input.wholesalePrice || 0)),
     retail_price: round3(Math.max(0, input.retailPrice || 0)),
@@ -329,8 +350,8 @@ export async function saveWholesaleProduct(
   return { ok: true };
 }
 
-function valuesToProduct(v: { name: string; category: string; unit: WholesaleUnit; wholesale_price: number; retail_price: number; cost_price: number; active: boolean }) {
-  return { name: v.name, category: v.category, unit: v.unit, wholesalePrice: v.wholesale_price, retailPrice: v.retail_price, cost: v.cost_price, active: v.active };
+function valuesToProduct(v: { name: string; unit: WholesaleUnit; wholesale_price: number; retail_price: number; cost_price: number; active: boolean }) {
+  return { name: v.name, unit: v.unit, wholesalePrice: v.wholesale_price, retailPrice: v.retail_price, cost: v.cost_price, active: v.active };
 }
 
 export async function deleteWholesaleProduct(id: string): Promise<Res> {
@@ -409,12 +430,19 @@ export async function saveWholesaleBill(input: {
   items: WholesaleBillItem[];
   charges: WholesaleCharges;
   payment: WholesalePayment;
+  received?: number;
+  cashAmount?: number;
+  cardAmount?: number;
 }): Promise<{ ok: boolean; error?: string; bill?: WholesaleBill }> {
   const items = input.items.filter((i) => i.qty > 0);
   if (items.length === 0) return { ok: false, error: "Add at least one product." };
   const c = computeWholesaleBill(items, input.charges);
-  const id = wid("WB");
   const createdAt = Date.now();
+  const id = newWholesaleInvoiceNo(bills.get().map((b) => b.id), createdAt);
+  const payment = input.payment;
+  const cashAmount = payment === "split" ? round3(Math.max(0, input.cashAmount || 0)) : payment === "cash" ? c.total : 0;
+  const cardAmount = payment === "split" ? round3(Math.max(0, input.cardAmount || 0)) : payment === "card" ? c.total : 0;
+  const received = payment === "cash" && (input.received || 0) > 0 ? round3(input.received || 0) : c.total;
   const bill: WholesaleBill = {
     id,
     customerId: input.customerId,
@@ -428,7 +456,10 @@ export async function saveWholesaleBill(input: {
     gstPercent: c.gstPercent,
     gstAmount: c.gstAmount,
     total: c.total,
-    payment: input.payment,
+    payment,
+    received,
+    cashAmount,
+    cardAmount,
     createdAt,
   };
   bills.patchLocal((cur) => [bill, ...cur]);
@@ -448,10 +479,20 @@ export async function saveWholesaleBill(input: {
       gst_percent: c.gstPercent,
       gst_amount: c.gstAmount,
       total: c.total,
-      payment: input.payment,
+      payment,
+      received,
+      cash_amount: cashAmount,
+      card_amount: cardAmount,
       created_at: createdAt,
     },
   });
   if (error) { void bills.refetch(); return { ok: false, error: schemaHint(error.message) }; }
   return { ok: true, bill };
+}
+
+export async function deleteWholesaleBill(id: string): Promise<Res> {
+  bills.patchLocal((cur) => cur.filter((b) => b.id !== id));
+  const { error } = await write({ table: "wholesale_bills", op: "delete", match: { id } });
+  if (error) { void bills.refetch(); return { ok: false, error: schemaHint(error.message) }; }
+  return { ok: true };
 }

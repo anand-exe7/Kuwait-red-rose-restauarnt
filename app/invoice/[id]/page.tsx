@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   const ref = decodeURIComponent(id).trim();
   // A bare 5-digit ref is an order that has not been billed yet; only an
   // INV-… ref is actually an invoice.
-  const isInvoice = /^INV-/i.test(ref);
+  const isInvoice = /^(INV|WB)-/i.test(ref);
   return {
     title: isInvoice ? `Invoice ${ref}` : `Order #${ref}`,
     description: isInvoice ? `Your ${BRAND.name} invoice.` : `Track your ${BRAND.name} order.`,

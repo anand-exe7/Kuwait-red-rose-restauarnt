@@ -21,15 +21,13 @@ import {
 type Draft = {
   id?: string;
   name: string;
-  category: string;
   unit: WholesaleUnit;
   wholesalePrice: string;
   retailPrice: string;
-  cost: string;
   active: boolean;
 };
 
-const blank: Draft = { name: "", category: "", unit: "piece", wholesalePrice: "", retailPrice: "", cost: "", active: true };
+const blank: Draft = { name: "", unit: "piece", wholesalePrice: "", retailPrice: "", active: true };
 
 export default function WholesaleInventoryPage() {
   const { toast, confirm } = useAdmin();
@@ -39,23 +37,18 @@ export default function WholesaleInventoryPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category).filter(Boolean))].sort(),
-    [products],
-  );
-
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return products
-      .filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.category.toLowerCase().includes(needle))
+      .filter((p) => !needle || p.name.toLowerCase().includes(needle))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [products, q]);
 
   const edit = (p: WholesaleProduct) =>
     setDraft({
-      id: p.id, name: p.name, category: p.category, unit: p.unit,
+      id: p.id, name: p.name, unit: p.unit,
       wholesalePrice: String(p.wholesalePrice), retailPrice: String(p.retailPrice),
-      cost: p.cost ? String(p.cost) : "", active: p.active,
+      active: p.active,
     });
 
   const save = async () => {
@@ -64,11 +57,10 @@ export default function WholesaleInventoryPage() {
     const res = await saveWholesaleProduct({
       id: draft.id,
       name: draft.name,
-      category: draft.category,
       unit: draft.unit,
       wholesalePrice: parseFloat(draft.wholesalePrice) || 0,
       retailPrice: parseFloat(draft.retailPrice) || 0,
-      cost: parseFloat(draft.cost) || 0,
+      cost: 0,
       active: draft.active,
     });
     setBusy(false);
@@ -93,7 +85,7 @@ export default function WholesaleInventoryPage() {
       />
 
       <div className="mb-4 max-w-sm">
-        <SearchBox value={q} onChange={setQ} placeholder="Search products or categories…" />
+        <SearchBox value={q} onChange={setQ} placeholder="Search products…" />
       </div>
 
       {shown.length === 0 ? (
@@ -110,7 +102,6 @@ export default function WholesaleInventoryPage() {
                     <b className="truncate text-[15px] text-slate-900">{p.name}</b>
                     {!p.active && <Badge tone="slate">Hidden</Badge>}
                   </div>
-                  {p.category && <p className="mt-0.5 text-[12px] text-slate-500">{p.category}</p>}
                 </div>
                 <Badge tone={p.unit === "gram" ? "violet" : "sky"}>{p.unit === "gram" ? "By weight" : "By piece"}</Badge>
               </div>
@@ -147,11 +138,6 @@ export default function WholesaleInventoryPage() {
               <input className={inputCls} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Chocolate cake" autoFocus />
             </Field>
 
-            <Field label="Category" hint="Free text — reuse an existing one from the list.">
-              <input className={inputCls} list="wh-cats" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="e.g. Cakes" />
-              <datalist id="wh-cats">{categories.map((c) => <option key={c} value={c} />)}</datalist>
-            </Field>
-
             <div>
               <span className={labelCls}>Sold by</span>
               <div className="flex gap-2">
@@ -174,15 +160,12 @@ export default function WholesaleInventoryPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Wholesale price" required hint={unitPriceLabel(draft.unit)}>
                 <input className={inputCls} type="number" min={0} step="0.001" inputMode="decimal" value={draft.wholesalePrice} onChange={(e) => setDraft({ ...draft, wholesalePrice: e.target.value })} placeholder="0.000" />
               </Field>
               <Field label="Normal price" hint="Retail reference only">
                 <input className={inputCls} type="number" min={0} step="0.001" inputMode="decimal" value={draft.retailPrice} onChange={(e) => setDraft({ ...draft, retailPrice: e.target.value })} placeholder="0.000" />
-              </Field>
-              <Field label="Cost price" hint="Optional · for profit">
-                <input className={inputCls} type="number" min={0} step="0.001" inputMode="decimal" value={draft.cost} onChange={(e) => setDraft({ ...draft, cost: e.target.value })} placeholder="0.000" />
               </Field>
             </div>
 

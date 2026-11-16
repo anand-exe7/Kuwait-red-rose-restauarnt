@@ -5,6 +5,7 @@ import {
   subscribeToWholesaleCustomers, getWholesaleCustomersSnapshot, getWholesaleCustomersServerSnapshot,
   subscribeToWholesaleProducts, getWholesaleProductsSnapshot, getWholesaleProductsServerSnapshot,
   subscribeToWholesalePrices, getWholesalePricesSnapshot, getWholesalePricesServerSnapshot,
+  subscribeToWholesaleBills, getWholesaleBillsSnapshot, getWholesaleBillsServerSnapshot,
   saveWholesaleCustomer, deleteWholesaleCustomer, setWholesalePrice,
   unitPriceLabel, priceId,
   type WholesaleCustomer,
@@ -12,7 +13,7 @@ import {
 import { useAdmin } from "./Store";
 import { rupee } from "./money";
 import {
-  Page, PageHead, Card, Btn, Field, Modal, Drawer, Badge, Empty, SearchBox, Icon,
+  Page, PageHead, Card, Btn, Field, Modal, Drawer, Badge, Empty, SearchBox, Icon, Kpi, fmtDate,
   inputCls, cx,
 } from "./kit";
 
@@ -24,6 +25,8 @@ export default function WholesaleCustomersPage() {
   const customers = useSyncExternalStore(subscribeToWholesaleCustomers, getWholesaleCustomersSnapshot, getWholesaleCustomersServerSnapshot);
   const products = useSyncExternalStore(subscribeToWholesaleProducts, getWholesaleProductsSnapshot, getWholesaleProductsServerSnapshot);
   const prices = useSyncExternalStore(subscribeToWholesalePrices, getWholesalePricesSnapshot, getWholesalePricesServerSnapshot);
+
+  const bills = useSyncExternalStore(subscribeToWholesaleBills, getWholesaleBillsSnapshot, getWholesaleBillsServerSnapshot);
 
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -38,6 +41,20 @@ export default function WholesaleCustomersPage() {
   }, [customers, q]);
 
   const countFor = (id: string) => prices.filter((p) => p.customerId === id).length;
+
+  /* What each saved customer has bought, matched by customer id. */
+  const spend = useMemo(() => {
+    const m = new Map<string, { total: number; bills: number; last: number }>();
+    for (const b of bills) {
+      if (!b.customerId) continue;
+      const cur = m.get(b.customerId) ?? { total: 0, bills: 0, last: 0 };
+      cur.total += b.total; cur.bills += 1; cur.last = Math.max(cur.last, b.createdAt);
+      m.set(b.customerId, cur);
+    }
+    return m;
+  }, [bills]);
+  const withPrices = useMemo(() => new Set(prices.map((p) => p.customerId)).size, [prices]);
+  const totalSpent = useMemo(() => [...spend.values()].reduce((a, v) => a + v.total, 0), [spend]);
 
   const save = async () => {
     if (!draft) return;
@@ -64,6 +81,12 @@ export default function WholesaleCustomersPage() {
         right={<Btn kind="red" icon="plus" onClick={() => setDraft({ ...blank })}>Add customer</Btn>}
       />
 
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <Kpi label="Customers" value={customers.length} icon="users" tone="violet" hint="In the customer book" />
+        <Kpi label="With special prices" value={withPrices} icon="rupee" tone="amber" hint="Everyone else pays wholesale" />
+        <Kpi label="Billed to them" value={rupee(totalSpent)} icon="billing" tone="emerald" hint="All time, saved customers" />
+      </div>
+
       <div className="mb-4 max-w-sm">
         <SearchBox value={q} onChange={setQ} placeholder="Search name or phone…" />
       </div>
@@ -76,15 +99,35 @@ export default function WholesaleCustomersPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((c) => {
             const n = countFor(c.id);
+            const sp = spend.get(c.id);
             return (
-              <Card key={c.id}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <b className="block truncate text-[15px] text-slate-900">{c.name}</b>
-                    <p className="mt-0.5 text-[12px] text-slate-500">{c.phone || "No phone"}</p>
-                    {c.note && <p className="mt-1 text-[12px] text-slate-400">{c.note}</p>}
+              <Card key={c.id} className="transition hover:shadow-[0_6px_18px_-8px_rgba(15,23,42,.2)]">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-red-500 to-red-700 text-[16px] font-extrabold text-white shadow-[0_6px_14px_-6px_rgba(220,38,38,.8)]">
+                    {(c.name.trim()[0] || "?").toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <b className="block truncate text-[15px] text-slate-900">{c.name}</b>
+                      <Badge tone={n ? "violet" : "slate"}>{n ? `${n} price${n === 1 ? "" : "s"}` : "Wholesale"}</Badge>
+                    </div>
+                    <p className="mt-0.5 text-[12.5px] font-medium text-slate-600">{c.phone || <span className="text-slate-400">No phone</span>}</p>
+                    {c.note && <p className="mt-1 truncate text-[12px] text-slate-400">{c.note}</p>}
                   </div>
-                  <Badge tone={n ? "violet" : "slate"}>{n ? `${n} price${n === 1 ? "" : "s"}` : "Wholesale"}</Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-2.5 text-center">
+                  <div>
+                    <span className="block text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Bills</span>
+                    <b className="adm-num text-[14px] text-slate-900">{sp?.bills ?? 0}</b>
+                  </div>
+                  <div>
+                    <span className="block text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Billed</span>
+                    <b className="adm-num text-[14px] text-slate-900">{rupee(sp?.total ?? 0)}</b>
+                  </div>
+                  <div>
+                    <span className="block text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Last order</span>
+                    <b className="text-[12.5px] text-slate-900">{sp?.last ? fmtDate(sp.last) : "—"}</b>
+                  </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1 border-t border-slate-100 pt-3">
                   <Btn kind="soft" size="sm" icon="rupee" onClick={() => setPricing(c)}>Prices</Btn>

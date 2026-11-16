@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Bill } from "../../admin-secure-portal-xyz-345/_ui/types";
 import { Sheet } from "../../admin-secure-portal-xyz-345/_ui/receipt";
 import { BRAND } from "../../lib/brand";
+import { subscribeToWholesaleBills, getWholesaleBillsSnapshot, getWholesaleBillsServerSnapshot } from "../../lib/wholesaleStore";
+import { wholesaleToBill, isWholesaleNo } from "../../admin-secure-portal-xyz-345/_ui/wholesaleAdapter";
 import {
   subscribeToBills,
   getBillsSnapshot,
@@ -149,6 +151,7 @@ function rehydrate(b: RrBill, orders: Order[] = []): Bill {
 export default function InvoiceView({ id }: { id: string }) {
   const bills = useSyncExternalStore(subscribeToBills, getBillsSnapshot, getBillsServerSnapshot);
   const orders = useSyncExternalStore(subscribeToOrders, getOrdersSnapshot, getOrdersServerSnapshot);
+  const wholesaleBills = useSyncExternalStore(subscribeToWholesaleBills, getWholesaleBillsSnapshot, getWholesaleBillsServerSnapshot);
 
   // The URL carries one of two things:
   //   INV-2026-48213 — a settled bill, i.e. a real invoice
@@ -157,8 +160,16 @@ export default function InvoiceView({ id }: { id: string }) {
   const needle = normaliseInvoiceNo(id.trim());
   const digits = invoiceDigits(needle) || (/^\d{1,5}$/.test(needle) ? needle.padStart(5, "0") : "");
 
+  /* A wholesale invoice (WB-2026-48213) lives in its own table. */
+  const wholesale = useMemo(() => {
+    if (!isWholesaleNo(needle)) return null;
+    const hit = wholesaleBills.find((w) => w.id.toUpperCase() === needle.toUpperCase());
+    return hit ? wholesaleToBill(hit) : null;
+  }, [wholesaleBills, needle]);
+
   const match = useMemo(() => {
     const needleUp = needle.toUpperCase();
+    if (isWholesaleNo(needle)) return null;
     return (
       bills.find((b) => normaliseInvoiceNo(b.invoiceNo || "") === needleUp) ??
       bills.find((b) => b.id.toUpperCase() === needleUp) ??
@@ -182,7 +193,7 @@ export default function InvoiceView({ id }: { id: string }) {
      customer where it has got to instead of "invoice not found", which is what
      they used to see for the whole time their food was being made. */
   const pending: Order[] = useMemo(() => {
-    if (match || !digits) return [];
+    if (match || !digits || isWholesaleNo(needle)) return [];
     const needleUp = needle.toUpperCase();
     const mine = orders.filter((o) => {
       if (o.billed) return false;
@@ -207,7 +218,7 @@ export default function InvoiceView({ id }: { id: string }) {
 
   // An order that exists but hasn't been billed yet has no invoice to show.
   // We say so plainly rather than inventing a status page for it.
-  if (!match && pending.length > 0) {
+  if (!match && !wholesale && pending.length > 0) {
     return (
       <div className="rounded-3xl border border-[#c9a961]/30 bg-white px-6 py-10 text-center shadow-[0_18px_42px_-18px_rgba(74,21,21,0.3)]">
         <p className="font-serif text-[22px] text-[#1a0f0a]">Order #{digits}</p>
@@ -224,7 +235,7 @@ export default function InvoiceView({ id }: { id: string }) {
     );
   }
 
-  if (!match) {
+  if (!match && !wholesale) {
     if (!graceOver) {
       return (
         <div className="rounded-3xl border border-[#c9a961]/30 bg-white px-6 py-10 text-center shadow-[0_18px_42px_-18px_rgba(74,21,21,0.3)]">
@@ -242,7 +253,7 @@ export default function InvoiceView({ id }: { id: string }) {
     );
   }
 
-  const bill = rehydrate(match, orders);
+  const bill = wholesale ?? rehydrate(match!, orders);
 
   return (
     <div className="adm">

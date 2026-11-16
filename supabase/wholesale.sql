@@ -79,7 +79,7 @@ create table if not exists wholesale_bills (
   gst_percent    numeric not null default 0,   -- 0 = no VAT invoice
   gst_amount     numeric not null default 0,
   total          numeric not null default 0,
-  payment        text    not null default 'cash',  -- 'cash' | 'upi' | 'card'
+  payment        text    not null default 'cash',  -- 'cash' | 'upi' | 'card' | 'split'
   created_at     bigint  not null default now_ms()
 );
 create index if not exists wholesale_bills_customer_idx on wholesale_bills (customer_id);
@@ -98,6 +98,10 @@ alter table wholesale_bills add column if not exists extra        numeric not nu
 alter table wholesale_bills add column if not exists gst_percent  numeric not null default 0;
 alter table wholesale_bills add column if not exists gst_amount   numeric not null default 0;
 alter table wholesale_bills add column if not exists payment      text    not null default 'cash';
+-- Split payments ('split' = part cash, part card) and the cash handed over.
+alter table wholesale_bills add column if not exists received     numeric not null default 0;
+alter table wholesale_bills add column if not exists cash_amount  numeric not null default 0;
+alter table wholesale_bills add column if not exists card_amount  numeric not null default 0;
 
 -- ===========================================================================
 -- ROW LEVEL SECURITY — permissive anon policy (reads via anon key; writes are
