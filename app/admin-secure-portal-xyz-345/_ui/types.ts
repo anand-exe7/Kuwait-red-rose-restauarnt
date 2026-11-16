@@ -128,6 +128,9 @@ export interface Bill {
   discount: number;         // total discount applied (coupon + manual)
   /** Delivery charge billed on top of the goods. */
   deliveryFee: number;
+  /** Third-party delivery partner who took a counter delivery ("" = none).
+   *  Used only by Analytics — it is never printed or sent to the customer. */
+  deliveryPartner?: string;
   total: number;
   createdAt: number;
   tax: number;

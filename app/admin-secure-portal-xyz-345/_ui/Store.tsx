@@ -379,6 +379,7 @@ function toBill(b: RrBill, bySession: Map<string, RrOrder[]>, sessions: Map<stri
       manualDiscount: p.manualDiscount ?? 0,
       discount: p.discount ?? b.discount ?? 0,
       deliveryFee: p.deliveryFee ?? rebuilt?.deliveryFee ?? 0,
+      deliveryPartner: typeof p.deliveryPartner === "string" ? p.deliveryPartner : "",
       total: p.total ?? b.total ?? 0,
       createdAt: b.createdAt,
       tax: p.tax ?? b.tax ?? 0,
@@ -881,6 +882,7 @@ export function AdminProvider({
             // is added after the discount and before the total — exactly the
             // way the customer was quoted it at checkout.
             const deliveryFee = Math.max(0, Number(args.deliveryFee ?? 0) || 0);
+            const deliveryPartner = deliveryFee > 0 || args.isDelivery ? String(args.deliveryPartner ?? "").trim() : "";
             const isGst = Boolean(args.isGst);
             const gstPercent = Number(args.gstPercent ?? 0);
             /* Must match computeBill() in money.ts exactly, or the number the
@@ -931,6 +933,7 @@ export function AdminProvider({
               manualDiscount,
               discount,
               deliveryFee,
+              deliveryPartner,
               total,
               createdAt: Date.now(),
               tax: gstAmount,

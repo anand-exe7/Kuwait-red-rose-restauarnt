@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import type { Bill } from "./types";
 import { rupee } from "./money";
-import { CHANNEL_LABEL, channelOf, completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, rangeOf, startOfWeek, paymentStats, summary, weekly, type Channel, type Period } from "./analytics";
+import { CHANNEL_LABEL, channelOf, completedIn, customerStats, expensesIn, gstReport, isoWeek, itemStats, monthly, partnerStats, rangeOf, startOfWeek, paymentStats, summary, weekly, type Channel, type Period } from "./analytics";
 import Link from "next/link";
 import { useAdmin } from "./Store";
 import { Badge, Btn, Card, DateRange, Empty, Kpi, Page, PageHead, Pills, SearchBox, Switch, Tabs, cx, downloadExcel, fmtDate, fmtTime, type ExcelSheet } from "./kit";
 import { BRAND } from "../../lib/brand";
+import { deliveryPartners } from "../../lib/deliveryPartners";
 import { stockIsLow, stockIsOut } from "../../lib/menuStore";
 
 type Tab = "revenue" | "today" | "products" | "customers" | "coupons";
@@ -269,6 +270,7 @@ export default function AnalyticsPage() {
   const today = useMemo(() => completedIn(s.bills, rangeOf("today")), [s.bills, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const sum = summary(inPeriod);
   const pay = paymentStats(inPeriod);
+  const partnerRows = useMemo(() => partnerStats(inPeriod, deliveryPartners()), [inPeriod]);
   const tsum = summary(today);
 
   const year = new Date().getFullYear();
@@ -322,6 +324,9 @@ export default function AnalyticsPage() {
           ["Delivery", sum.byChannel.delivery.revenue, sum.byChannel.delivery.count, sum.byChannel.delivery.items],
           ["Delivery charges collected", sum.delivery],
           [],
+          ["Delivery partner", "Deliveries", "Delivery charges", "Order sales"],
+          ...partnerRows.map((r) => [r.partner, r.count, r.charges, r.sales]),
+          [],
           ["Items sold", sum.items],
           ["Avg order value", Math.round(sum.aov)],
           ["Discounts given", sum.discount],
@@ -337,11 +342,11 @@ export default function AnalyticsPage() {
       {
         name: "Bills",
         rows: [
-          ["Invoice", "Date", "Time", "Channel", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Delivery", "Extra", "VAT %", "Taxable", "VAT amount", "Total", "Payment", "Status"],
+          ["Invoice", "Date", "Time", "Channel", "Customer", "Phone", "Items", "Subtotal", "Discount", "Coupon", "Delivery", "Delivery partner", "Extra", "VAT %", "Taxable", "VAT amount", "Total", "Payment", "Status"],
           ...inPeriod
             .slice()
             .sort((a, b) => b.createdAt - a.createdAt)
-            .map((b) => [b.invoiceNo, fmtDate(b.createdAt), fmtTime(b.createdAt), CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.discount, b.couponCode ?? "", b.deliveryFee, b.extra, b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.status]),
+            .map((b) => [b.invoiceNo, fmtDate(b.createdAt), fmtTime(b.createdAt), CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.discount, b.couponCode ?? "", b.deliveryFee, b.deliveryPartner ?? "", b.extra, b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.status]),
         ],
       },
       {
@@ -510,6 +515,24 @@ export default function AnalyticsPage() {
             <Kpi label="Avg order value" value={rupee(Math.round(sum.aov))} hint="Per completed bill" icon="zap" tone="orange" />
             <Kpi label="Delivery charges" value={rupee(sum.delivery)} hint="Collected on top of the goods" icon="cart" tone="sky" />
             <Kpi label="Top product" value={sum.top} hint="Most sold item" icon="star" tone="amber" small />
+          </div>
+          {/* One box per delivery partner: what each of them earned from us
+              this period — the delivery charge on their runs, how many runs,
+              and the value of the bills they carried. */}
+          <div>
+            <h3 className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Delivery partners</h3>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {partnerRows.map((r, k) => (
+                <Kpi
+                  key={r.partner}
+                  label={r.partner}
+                  value={rupee(r.charges)}
+                  hint={`${r.count} deliver${r.count === 1 ? "y" : "ies"} · ${rupee(r.sales)} order value`}
+                  icon="cart"
+                  tone={(["rose", "sky", "violet", "amber", "emerald", "orange"] as const)[k % 6]}
+                />
+              ))}
+            </div>
           </div>
 
           {/* Two balanced columns: the browser flows the cards down the first column and

@@ -134,7 +134,7 @@ const FOOTER_LINKS = [
   { label: 'Home', href: '/' },
   { label: 'Menu', href: '/menu' },
   { label: 'Our Story', href: '#story' },
-  { label: 'Enquiry', href: '#enquiry' },
+  { label: 'Catering', href: '#enquiry' },
   { label: 'Visit', href: '#locations' },
   { label: 'Contact', href: '#contact' },
 ];

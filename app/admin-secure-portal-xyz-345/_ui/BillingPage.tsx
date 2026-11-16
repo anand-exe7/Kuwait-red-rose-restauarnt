@@ -8,6 +8,7 @@ import Catalog from "./Catalog";
 import PrintModal, { PrintFormats } from "./PrintModal";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
 import { Badge, Btn, Icon, Modal, WaIcon, cx, fmtTime, ago } from "./kit";
+import { deliveryPartners } from "../../lib/deliveryPartners";
 
 type Line = { key: number; productId: string | null; name: string; price: string; qty: number };
 
@@ -68,6 +69,12 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const [sig, setSig] = useState(start ? sigOf(start) : "");
   const [coupon, setCoupon] = useState(start?.session.couponCode ?? "");
   const [delivery, setDelivery] = useState(start?.deliveryFee ? String(start.deliveryFee) : "");
+  // Delivery toggle: when on, the bill asks for a delivery charge and the
+  // delivery partner. The partner is for Analytics only — it is not printed
+  // and not mentioned in the WhatsApp message.
+  const [isDelivery, setIsDelivery] = useState(!!start && (start.deliveryFee > 0 || start.mode === "delivery"));
+  const [partner, setPartner] = useState("");
+  const partners = deliveryPartners();
   const [mType, setMType] = useState<DiscountType>("amount");
   const [mVal, setMVal] = useState("");
   const [extra, setExtra] = useState("");
@@ -97,6 +104,8 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     setSig("");
     setCoupon("");
     setDelivery("");
+    setIsDelivery(false);
+    setPartner("");
     setMType("amount");
     setMVal("");
     setExtra("");
@@ -122,6 +131,8 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     // was shown, instead of the full price with no discount.
     setCoupon(x.couponCode ?? x.session.couponCode ?? "");
     setDelivery(x.deliveryFee > 0 ? String(x.deliveryFee) : "");
+    setIsDelivery(x.deliveryFee > 0 || x.mode === "delivery");
+    setPartner("");
     setSig(sigOf(x));
   };
 
@@ -151,7 +162,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   const cp = s.coupons.find((c) => c.code === coupon) ?? null;
   /** The coupon the guest applied themselves, if any. */
   const guestCoupon = f?.couponCode ?? f?.session.couponCode ?? null;
-  const deliveryFee = Math.max(0, Number(delivery) || 0);
+  const deliveryFee = isDelivery ? Math.max(0, Number(delivery) || 0) : 0;
   const calc = computeBill({ items, coupon: cp, manualType: mType, manualValue: Number(mVal) || 0, deliveryFee, extra: Number(extra) || 0, gst: isGst, gstPercent: Number(gstPct) || 0 });
   const recv = Number(received) || 0;
   const change = pay === "cash" && recv > 0 ? recv - calc.total : 0;
@@ -171,6 +182,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   if (pay === "cash" && recv > 0 && recv < calc.total) problems.push("Amount received is less than the total.");
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
   else if (pay === "split" && splitOff !== 0) problems.push(`Split payment: cash + card should equal ${rupee(calc.total)}.`);
+  if (isDelivery && mode === "counter" && !partner) problems.push("Choose the delivery partner.");
   if (phone && !okPhone(phone)) problems.push("Enter the mobile number (8 digits for Kuwait, or with country code).");
   const ready = !problems.length && !busy;
 
@@ -181,8 +193,10 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     const r = await act<Bill>("bill.create", {
       source: mode,
       sessionId: f?.session.id,
-      mode: f?.mode ?? "standing",
+      mode: isDelivery ? "delivery" : f?.mode ?? "standing",
       deliveryFee,
+      isDelivery,
+      deliveryPartner: isDelivery ? partner : "",
       note: f?.note ?? "",
       customerName: name,
       customerPhone: phone,
@@ -543,25 +557,68 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
                   <dd className="font-semibold">-{rupee(calc.manualDiscount)}</dd>
                 </div>
               )}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <dt className="text-slate-600">
-                  Delivery charge
-                  {f?.mode === "delivery" && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">quoted to the guest</span>}
+                  Delivery
+                  {isDelivery && f?.mode === "delivery" && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">quoted to the guest</span>}
                 </dt>
                 <dd>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.25"
-                    inputMode="decimal"
-                    placeholder="0"
-                    className="h-10 w-24 rounded-lg border border-slate-300 px-3 text-right text-[14px] outline-none focus:border-slate-400"
-                    value={delivery}
-                    onChange={(e) => setDelivery(e.target.value)}
-                    aria-label="Delivery charge"
-                  />
+                  <div className="grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Delivery">
+                    {(
+                      [
+                        [false, "No"],
+                        [true, "Delivery"],
+                      ] as const
+                    ).map(([d, t]) => (
+                      <button
+                        key={t}
+                        type="button"
+                        aria-pressed={isDelivery === d}
+                        onClick={() => setIsDelivery(d)}
+                        className={cx("h-8 rounded-full px-3 text-[11.5px] font-extrabold uppercase tracking-wide transition", isDelivery === d ? "bg-slate-800 text-white shadow" : "text-slate-600 hover:text-slate-900")}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                 </dd>
               </div>
+              {isDelivery && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-slate-600">Delivery charge</dt>
+                    <dd>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.25"
+                        inputMode="decimal"
+                        placeholder="0"
+                        className="h-10 w-24 rounded-lg border border-slate-300 px-3 text-right text-[14px] outline-none focus:border-slate-400"
+                        value={delivery}
+                        onChange={(e) => setDelivery(e.target.value)}
+                        aria-label="Delivery charge"
+                      />
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-600">Delivery partner</dt>
+                    <dd>
+                      <select
+                        className={cx("h-10 w-40 rounded-lg border bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none focus:border-slate-400", !partner && mode === "counter" ? "border-amber-500" : "border-slate-300")}
+                        value={partner}
+                        onChange={(e) => setPartner(e.target.value)}
+                        aria-label="Delivery partner"
+                      >
+                        <option value="">Select partner</option>
+                        {partners.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </dd>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between">
                 <dt className="text-slate-600">Extra charges</dt>
                 <dd>

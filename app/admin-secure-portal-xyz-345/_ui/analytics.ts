@@ -210,6 +210,28 @@ export function paymentStats(bills: Bill[]) {
   return { cash, upi, card, splitN };
 }
 
+/** Counter deliveries handed to a third-party partner. One row per configured
+ *  partner (zero rows included, so every partner always has a box), in the
+ *  configured order. `charges` is the delivery charge collected on their
+ *  deliveries; `sales` is the full value of those bills. A partner that is on
+ *  old bills but no longer configured is appended so nothing disappears. */
+export type PartnerStat = { partner: string; count: number; charges: number; sales: number };
+export function partnerStats(bills: Bill[], partners: string[]): PartnerStat[] {
+  const m = new Map<string, PartnerStat>();
+  const keyOf = (n: string) => n.trim().toLowerCase();
+  for (const n of partners) m.set(keyOf(n), { partner: n, count: 0, charges: 0, sales: 0 });
+  for (const b of bills) {
+    const name = (b.deliveryPartner || "").trim();
+    if (!name) continue;
+    const cur = m.get(keyOf(name)) ?? { partner: name, count: 0, charges: 0, sales: 0 };
+    cur.count += 1;
+    cur.charges += b.deliveryFee;
+    cur.sales += b.total;
+    m.set(keyOf(name), cur);
+  }
+  return [...m.values()];
+}
+
 /* ---------------- expenses ---------------- */
 
 /** Expense dates are shop-local YYYY-MM-DD; compare them as local midnight like bills are. */

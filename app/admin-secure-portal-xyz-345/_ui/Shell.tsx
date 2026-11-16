@@ -32,10 +32,10 @@ const NAV: Nav[] = [
   // Wholesale (B2B) — a self-contained billing world that sits apart from the
   // restaurant POS. Its own catalogue, trade customers, bills and figures.
   { href: "/admin-secure-portal-xyz-345/wholesale/billing", label: "Billing", icon: "billing", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/inventory", label: "Inventory", icon: "box", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/customers", label: "Customers", icon: "users", roles: ["admin"], group: "wholesale" },
   { href: "/admin-secure-portal-xyz-345/wholesale/orders", label: "Orders", icon: "orders", roles: ["admin"], group: "wholesale" },
   { href: "/admin-secure-portal-xyz-345/wholesale/analytics", label: "Analytics", icon: "chart", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/inventory", label: "Inventory", icon: "box", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/customers", label: "Customers", icon: "users", roles: ["admin"], group: "wholesale" },
 ];
 
 const Cherry = () => (
