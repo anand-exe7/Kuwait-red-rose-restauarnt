@@ -79,6 +79,8 @@ export interface WholesaleBill {
   /** Manual discount amount taken off the subtotal. */
   discount: number;
   deliveryFee: number;
+  /** Third-party delivery partner who carried it ("" = none). For analytics only. */
+  deliveryPartner: string;
   /** "Other" charge. */
   extra: number;
   /** 0 = no VAT invoice. */
@@ -270,6 +272,7 @@ function billFromRow(r: Record<string, unknown>): WholesaleBill {
     subtotal: num(r.subtotal),
     discount: num(r.discount),
     deliveryFee: num(r.delivery_fee),
+    deliveryPartner: String(r.delivery_partner ?? ""),
     extra: num(r.extra),
     gstPercent: num(r.gst_percent),
     gstAmount: num(r.gst_amount),
@@ -433,6 +436,7 @@ export async function saveWholesaleBill(input: {
   received?: number;
   cashAmount?: number;
   cardAmount?: number;
+  deliveryPartner?: string;
 }): Promise<{ ok: boolean; error?: string; bill?: WholesaleBill }> {
   const items = input.items.filter((i) => i.qty > 0);
   if (items.length === 0) return { ok: false, error: "Add at least one product." };
@@ -443,6 +447,7 @@ export async function saveWholesaleBill(input: {
   const cashAmount = payment === "split" ? round3(Math.max(0, input.cashAmount || 0)) : payment === "cash" ? c.total : 0;
   const cardAmount = payment === "split" ? round3(Math.max(0, input.cardAmount || 0)) : payment === "card" ? c.total : 0;
   const received = payment === "cash" && (input.received || 0) > 0 ? round3(input.received || 0) : c.total;
+  const deliveryPartner = (input.deliveryPartner ?? "").trim();
   const bill: WholesaleBill = {
     id,
     customerId: input.customerId,
@@ -452,6 +457,7 @@ export async function saveWholesaleBill(input: {
     subtotal: c.subtotal,
     discount: c.discount,
     deliveryFee: c.deliveryFee,
+    deliveryPartner,
     extra: c.extra,
     gstPercent: c.gstPercent,
     gstAmount: c.gstAmount,
@@ -475,6 +481,7 @@ export async function saveWholesaleBill(input: {
       subtotal: c.subtotal,
       discount: c.discount,
       delivery_fee: c.deliveryFee,
+      delivery_partner: deliveryPartner,
       extra: c.extra,
       gst_percent: c.gstPercent,
       gst_amount: c.gstAmount,

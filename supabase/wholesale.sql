@@ -95,6 +95,8 @@ alter table wholesale_products add column if not exists cost_price numeric not n
 alter table wholesale_bills add column if not exists discount     numeric not null default 0;
 alter table wholesale_bills add column if not exists delivery_fee numeric not null default 0;
 alter table wholesale_bills add column if not exists extra        numeric not null default 0;
+-- Third-party delivery partner (Talabat, Keeta…) who took the delivery. Analytics only.
+alter table wholesale_bills add column if not exists delivery_partner text not null default '';
 alter table wholesale_bills add column if not exists gst_percent  numeric not null default 0;
 alter table wholesale_bills add column if not exists gst_amount   numeric not null default 0;
 alter table wholesale_bills add column if not exists payment      text    not null default 'cash';

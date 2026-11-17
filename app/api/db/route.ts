@@ -51,7 +51,7 @@ const COLUMNS: Record<string, string[]> = {
   wholesale_customers: ['id', 'name', 'phone', 'note', 'created_at'],
   wholesale_prices: ['id', 'customer_id', 'product_id', 'price', 'created_at'],
   wholesale_bills: ['id', 'customer_id', 'customer_name', 'customer_phone', 'items', 'subtotal', 'discount',
-    'delivery_fee', 'extra', 'gst_percent', 'gst_amount', 'total', 'payment', 'received', 'cash_amount', 'card_amount', 'created_at'],
+    'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'total', 'payment', 'received', 'cash_amount', 'card_amount', 'created_at'],
 };
 
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
@@ -71,7 +71,7 @@ const DROPPABLE: Record<string, string[]> = {
   // Columns added by the wholesale migration — if the owner hasn't re-run
   // supabase/wholesale.sql yet, save the row without them instead of failing.
   wholesale_products: ['cost_price'],
-  wholesale_bills: ['discount', 'delivery_fee', 'extra', 'gst_percent', 'gst_amount', 'payment', 'received', 'cash_amount', 'card_amount'],
+  wholesale_bills: ['discount', 'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'payment', 'received', 'cash_amount', 'card_amount'],
 };
 
 /** The column name out of a PostgREST "missing column" error, if that's what it is. */
