@@ -27,7 +27,7 @@ export function Columns({ data, height = 200, empty }: { data: { label: string; 
   // scrolls there; only the 12-month chart does, and only on a phone.
   const minWidth = data.length * 34;
   return (
-    <div className="adm-scroll -mx-1 max-w-full overflow-x-auto px-1">
+    <div className="adm-scroll -mx-1 -mt-16 max-w-full overflow-x-auto px-1 pt-16">
      <div style={{ minWidth }}>
       <div className="relative flex items-end gap-1 sm:gap-2" style={{ height }} role="img" aria-label={data.map((d) => `${d.full}: ${rupee(d.value)}`).join(", ")}>
         {!max && empty && <p className="absolute inset-0 grid place-items-center text-[13px] text-slate-400">{empty}</p>}

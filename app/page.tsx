@@ -584,11 +584,12 @@ export default async function Home() {
                 <em className="font-normal italic text-brand-red">the art of sweet indulgence.</em>
               </p>
 
-              <div className="order-2 mx-auto mt-7 grid w-full max-w-5xl grid-cols-2 items-center gap-x-4 gap-y-9 sm:order-1 sm:mt-0 sm:gap-y-5 lg:grid-cols-3 lg:gap-8">
-                {/* Customize your box */}
+              <div className="order-2 mx-auto mt-7 flex w-full max-w-5xl flex-col items-center justify-center gap-7 sm:order-1 sm:mt-0 sm:flex-row sm:gap-10 lg:gap-14">
+                {/* Pastry photos */}
                 <Link
                   href="/menu"
-                  className="group order-2 flex min-w-0 flex-col items-center justify-center gap-3 text-center anim-fade-up sm:order-1 sm:flex-row sm:gap-5 sm:text-left lg:justify-start"
+                  aria-label="Browse the menu"
+                  className="group order-2 flex justify-center anim-fade-up sm:order-1"
                   style={{ animationDelay: '520ms' }}
                 >
                   <div className="relative shrink-0">
@@ -599,7 +600,7 @@ export default async function Home() {
                         alt=""
                         width={92}
                         height={92}
-                        className="h-[clamp(46px,15vw,68px)] w-[clamp(46px,15vw,68px)] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-1.5 group-hover:rotate-[-4deg] sm:h-[88px] sm:w-[88px]"
+                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:-translate-x-1.5 group-hover:rotate-[-4deg] sm:h-[88px] sm:w-[88px]"
                       />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -607,32 +608,18 @@ export default async function Home() {
                         alt=""
                         width={92}
                         height={92}
-                        className="h-[clamp(46px,15vw,68px)] w-[clamp(46px,15vw,68px)] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-1.5 group-hover:rotate-[4deg] sm:h-[88px] sm:w-[88px]"
+                        className="h-[68px] w-[68px] rounded-full object-cover shadow-[0_10px_26px_rgba(74,21,21,0.28)] ring-[3px] ring-brand-gold/70 transition-transform duration-500 group-hover:translate-x-1.5 group-hover:rotate-[4deg] sm:h-[88px] sm:w-[88px]"
                       />
                     </div>
                     <span className="absolute -bottom-1 -right-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-brand-wine font-body text-[16px] font-light leading-none text-brand-cream shadow-md ring-[3px] ring-brand-cream transition-transform duration-500 group-hover:rotate-90 sm:h-8 sm:w-8">
                       +
                     </span>
                   </div>
-
-                  <div className="min-w-0 max-w-full">
-                    <p className="font-body text-[9px] font-medium uppercase tracking-[0.24em] text-brand-gold-dark sm:tracking-[0.3em] sm:text-[9.5px]">
-                      Build your own
-                    </p>
-                    <p className="mt-1.5 font-display text-[clamp(18px,6vw,25px)] font-medium leading-[0.95] text-brand-wine sm:text-[32px]">
-                      Customize
-                      <em className="block font-normal italic text-brand-red">your box</em>
-                    </p>
-                    <span className="mt-2 inline-flex max-w-full flex-wrap items-center justify-center gap-1.5 font-body text-[9.5px] font-medium uppercase tracking-[0.14em] text-brand-red sm:justify-start sm:tracking-[0.22em] sm:text-[10px]">
-                      Start building
-                      <ArrowRight size={12} strokeWidth={1.8} className="transition-transform duration-300 group-hover:translate-x-1" />
-                    </span>
-                  </div>
                 </Link>
 
                 {/* Order now */}
                 <div
-                  className="order-1 col-span-2 flex justify-center anim-fade-up sm:order-3 lg:order-2 lg:col-span-1"
+                  className="order-1 sm:order-2 flex justify-center anim-fade-up"
                   style={{ animationDelay: '680ms' }}
                 >
                   <Link href="/menu" className="btn btn-wine group overflow-hidden px-11 py-[19px] text-[11.5px] sm:px-12">
@@ -648,7 +635,7 @@ export default async function Home() {
 
                 {/* 50K+ */}
                 <div
-                  className="order-3 flex justify-center anim-fade-up sm:order-2 lg:order-3 lg:justify-end"
+                  className="order-3 flex justify-center anim-fade-up"
                   style={{ animationDelay: '600ms' }}
                 >
                   <div

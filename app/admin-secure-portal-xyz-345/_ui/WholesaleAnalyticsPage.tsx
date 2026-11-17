@@ -193,8 +193,6 @@ export default function WholesaleAnalyticsPage() {
           ["Extra charges", stats.extra],
           ["VAT collected", stats.vat],
           ["Pieces sold", round3(stats.units)],
-          ["Cost of goods", stats.cost],
-          ["Goods profit", stats.profit],
           [],
           ["Delivery partner", "Deliveries", "Delivery charges", "Order value"],
           ...stats.partners.map((r) => [r.partner, r.count, r.charges, r.sales]),
@@ -216,8 +214,8 @@ export default function WholesaleAnalyticsPage() {
       {
         name: "Products",
         rows: [
-          ["#", "Product", "Sold by", "Quantity sold", "Bills", "Revenue", "Cost", "Profit"],
-          ...stats.products.map((p, k) => [k + 1, p.name, p.unit === "gram" ? "Weight (g)" : "Piece", round3(p.qty), p.bills, p.total, p.costed ? p.cost : "", p.costed ? round3(p.total - p.cost) : ""]),
+          ["#", "Product", "Sold by", "Quantity sold", "Bills", "Revenue"],
+          ...stats.products.map((p, k) => [k + 1, p.name, p.unit === "gram" ? "Weight (g)" : "Piece", round3(p.qty), p.bills, p.total]),
         ],
       },
       {
@@ -286,7 +284,6 @@ export default function WholesaleAnalyticsPage() {
         <div className="adm-in space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Total revenue" value={rupee(stats.revenue)} hint={stats.vat > 0 ? `Includes ${rupee(stats.vat)} VAT collected` : `${stats.count} bill${stats.count === 1 ? "" : "s"}`} icon="rupee" tone="emerald" />
-            <Kpi label="Goods profit" value={rupee(stats.profit)} hint="Sales − cost, before delivery & VAT" icon="rupee" tone={stats.profit >= 0 ? "emerald" : "red"} />
             <Kpi label="Wholesale bills" value={stats.count} hint={`${stats.customers.length} customer${stats.customers.length === 1 ? "" : "s"} · ${stats.repeat} repeat`} icon="billing" tone="amber" />
             <Kpi label="Discounts given" value={rupee(stats.discount)} hint="Taken off the bills" icon="coupon" tone="violet" />
           </div>
@@ -341,6 +338,13 @@ export default function WholesaleAnalyticsPage() {
                 empty="No revenue yet this week"
               />
             </Card>
+            <Card title="Payment mode" right={stats.splitN ? <span className="text-[12px] text-slate-500">{stats.splitN} split bill{stats.splitN === 1 ? "" : "s"}</span> : undefined}>
+              <dl className="space-y-2 text-[13px]">
+                <div className="flex justify-between"><dt className="text-slate-500">Cash</dt><dd className="font-bold text-slate-900">{rupee(stats.cash)}</dd></div>
+                <div className="flex justify-between"><dt className="text-slate-500">Card</dt><dd className="font-bold text-slate-900">{rupee(stats.card)}</dd></div>
+                <div className="flex justify-between"><dt className="text-slate-500">UPI</dt><dd className="font-bold text-slate-900">{rupee(stats.upi)}</dd></div>
+              </dl>
+            </Card>
             <Card title="Top Products by Revenue">
               <TopProducts products={stats.products} />
             </Card>
@@ -367,13 +371,6 @@ export default function WholesaleAnalyticsPage() {
               ) : (
                 <p className="text-[13px] text-slate-400">No bills in this period.</p>
               )}
-            </Card>
-            <Card title="Payment mode" right={stats.splitN ? <span className="text-[12px] text-slate-500">{stats.splitN} split bill{stats.splitN === 1 ? "" : "s"}</span> : undefined}>
-              <dl className="space-y-2 text-[13px]">
-                <div className="flex justify-between"><dt className="text-slate-500">Cash</dt><dd className="font-bold text-slate-900">{rupee(stats.cash)}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Card</dt><dd className="font-bold text-slate-900">{rupee(stats.card)}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">UPI</dt><dd className="font-bold text-slate-900">{rupee(stats.upi)}</dd></div>
-              </dl>
             </Card>
           </div>
         </div>
@@ -453,7 +450,6 @@ export default function WholesaleAnalyticsPage() {
             <Kpi label="Pieces sold" value={round3(stats.units)} hint="In the selected period" icon="box" tone="violet" />
             <Kpi label="Products sold" value={stats.products.length} hint="Different products billed" icon="list" tone="sky" />
             <Kpi label="Best seller" value={bestSeller?.name ?? "—"} hint={bestSeller ? `${qtyLabel(bestSeller.unit, round3(bestSeller.qty))} · ${rupee(bestSeller.total)}` : "No sales yet"} icon="trophy" tone="amber" small />
-            <Kpi label="Goods profit" value={rupee(stats.profit)} hint={`Cost of goods ${rupee(stats.cost)}`} icon="rupee" tone={stats.profit >= 0 ? "emerald" : "red"} />
           </div>
           <Card
             title="Product performance"
@@ -463,7 +459,6 @@ export default function WholesaleAnalyticsPage() {
                 <select value={prodSort} onChange={(e) => setProdSort(e.target.value as ProdSort)} aria-label="Sort products" className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-700 outline-none focus:border-slate-400">
                   <option value="revenue">Sort: Revenue</option>
                   <option value="qty">Sort: Quantity</option>
-                  <option value="profit">Sort: Profit</option>
                   <option value="name">Sort: Name</option>
                 </select>
               </div>
@@ -482,8 +477,6 @@ export default function WholesaleAnalyticsPage() {
                       <th className={cx(th, "text-right")}>Bills</th>
                       <th className={cx(th, "text-right")}>Revenue</th>
                       <th className={cx(th, "w-[20%]")}>Share</th>
-                      <th className={cx(th, "text-right")}>Cost</th>
-                      <th className={cx(th, "text-right")}>Profit</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -502,13 +495,10 @@ export default function WholesaleAnalyticsPage() {
                             <span className="w-10 text-right text-[11px] text-slate-500">{Math.round((p.total / productTotal) * 100)}%</span>
                           </div>
                         </td>
-                        <td className={cx(td, "text-right text-slate-600")}>{p.costed ? rupee(p.cost) : <span className="text-slate-300">—</span>}</td>
-                        <td className={cx(td, "text-right font-bold", p.profit === null ? "text-slate-300" : p.profit < 0 ? "text-red-600" : "text-emerald-700")}>{p.profit === null ? "—" : rupee(p.profit)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="mt-3 px-1 text-[11.5px] text-slate-400">Profit = revenue − cost of the goods, before any bill-level discount. Products with no cost price set show “—”.</p>
               </div>
             )}
           </Card>
@@ -607,7 +597,7 @@ export default function WholesaleAnalyticsPage() {
                       <th className={cx(th, "text-right")}>Bills</th>
                       <th className={cx(th, "text-right")}>Avg / bill</th>
                       <th className={cx(th, "text-right")}>Last bill</th>
-                      <th className={cx(th, "text-right")}>History</th>
+                      <th className={cx(th, "w-[90px] pr-5 text-right")}>History</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -628,7 +618,7 @@ export default function WholesaleAnalyticsPage() {
                         <td className={cx(td, "text-right font-semibold")}>{c.count}</td>
                         <td className={cx(td, "text-right")}>{rupee(round3(c.total / c.count))}</td>
                         <td className={cx(td, "text-right text-slate-500")}>{fmtDate(c.last)}</td>
-                        <td className={cx(td, "text-right")}>
+                        <td className={cx(td, "w-[90px] pr-5 text-right")}>
                           <button
                             type="button"
                             title="Show all invoices"
@@ -638,7 +628,7 @@ export default function WholesaleAnalyticsPage() {
                               setPicked(people.find((p) => (c.phone ? normPhone(p.phone) === normPhone(c.phone) : p.name === c.name))?.key ?? null);
                               window.scrollTo({ top: 0, behavior: "smooth" });
                             }}
-                            className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            className="ml-auto grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200"
                           >
                             <Icon name="eye" size={16} />
                           </button>
