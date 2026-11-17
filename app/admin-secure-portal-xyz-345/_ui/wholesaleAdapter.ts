@@ -42,6 +42,7 @@ export function wholesaleToBill(w: WholesaleBill): Bill {
     manualDiscount: w.discount,
     discount: w.discount,
     deliveryFee: w.deliveryFee,
+    deliveryPartner: w.deliveryPartner,
     total: w.total,
     createdAt: w.createdAt,
     tax: w.gstAmount,

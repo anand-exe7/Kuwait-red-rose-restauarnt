@@ -19,7 +19,7 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /* ---------------- charts ---------------- */
 
 /** Single-series column chart: thin red columns, value on hover/focus. */
-function Columns({ data, height = 200, empty }: { data: { label: string; full: string; value: number }[]; height?: number; empty?: string }) {
+export function Columns({ data, height = 200, empty }: { data: { label: string; full: string; value: number }[]; height?: number; empty?: string }) {
   const max = Math.max(...data.map((d) => d.value), 0);
   // Below ~34px a column's label ("JAN") no longer fits and breaks mid-word, so
   // the chart scrolls sideways inside its card instead of crushing the labels.
@@ -101,7 +101,7 @@ function ChannelSplit({ by, money = true }: { by: Record<Channel, { revenue: num
 }
 
 /** VAT invoices vs bills with no VAT: how revenue splits, and the tax collected. */
-function GstSplit({ gstN, gstRev, gst, taxable, nonGstN, nonGstRev }: { gstN: number; gstRev: number; gst: number; taxable: number; nonGstN: number; nonGstRev: number }) {
+export function GstSplit({ gstN, gstRev, gst, taxable, nonGstN, nonGstRev }: { gstN: number; gstRev: number; gst: number; taxable: number; nonGstN: number; nonGstRev: number }) {
   const total = gstRev + nonGstRev;
   const pct = (v: number) => (total > 0 ? (v / total) * 100 : 0);
   return (

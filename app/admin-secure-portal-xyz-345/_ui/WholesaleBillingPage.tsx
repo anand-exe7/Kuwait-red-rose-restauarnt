@@ -13,6 +13,7 @@ import PrintModal, { PrintFormats } from "./PrintModal";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
 import { wholesaleToBill } from "./wholesaleAdapter";
 import { rupee } from "./money";
+import { deliveryPartners } from "../../lib/deliveryPartners";
 import { Badge, Btn, Empty, Icon, Modal, SearchBox, WaIcon, cx } from "./kit";
 
 /* The wholesale till. It is the POS Billing Panel with the restaurant-only
@@ -68,7 +69,11 @@ export default function WholesaleBillingPage() {
   const [lines, setLines] = useState<Line[]>(() => [blank()]);
   const [mType, setMType] = useState<DiscType>("amount");
   const [mVal, setMVal] = useState("");
+  const [isDelivery, setIsDelivery] = useState(false);
   const [delivery, setDelivery] = useState("");
+  // Third-party partner who takes the delivery — for Analytics only, never printed.
+  const [partner, setPartner] = useState("");
+  const partners = deliveryPartners();
   const [extra, setExtra] = useState("");
   const [isGst, setIsGst] = useState(false);
   const [gstPct, setGstPct] = useState(DEFAULT_VAT);
@@ -120,7 +125,7 @@ export default function WholesaleBillingPage() {
   const reset = () => {
     setName(""); setNameTouched(false); setPhone("");
     setLines([blank()]);
-    setMType("amount"); setMVal(""); setDelivery(""); setExtra("");
+    setMType("amount"); setMVal(""); setIsDelivery(false); setDelivery(""); setPartner(""); setExtra("");
     setIsGst(false); setGstPct(DEFAULT_VAT);
     setPay("cash"); setReceived(""); setSplitCash(""); setSplitCard("");
   };
@@ -152,7 +157,7 @@ export default function WholesaleBillingPage() {
   const charges: WholesaleCharges = {
     discountType: (Number(mVal) || 0) > 0 ? mType : "none",
     discountValue: Number(mVal) || 0,
-    deliveryFee: Number(delivery) || 0,
+    deliveryFee: isDelivery ? Math.max(0, Number(delivery) || 0) : 0,
     extra: Number(extra) || 0,
     gstPercent: isGst ? Number(gstPct) || 0 : 0,
   };
@@ -171,6 +176,7 @@ export default function WholesaleBillingPage() {
   if (!items.length) problems.push("Add at least one item.");
   if (items.some((i) => !i.name)) problems.push("Every item needs a name.");
   if (items.some((i) => i.qty <= 0)) problems.push("Every item needs a quantity.");
+  if (isDelivery && !partner) problems.push("Choose the delivery partner.");
   if (isGst && !(gstPct !== "" && Number(gstPct) >= 0 && Number(gstPct) <= 100)) problems.push("VAT should be a percentage between 0 and 100.");
   if (pay === "cash" && recv > 0 && recv < calc.total) problems.push("Amount received is less than the total.");
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
@@ -192,6 +198,7 @@ export default function WholesaleBillingPage() {
       received: recv,
       cashAmount: sCash,
       cardAmount: sCard,
+      deliveryPartner: isDelivery ? partner : "",
     });
     setBusy(false);
     if (!res.ok || !res.bill) {
@@ -406,12 +413,55 @@ export default function WholesaleBillingPage() {
                   <dd className="font-semibold">-{rupee(calc.discount)}</dd>
                 </div>
               )}
-              <div className="flex items-center justify-between">
-                <dt className="text-slate-600">Delivery charge</dt>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-slate-600">Delivery</dt>
                 <dd>
-                  <input type="number" min={0} step="0.25" inputMode="decimal" placeholder="0" className="h-10 w-24 rounded-lg border border-slate-300 px-3 text-right text-[14px] outline-none focus:border-slate-400" value={delivery} onChange={(e) => setDelivery(e.target.value)} aria-label="Delivery charge" />
+                  <div className="grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Delivery">
+                    {(
+                      [
+                        [false, "No"],
+                        [true, "Delivery"],
+                      ] as const
+                    ).map(([d, t]) => (
+                      <button
+                        key={t}
+                        type="button"
+                        aria-pressed={isDelivery === d}
+                        onClick={() => setIsDelivery(d)}
+                        className={cx("h-8 rounded-full px-3 text-[11.5px] font-extrabold uppercase tracking-wide transition", isDelivery === d ? "bg-slate-800 text-white shadow" : "text-slate-600 hover:text-slate-900")}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                 </dd>
               </div>
+              {isDelivery && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-slate-600">Delivery charge</dt>
+                    <dd>
+                      <input type="number" min={0} step="0.25" inputMode="decimal" placeholder="0" className="h-10 w-24 rounded-lg border border-slate-300 px-3 text-right text-[14px] outline-none focus:border-slate-400" value={delivery} onChange={(e) => setDelivery(e.target.value)} aria-label="Delivery charge" />
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-slate-600">Delivery partner</dt>
+                    <dd>
+                      <select
+                        className={cx("h-10 w-40 rounded-lg border bg-white px-3 text-[14px] font-semibold text-slate-800 outline-none focus:border-slate-400", !partner ? "border-amber-500" : "border-slate-300")}
+                        value={partner}
+                        onChange={(e) => setPartner(e.target.value)}
+                        aria-label="Delivery partner"
+                      >
+                        <option value="">Select partner</option>
+                        {partners.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </dd>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between">
                 <dt className="text-slate-600">Extra charges</dt>
                 <dd>
