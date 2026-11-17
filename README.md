@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌹 Red Rose Sweets — Digital Ordering & Restaurant Management Platform
+# 🌹 Red Rose Sweets Kuwait — Digital Ordering & Restaurant Management Platform
 
 ### An end-to-end, real-time ordering, billing, and operations suite built for a premium sweets & dessert house in **Kuwait** 🇰🇼
 
