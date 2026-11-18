@@ -83,6 +83,9 @@ export function summary(bills: Bill[]) {
   };
   for (const b of bills) {
     const ch = channelOf(b);
+    /* Same formula as Total revenue (bill total: sales − discount + VAT + delivery
+       + extra), so the three channels add up to it. The channel is whatever was
+       chosen: a customer-side tab, or Dine in / Takeaway / Delivery on the counter. */
     byChannel[ch].revenue += b.total;
     byChannel[ch].count++;
     byChannel[ch].items += b.itemCount;

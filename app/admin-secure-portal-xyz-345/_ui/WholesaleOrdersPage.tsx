@@ -87,10 +87,10 @@ export default function WholesaleOrdersPage() {
       {
         name: "Wholesale bills",
         rows: [
-          ["Invoice", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Extra", "VAT %", "VAT amount", "Total", "Payment", "Cash", "Card", "Date", "Time"],
-          ...bills.map((b) => [b.id, b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment], b.payment === "cash" ? b.total : b.cashAmount, b.payment === "card" ? b.total : b.cardAmount, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
+          ["Invoice", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Delivery partner", "Extra", "VAT %", "VAT amount", "Total", "Payment", "Cash", "Card", "Date", "Time"],
+          ...bills.map((b) => [b.id, b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.deliveryPartner, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment], b.payment === "cash" ? b.total : b.cashAmount, b.payment === "card" ? b.total : b.cardAmount, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
           [],
-          ["Total", "", "", "", round3(bills.reduce((a, b) => a + b.subtotal, 0)), round3(bills.reduce((a, b) => a + b.discount, 0)), round3(bills.reduce((a, b) => a + b.deliveryFee, 0)), round3(bills.reduce((a, b) => a + b.extra, 0)), "", round3(bills.reduce((a, b) => a + b.gstAmount, 0)), round3(bills.reduce((a, b) => a + b.total, 0))],
+          ["Total", "", "", "", round3(bills.reduce((a, b) => a + b.subtotal, 0)), round3(bills.reduce((a, b) => a + b.discount, 0)), round3(bills.reduce((a, b) => a + b.deliveryFee, 0)), "", round3(bills.reduce((a, b) => a + b.extra, 0)), "", round3(bills.reduce((a, b) => a + b.gstAmount, 0)), round3(bills.reduce((a, b) => a + b.total, 0))],
         ],
       },
       {

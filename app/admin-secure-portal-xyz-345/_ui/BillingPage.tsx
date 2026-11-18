@@ -72,6 +72,9 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   // Delivery toggle: when on, the bill asks for a delivery charge and the
   // delivery partner. The partner is for Analytics only — it is not printed
   // and not mentioned in the WhatsApp message.
+  // Counter walk-ins: how the food leaves the shop. Delivery is the isDelivery
+  // flag below; this only chooses between eating in and takeaway.
+  const [counterKind, setCounterKind] = useState<"standing" | "takeaway">("standing");
   const [isDelivery, setIsDelivery] = useState(!!start && (start.deliveryFee > 0 || start.mode === "delivery"));
   const [partner, setPartner] = useState("");
   const partners = deliveryPartners();
@@ -105,6 +108,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     setCoupon("");
     setDelivery("");
     setIsDelivery(false);
+    setCounterKind("standing");
     setPartner("");
     setMType("amount");
     setMVal("");
@@ -193,7 +197,7 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
     const r = await act<Bill>("bill.create", {
       source: mode,
       sessionId: f?.session.id,
-      mode: isDelivery ? "delivery" : f?.mode ?? "standing",
+      mode: isDelivery ? "delivery" : mode === "counter" ? counterKind : f?.mode ?? "standing",
       deliveryFee,
       isDelivery,
       deliveryPartner: isDelivery ? partner : "",
@@ -559,28 +563,59 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
               )}
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-slate-600">
-                  Delivery
+                  {mode === "counter" ? "Order type" : "Delivery"}
                   {isDelivery && f?.mode === "delivery" && <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-700">quoted to the guest</span>}
                 </dt>
                 <dd>
-                  <div className="grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Delivery">
-                    {(
-                      [
-                        [false, "No"],
-                        [true, "Delivery"],
-                      ] as const
-                    ).map(([d, t]) => (
-                      <button
-                        key={t}
-                        type="button"
-                        aria-pressed={isDelivery === d}
-                        onClick={() => setIsDelivery(d)}
-                        className={cx("h-8 rounded-full px-3 text-[11.5px] font-extrabold uppercase tracking-wide transition", isDelivery === d ? "bg-slate-800 text-white shadow" : "text-slate-600 hover:text-slate-900")}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
+                  {mode === "counter" ? (
+                    <div className="grid grid-cols-3 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Order type">
+                      {(
+                        [
+                          ["standing", "Dine in"],
+                          ["takeaway", "Takeaway"],
+                          ["delivery", "Delivery"],
+                        ] as const
+                      ).map(([k, label]) => {
+                        const on = k === "delivery" ? isDelivery : !isDelivery && counterKind === k;
+                        return (
+                          <button
+                            key={k}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => {
+                              if (k === "delivery") setIsDelivery(true);
+                              else {
+                                setIsDelivery(false);
+                                setCounterKind(k);
+                              }
+                            }}
+                            className={cx("h-8 rounded-full px-3 text-[11.5px] font-extrabold uppercase tracking-wide transition", on ? "bg-slate-800 text-white shadow" : "text-slate-600 hover:text-slate-900")}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 rounded-full border border-slate-200 bg-white p-1" role="group" aria-label="Delivery">
+                      {(
+                        [
+                          [false, "No"],
+                          [true, "Delivery"],
+                        ] as const
+                      ).map(([d, t]) => (
+                        <button
+                          key={t}
+                          type="button"
+                          aria-pressed={isDelivery === d}
+                          onClick={() => setIsDelivery(d)}
+                          className={cx("h-8 rounded-full px-3 text-[11.5px] font-extrabold uppercase tracking-wide transition", isDelivery === d ? "bg-slate-800 text-white shadow" : "text-slate-600 hover:text-slate-900")}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </dd>
               </div>
               {isDelivery && (

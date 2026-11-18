@@ -120,6 +120,7 @@ export default function WholesaleAnalyticsPage() {
   const rows = useMemo(() => bills.filter((b) => inRange(b.createdAt, range)), [bills, range]);
   const todayRows = useMemo(() => bills.filter((b) => inRange(b.createdAt, rangeOf("today"))), [bills, now]); // eslint-disable-line react-hooks/exhaustive-deps
   const stats = useMemo(() => statsOf(rows), [rows]);
+  const netProfit = stats.revenue - stats.vat - stats.delivery;
   const tstats = useMemo(() => statsOf(todayRows), [todayRows]);
 
   /* the trend charts always look at the whole year / this week, as on the POS */
@@ -185,7 +186,8 @@ export default function WholesaleAnalyticsPage() {
           ["Period", periodLabel],
           [],
           ["Metric", "Value"],
-          ["Revenue", stats.revenue],
+          ["Net profit (Revenue − VAT − Delivery charges)", netProfit],
+          ["Revenue (total of all bills)", stats.revenue],
           ["Bills", stats.count],
           ["Average bill", stats.avg],
           ["Discounts given", stats.discount],
@@ -207,8 +209,10 @@ export default function WholesaleAnalyticsPage() {
       {
         name: "Bills",
         rows: [
-          ["Invoice", "Date", "Time", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Delivery partner", "Extra", "VAT %", "VAT amount", "Total", "Payment"],
-          ...rows.slice().sort((a, b) => b.createdAt - a.createdAt).map((b) => [b.id, fmtDate(b.createdAt), fmtTime(b.createdAt), b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.deliveryPartner, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment]]),
+          ["Invoice", "Date", "Time", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Delivery partner", "Extra", "VAT %", "VAT amount", "Total", "Payment", "Cash", "Card"],
+          ...rows.slice().sort((a, b) => b.createdAt - a.createdAt).map((b) => [b.id, fmtDate(b.createdAt), fmtTime(b.createdAt), b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.deliveryPartner, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment], cashOf(b), cardOf(b)]),
+          [],
+          ["Total", "", "", "", "", "", round3(rows.reduce((a, b) => a + b.subtotal, 0)), stats.discount, stats.delivery, "", stats.extra, "", stats.vat, stats.revenue, "", stats.cash, stats.card],
         ],
       },
       {
@@ -283,6 +287,7 @@ export default function WholesaleAnalyticsPage() {
       {tab === "revenue" && (
         <div className="adm-in space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi label="Net profit" value={rupee(netProfit)} hint="Revenue − VAT − delivery charges" icon="rupee" tone={netProfit >= 0 ? "emerald" : "red"} />
             <Kpi label="Total revenue" value={rupee(stats.revenue)} hint={stats.vat > 0 ? `Includes ${rupee(stats.vat)} VAT collected` : `${stats.count} bill${stats.count === 1 ? "" : "s"}`} icon="rupee" tone="emerald" />
             <Kpi label="Wholesale bills" value={stats.count} hint={`${stats.customers.length} customer${stats.customers.length === 1 ? "" : "s"} · ${stats.repeat} repeat`} icon="billing" tone="amber" />
             <Kpi label="Discounts given" value={rupee(stats.discount)} hint="Taken off the bills" icon="coupon" tone="violet" />

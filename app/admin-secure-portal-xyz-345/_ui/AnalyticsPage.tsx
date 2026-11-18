@@ -67,7 +67,7 @@ function ChannelSplit({ by, money = true }: { by: Record<Channel, { revenue: num
   const rows = [
     { key: "dinein" as const, label: CHANNEL_LABEL.dinein, text: "text-slate-700", bar: "bg-slate-800" },
     { key: "takeaway" as const, label: CHANNEL_LABEL.takeaway, text: "text-sky-700", bar: "bg-sky-500" },
-    { key: "delivery" as const, label: CHANNEL_LABEL.delivery, text: "text-violet-700", bar: "bg-violet-500" },
+    { key: "delivery" as const, label: "Website delivery", text: "text-violet-700", bar: "bg-violet-500" },
   ];
   const max = Math.max(...rows.map((r) => (money ? by[r.key].revenue : by[r.key].count)), 1);
   const total = rows.reduce((a, r) => a + by[r.key].revenue, 0);
@@ -287,7 +287,7 @@ export default function AnalyticsPage() {
      the two agree on what "this month" means but can differ in range. */
   const expensesTotal = useMemo(() => expensesIn(s.expenses, range).reduce((a, e) => a + e.amount, 0), [s.expenses, range]);
   /* VAT collected is passed on to the government, so it isn't earnings. */
-  const net = sum.revenue - sum.gst - expensesTotal;
+  const netProfit = sum.revenue - sum.gst - expensesTotal - sum.delivery;
   const gstBills = useMemo(() => inPeriod.filter((b) => b.isGst).sort((a, b) => b.createdAt - a.createdAt), [inPeriod]);
   const exportGst = () => {
     const head = ["Invoice", "Date", "Customer", "Mobile", "VAT %", "Taxable amount", "VAT amount", "Invoice total"];
@@ -315,13 +315,13 @@ export default function AnalyticsPage() {
           ["Total revenue", sum.revenue],
           ["Total expenses", expensesTotal],
           ["VAT collected", sum.gst],
-          ["Net earnings", net],
+          ["Net profit", netProfit],
           ["Completed bills", sum.count],
           [],
           ["Channel", "Revenue", "Bills", "Items"],
           ["Dine-in", sum.byChannel.dinein.revenue, sum.byChannel.dinein.count, sum.byChannel.dinein.items],
           ["Takeaway", sum.byChannel.takeaway.revenue, sum.byChannel.takeaway.count, sum.byChannel.takeaway.items],
-          ["Delivery", sum.byChannel.delivery.revenue, sum.byChannel.delivery.count, sum.byChannel.delivery.items],
+          ["Website delivery", sum.byChannel.delivery.revenue, sum.byChannel.delivery.count, sum.byChannel.delivery.items],
           ["Delivery charges collected", sum.delivery],
           [],
           ["Delivery partner", "Deliveries", "Delivery charges", "Order sales"],
@@ -487,7 +487,7 @@ export default function AnalyticsPage() {
       {tab === "revenue" && !gstView && (
         <div className="adm-in space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi label="Net earnings" value={rupee(net)} hint={sum.gst > 0 ? "Revenue − VAT − expenses" : "Revenue − expenses"} icon="rupee" tone={net >= 0 ? "emerald" : "red"} />
+            <Kpi label="Net profit" value={rupee(netProfit)} hint="Revenue − VAT − expenses − delivery charges" icon="rupee" tone={netProfit >= 0 ? "emerald" : "red"} />
             <Kpi label="Total revenue" value={rupee(sum.revenue)} hint={sum.gst > 0 ? `Includes ${rupee(sum.gst)} VAT collected` : "Customer tabs + counter combined"} icon="rupee" tone="emerald" />
             <Kpi label="Total expenses" value={rupee(expensesTotal)} hint="Recorded on the Expenses page" icon="bag" tone="rose" />
             <Kpi label="Discounts given" value={rupee(sum.discount)} hint={`${sum.discounted} discounted bills`} icon="coupon" tone="violet" />
@@ -496,10 +496,10 @@ export default function AnalyticsPage() {
             Calculation: <b className="text-slate-800">Revenue {rupee(sum.revenue)}</b>
             {sum.gst > 0 && (
               <>
-                {" "}− <b className="text-slate-800">GST {rupee(sum.gst)}</b>
+                {" "}− <b className="text-slate-800">VAT {rupee(sum.gst)}</b>
               </>
             )}{" "}
-            − <b className="text-slate-800">Expenses {rupee(expensesTotal)}</b> = <b className={net >= 0 ? "text-emerald-600" : "text-red-600"}>{rupee(net)}</b>
+            − <b className="text-slate-800">Expenses {rupee(expensesTotal)}</b> − <b className="text-slate-800">Delivery {rupee(sum.delivery)}</b> = <b className={netProfit >= 0 ? "text-emerald-600" : "text-red-600"}>{rupee(netProfit)}</b>
           </p>
           {/* The three ways the shop sells. This is the split the owner runs
               the business on, so it leads — "tab vs counter" was a till
@@ -507,7 +507,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi label="Dine-in income" value={rupee(sum.byChannel.dinein.revenue)} hint={`${sum.byChannel.dinein.count} bill${sum.byChannel.dinein.count === 1 ? "" : "s"} eaten in`} icon="utensils" tone="rose" />
             <Kpi label="Takeaway income" value={rupee(sum.byChannel.takeaway.revenue)} hint={`${sum.byChannel.takeaway.count} bill${sum.byChannel.takeaway.count === 1 ? "" : "s"} collected`} icon="bag" tone="sky" />
-            <Kpi label="Delivery income" value={rupee(sum.byChannel.delivery.revenue)} hint={sum.delivery > 0 ? `includes ${rupee(sum.delivery)} delivery charges` : `${sum.byChannel.delivery.count} bill${sum.byChannel.delivery.count === 1 ? "" : "s"} sent out`} icon="cart" tone="violet" />
+            <Kpi label="Website delivery" value={rupee(sum.byChannel.delivery.revenue)} hint={`${sum.byChannel.delivery.count} bill${sum.byChannel.delivery.count === 1 ? "" : "s"} sent out`} icon="cart" tone="violet" />
             <Kpi label="Completed bills" value={sum.count} hint="Every settled bill in the period" icon="billing" tone="amber" />
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -629,7 +629,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Kpi label="Dine-in today" value={rupee(tsum.byChannel.dinein.revenue)} hint={`${tsum.byChannel.dinein.count} bill${tsum.byChannel.dinein.count === 1 ? "" : "s"}`} icon="utensils" tone="rose" />
             <Kpi label="Takeaway today" value={rupee(tsum.byChannel.takeaway.revenue)} hint={`${tsum.byChannel.takeaway.count} bill${tsum.byChannel.takeaway.count === 1 ? "" : "s"}`} icon="bag" tone="sky" />
-            <Kpi label="Delivery today" value={rupee(tsum.byChannel.delivery.revenue)} hint={`${tsum.byChannel.delivery.count} bill${tsum.byChannel.delivery.count === 1 ? "" : "s"}`} icon="cart" tone="violet" />
+            <Kpi label="Website delivery today" value={rupee(tsum.byChannel.delivery.revenue)} hint={`${tsum.byChannel.delivery.count} bill${tsum.byChannel.delivery.count === 1 ? "" : "s"}`} icon="cart" tone="violet" />
           </div>
           <div className="grid gap-5 xl:grid-cols-3">
             <Card
