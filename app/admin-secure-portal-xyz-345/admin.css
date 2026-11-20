@@ -233,26 +233,66 @@ html:has(.adm) {
 }
 
 /* ---------- print ---------- */
-.adm-print { display: none; }
+/* Parked off-screen rather than display:none. A display:none subtree has no
+   layout box, so it measures zero — and the thermal slip has to be measured
+   before the dialog opens to give the roll a page as long as the bill and no
+   longer (see print() in _ui/Store.tsx). Fixed + hidden keeps it out of the
+   page's scroll height and out of the tab order. */
+.adm-print {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 320mm;
+  visibility: hidden;
+  pointer-events: none;
+}
 @media print {
   html:has(.adm),
   .adm { background: #fff !important; }
   .adm-app { display: none !important; }
-  .adm-print { display: block; color: #000; }
+  .adm-print {
+    position: static;
+    left: auto;
+    width: auto;
+    visibility: visible;
+    pointer-events: auto;
+    display: block;
+    color: #000;
+  }
+
+  /* Ask the printer for the real colours. Chrome still lets the person turn
+     "Background graphics" off, which drops every fill — so nothing on the
+     paper below depends on a fill alone: the shop's red and gold are carried
+     by text, borders and the logo <img>, and the cream panels are the bonus
+     you get when the box is ticked. */
+  .adm-print,
+  .adm-print * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* ===========  THERMAL RECEIPTS  ============================================
    2-inch (48mm printable) and 3-inch (72mm printable) rolls. A clean column:
    shop name, address and telephone up top, boxed meta, one-line items with
    price per piece under the name, totals rail with a big grand-total band.
-   No logo — a photograph prints as a grey smear on a thermal head. Black ink
-   only so cheap thermal printers reproduce it crisply.                      */
+   The shop badge rides at the top, a few millimetres tall and pushed to
+   greyscale with the contrast lifted — a thermal head has no colour, and at
+   full size a photograph comes out a grey smear. Everything else is black ink
+   only, so cheap thermal printers reproduce it crisply.                     */
 .rcpt {
   font-family: ui-sans-serif, "Helvetica Neue", Helvetica, Arial, sans-serif;
   color: #000;
   line-height: 1.35;
   padding: 3mm 2mm 5mm;
   margin: 0 auto;
+}
+.rcpt__logo {
+  display: block;
+  width: 20mm;
+  height: 20mm;
+  object-fit: contain;
+  margin: 0 auto 1.2mm;
+  /* No colour on a thermal head: convert ourselves, with the contrast lifted
+     so the badge keeps an outline instead of dissolving into grey. */
+  filter: grayscale(1) contrast(1.45) brightness(1.04);
 }
 .rcpt h1 { font-size: 13pt; font-weight: 800; text-align: center; margin: 0; letter-spacing: 0.02em; }
 .rcpt__addr { font-size: 8pt; margin: 0.6mm 0 2mm; letter-spacing: 0.02em; }
@@ -289,6 +329,7 @@ html:has(.adm) {
   padding: 3mm 2mm 5mm;
   line-height: 1.4;
 }
+.rcpt--2 .rcpt__logo { width: 15mm; height: 15mm; margin-bottom: 1mm; }
 .rcpt--2 h1 { font-size: 11pt; letter-spacing: 0.03em; }
 .rcpt--2 .rcpt__addr { font-size: 7.2pt; margin-bottom: 2mm; }
 .rcpt--2 .rcpt__tag { margin: 0 4mm 2mm; font-size: 6.6pt; letter-spacing: 0.15em; padding: 0.6mm 0; }
@@ -305,14 +346,23 @@ html:has(.adm) {
 
 /* 3-inch (72mm printable) — breathing room, larger totals band. */
 .rcpt--3 { font-size: 9pt; }
+.rcpt--3 .rcpt__logo { width: 22mm; height: 22mm; }
 .rcpt--3 .rcpt__total { font-size: 12pt !important; }
 
 /* ===========  SHEET INVOICES (A3 / A4 / A5)  ===============================
-   Classic invoice: typographic letterhead (no logo), meta block on the right, billed-to
-   split row, zebra items table, right-aligned totals rail with a bold grand
-   total band. Scales by paper via .inv--a{n}. Same layout across every size —
-   only padding and type scale change, so the customer's A4 link and the
-   admin's A3 print read as one document.                                      */
+   The shop's letterpad. The badge and address sit in the letterhead, a dimmed
+   copy of the same badge sits in the middle of the sheet behind the writing,
+   and under it run the meta block, the billed-to row, the items table and the
+   totals rail. Scales by paper via .inv--a{n} — same layout at every size, only
+   padding and type scale change, so the customer's A4 link, the admin's A3
+   print and the A5 duplicate read as one document.
+
+   PRINTING IN COLOUR. Chrome's print dialog ships with "Background graphics"
+   OFF, which throws away every background fill. So nothing here needs a fill
+   to be legible: the red and the gold are carried by TEXT COLOUR, BORDERS and
+   the logo <img>, all of which print either way. The cream panels and the
+   zebra rows are decoration layered on top — ticking the box makes the sheet
+   richer, leaving it unticked costs nothing.                                 */
 .inv {
   font-family: var(--body);
   color: #1a0f0a;
@@ -320,11 +370,32 @@ html:has(.adm) {
   padding: 14mm 16mm;
   max-width: 100%;
   box-sizing: border-box;
+  /* Own stacking context, so the watermark's negative z-index stays trapped
+     behind this sheet's own content and never slides under the page. */
+  position: relative;
+  z-index: 0;
 }
 
-.inv__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; border-bottom: 2.5px solid #1a0f0a; padding-bottom: 7mm; }
-.inv__brand { display: flex; align-items: center; }
-.inv__head h1 { margin: 0; font-size: 24pt; font-weight: 800; letter-spacing: -0.015em; color: #1a0f0a; line-height: 1.05; }
+/* The letterpad watermark. Behind the writing but above the white sheet, big
+   enough to read as the shop's mark and faint enough to write over. An <img>,
+   not a CSS background, so it survives "Background graphics: off". */
+.inv__wm {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 110mm;
+  height: 110mm;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+  opacity: 0.07;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.inv__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; padding-bottom: 5mm; }
+.inv__brand { display: flex; align-items: center; gap: 5mm; }
+.inv__logo { width: 22mm; height: 22mm; object-fit: contain; flex: none; }
+.inv__head h1 { margin: 0; font-size: 24pt; font-weight: 800; letter-spacing: -0.015em; color: #8f1420; line-height: 1.05; }
 .inv__head p { margin: 1.5mm 0 0; font-size: 9pt; color: #6b5340; letter-spacing: 0.06em; }
 .inv__meta { text-align: right; min-width: 50mm; }
 .inv__meta h2 { margin: 0 0 3mm; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.26em; color: #b01e28; font-weight: 800; }
@@ -332,36 +403,51 @@ html:has(.adm) {
 .inv__meta .inv__no { margin-top: 0; }
 .inv__meta .inv__no b { font-size: 13pt; color: #1a0f0a; letter-spacing: 0.06em; }
 
-.inv__to { display: flex; justify-content: space-between; gap: 10mm; margin: 7mm 0 3mm; background: #fbf3df; border-radius: 3mm; padding: 5mm 6mm; }
-.inv__to span { display: block; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.22em; color: #a78962; margin-bottom: 1.5mm; font-weight: 700; }
+/* Letterhead rule: a heavy red line over a thin gold one. Borders, so the
+   colour reaches the paper whatever the dialog is set to. */
+.inv__rule {
+  height: 0;
+  border-top: 1.1mm solid #b01e28;
+  border-bottom: 0.4mm solid #c9a227;
+  margin-bottom: 1mm;
+}
+
+.inv__to { display: flex; justify-content: space-between; gap: 10mm; margin: 6mm 0 3mm; background: #fdf7ea; border: 0.4mm solid #e4d2ab; border-left: 1.2mm solid #b01e28; border-radius: 2mm; padding: 4.5mm 6mm; }
+.inv__to span { display: block; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.22em; color: #a0761f; margin-bottom: 1.5mm; font-weight: 700; }
 .inv__to b { display: block; font-size: 12pt; color: #1a0f0a; font-weight: 700; }
 .inv__to p { margin: 0.8mm 0 0; font-size: 9.5pt; color: #6b5340; }
 .inv__r { text-align: right; }
 
-.inv__tbl { width: 100%; border-collapse: collapse; margin: 6mm 0 6mm; }
-.inv__tbl th { background: #1a0f0a; color: #fbf3df; padding: 3mm 3mm; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.18em; text-align: left; font-weight: 700; }
+/* Items table. The head is red type between two red rules rather than white
+   type on a dark fill — a dark fill disappears with backgrounds off and takes
+   the white lettering with it. */
+.inv__tbl { width: 100%; border-collapse: collapse; margin: 6mm 0; }
+.inv__tbl th { background: #fdf2f3; color: #8f1420; padding: 2.6mm 3mm; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.18em; text-align: left; font-weight: 800; border-top: 0.7mm solid #b01e28; border-bottom: 0.4mm solid #b01e28; }
 .inv__tbl th.n, .inv__tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
-.inv__tbl th:first-child { border-top-left-radius: 2mm; }
-.inv__tbl th:last-child { border-top-right-radius: 2mm; }
-.inv__tbl td { padding: 2.8mm 3mm; font-size: 10pt; border-bottom: 1px solid #efe2c6; }
+.inv__tbl td { padding: 2.8mm 3mm; font-size: 10pt; border-bottom: 1px solid #e8d9b8; }
+.inv__tbl td:first-child { color: #a0761f; font-weight: 700; }
+.inv__tbl td.n:last-child { font-weight: 700; }
 .inv__tbl tr:nth-child(even) td { background: #fdf9ee; }
 
 .inv__sum { margin: 0 0 0 auto; width: 58%; display: block; }
 .inv__sum div { display: flex; justify-content: space-between; padding: 2mm 1mm; border-bottom: 1px dashed #d9c8aa; font-size: 10pt; }
 .inv__sum dt { color: #6b5340; }
 .inv__sum dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: #1a0f0a; }
-.inv__tot { border-top: 2.5px solid #1a0f0a !important; border-bottom: 2.5px solid #1a0f0a !important; margin-top: 3mm; font-size: 14pt !important; font-weight: 800; padding: 3.5mm 3mm !important; background: #fbf3df; }
-.inv__tot dt, .inv__tot dd { color: #1a0f0a; font-weight: 800; }
+.inv__tot { border-top: 1.1mm solid #b01e28 !important; border-bottom: 1.1mm solid #b01e28 !important; margin-top: 3mm; font-size: 14pt !important; font-weight: 800; padding: 3.5mm 3mm !important; background: #fdf2f3; }
+.inv__tot dt, .inv__tot dd { color: #8f1420; font-weight: 800; }
 
-.inv__foot { margin-top: 12mm; display: flex; justify-content: space-between; align-items: center; gap: 6mm; padding-top: 4mm; border-top: 1px dashed #d9c8aa; font-size: 8.5pt; color: #6b5340; letter-spacing: 0.04em; }
-.inv__foot span:first-child { font-style: italic; }
+.inv__foot { margin-top: 10mm; display: flex; justify-content: space-between; align-items: baseline; gap: 8mm; padding-top: 3.5mm; border-top: 0.4mm solid #c9a227; font-size: 8.5pt; color: #6b5340; letter-spacing: 0.04em; }
+.inv__foot span:last-child { text-align: right; }
+.inv__thanks { font-style: italic; color: #8f1420; font-weight: 700; white-space: nowrap; flex: none; }
 
 /* Paper-size trims — identical layout, only paper-scaled typography and
    padding so the A4 the customer gets reads like the A3 printed at the
    counter and the A5 duplicate. */
 .inv--a3 { font-size: 12pt; padding: 20mm 24mm; }
 .inv--a3 .inv__head h1 { font-size: 30pt; }
-.inv--a3 .inv__head { padding-bottom: 9mm; }
+.inv--a3 .inv__head { padding-bottom: 7mm; }
+.inv--a3 .inv__logo { width: 30mm; height: 30mm; }
+.inv--a3 .inv__wm { width: 155mm; height: 155mm; }
 .inv--a3 .inv__meta h2 { font-size: 13pt; }
 .inv--a3 .inv__meta .inv__no b { font-size: 16pt; }
 .inv--a3 .inv__tbl td { font-size: 11pt; padding: 3.2mm 3.5mm; }
@@ -370,9 +456,15 @@ html:has(.adm) {
 .inv--a3 .inv__sum { width: 52%; }
 
 .inv--a4 { font-size: 10.5pt; padding: 14mm 16mm; }
+.inv--a4 .inv__logo { width: 22mm; height: 22mm; }
+.inv--a4 .inv__wm { width: 112mm; height: 112mm; }
 
 .inv--a5 { font-size: 9pt; padding: 9mm 10mm; }
-.inv--a5 .inv__head { padding-bottom: 4mm; gap: 6mm; }
+.inv--a5 .inv__head { padding-bottom: 3.5mm; gap: 5mm; }
+.inv--a5 .inv__brand { gap: 3.5mm; }
+.inv--a5 .inv__logo { width: 16mm; height: 16mm; }
+.inv--a5 .inv__wm { width: 78mm; height: 78mm; }
+.inv--a5 .inv__rule { border-top-width: 0.8mm; border-bottom-width: 0.3mm; }
 .inv--a5 .inv__head h1 { font-size: 18pt; }
 .inv--a5 .inv__head p { font-size: 8pt; }
 .inv--a5 .inv__meta h2 { font-size: 9pt; letter-spacing: 0.18em; margin-bottom: 2mm; }
@@ -387,7 +479,7 @@ html:has(.adm) {
 .inv--a5 .inv__sum { width: 72%; }
 .inv--a5 .inv__sum div { font-size: 9pt; padding: 1.4mm 1mm; }
 .inv--a5 .inv__tot { font-size: 12pt !important; padding: 2.4mm 2mm !important; margin-top: 2mm; }
-.inv--a5 .inv__foot { margin-top: 7mm; font-size: 7.5pt; }
+.inv--a5 .inv__foot { margin-top: 6mm; font-size: 7.5pt; }
 
 /* On a phone the customer's A4 invoice is read on screen, not printed. The
    sheet above is sized for paper — mm/pt units, a side-by-side header and
@@ -398,7 +490,13 @@ html:has(.adm) {
 @media screen and (max-width: 640px) {
   .inv-screen .inv { padding: 22px 18px; font-size: 13px; }
 
-  .inv-screen .inv__head { flex-direction: column; gap: 12px; padding-bottom: 16px; }
+  .inv-screen .inv { position: relative; }
+  .inv-screen .inv__logo { width: 54px; height: 54px; }
+  .inv-screen .inv__wm { width: 230px; height: 230px; opacity: 0.06; }
+  .inv-screen .inv__rule { border-top-width: 3px; border-bottom-width: 1px; }
+
+  .inv-screen .inv__head { flex-direction: row; align-items: flex-start; gap: 12px; padding-bottom: 12px; flex-wrap: wrap; }
+  .inv-screen .inv__brand { gap: 10px; }
   .inv-screen .inv__head h1 { font-size: 21px; }
   .inv-screen .inv__head p { font-size: 11.5px; margin-top: 4px; }
   .inv-screen .inv__meta { text-align: left; min-width: 0; }
@@ -423,11 +521,21 @@ html:has(.adm) {
   .inv-screen .inv__tot { font-size: 16px !important; padding: 12px 8px !important; margin-top: 10px; }
 
   .inv-screen .inv__foot { flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 22px; font-size: 11px; }
+  /* The thank-you holds one line on paper; on a phone it may wrap. */
+  .inv-screen .inv__thanks { white-space: normal; }
+  .inv-screen .inv__foot span:last-child { text-align: left; }
 }
 
-/* Pagebreak helpers */
+/* Pagebreak helpers. A long bill has to be allowed to run onto a second
+   sheet — holding the whole invoice together just clipped the items off the
+   bottom — so the rule is to never split a single row, a single total line or
+   the letterhead, and to repeat the table head on the next page. */
 @media print {
-  .inv, .rcpt { page-break-inside: avoid; }
+  .rcpt { page-break-inside: avoid; }
+  .inv__head, .inv__to, .inv__foot { page-break-inside: avoid; }
+  .inv__tbl thead { display: table-header-group; }
+  .inv__tbl tr, .inv__sum div { page-break-inside: avoid; }
+  .inv__sum { page-break-before: auto; }
 }
 
 /* Somebody working the counter does not need things sliding about. */

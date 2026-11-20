@@ -4,7 +4,7 @@
 // something. Rent, wages, gas, packaging, a repair: one row each, with a
 // category and the day the money actually went out.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 // useLayoutEffect on the client (measure the pill before paint, no flash),
 // useEffect on the server (avoids the SSR warning).
@@ -14,6 +14,16 @@ import { rupee } from "./money";
 import { expenseStats, rangeOf, type Period } from "./analytics";
 import { useAdmin } from "./Store";
 import { EXPENSE_CATEGORIES } from "../../lib/expenseStore";
+import {
+  expenseItemsFrom,
+  forgetExpenseItem,
+  getExpenseItemsServerSnapshot,
+  getExpenseItemsSnapshot,
+  itemKey,
+  rememberExpenseItem,
+  subscribeToExpenseItems,
+  type ExpenseItem,
+} from "../../lib/expenseItemStore";
 import {
   addExpenseCategory,
   deleteExpenseCategory,
@@ -44,11 +54,73 @@ import {
 
 type Form = { id?: string; title: string; category: string; amount: string; expenseDate: string; notes: string };
 
+/**
+ * The Add-expense draft.
+ *
+ * One trip to the supplier is one payment covering several things — "maida,
+ * sugar, gas, KD 45" — which is how the shop already writes them down. So the
+ * form collects the THINGS as chips and the PRICE once, for the lot, and
+ * writes a single expense whose title is the chips joined up.
+ *
+ * Editing an existing expense stays a plain single form (`Form` above),
+ * because there you are changing one record that already exists.
+ */
+type Draft = {
+  /** The chips sitting in the box, in the order they were put there. */
+  picked: string[];
+  category: string;
+  /** What the whole lot cost — one price, not one per chip. */
+  amount: string;
+  expenseDate: string;
+  notes: string;
+  /** Names typed into this draft that the saved list does not hold yet. */
+  extra: ExpenseItem[];
+};
+
 const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
-const blank = (category = ""): Form => ({ title: "", category, amount: "", expenseDate: todayISO(), notes: "" });
+
+/** An expense's title is the things it covered, joined up — "maida, sugar,
+ *  gas". Split it back out so the row can show them as chips. Falls back to
+ *  the whole title when there is nothing to split. */
+function splitItems(title: string): string[] {
+  const parts = title.split(",").map((p) => p.trim()).filter(Boolean);
+  return parts.length ? parts : [title.trim()].filter(Boolean);
+}
+
+/** Everything about one expense, opened out under its row: what it covered,
+ *  and every field in full — no truncation, no ellipsis. */
+function ExpenseDetail({ e, parts }: { e: Expense; parts: string[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3.5">
+      <span className="mb-1.5 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">
+        What it covered
+      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {parts.map((p, i) => (
+          <span key={`${p}-${i}`} className="rounded-lg bg-slate-100 px-2.5 py-1 text-[12.5px] font-semibold text-slate-700">
+            {p}
+          </span>
+        ))}
+      </div>
+      <dl className="mt-3 grid gap-x-6 gap-y-2.5 border-t border-slate-100 pt-3 sm:grid-cols-2">
+        {[
+          { k: "Category", v: e.category },
+          { k: "Date it was paid", v: e.expenseDate },
+          { k: "Amount", v: rupee(e.amount) },
+          { k: "Notes", v: e.notes || "—" },
+        ].map((f) => (
+          <div key={f.k}>
+            <dt className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{f.k}</dt>
+            <dd className="mt-0.5 break-words text-[13px] font-semibold text-slate-800">{f.v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
 
 const th = "px-4 py-3 text-left text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500 whitespace-nowrap";
 const td = "px-4 py-3.5 text-[13px]";
@@ -66,6 +138,17 @@ export default function ExpensesPage() {
   const [newCatName, setNewCatName] = useState("");
   const [renameOf, setRenameOf] = useState<string | null>(null);
   const [renaming, setRenaming] = useState("");
+  /** "date" is the plain ledger; "item" groups the same purchase together so
+   *  you can see what the gas cost across the whole period at a glance. */
+  const [draft, setDraft] = useState<Draft | null>(null);
+  /** What is typed in the add form's name box: both a filter over the list
+   *  and the way a name that is not on it yet gets added. */
+  const [newName, setNewName] = useState("");
+  const [view, setView] = useState<"date" | "item">("date");
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
+  /** The bare input inside the chip box — clicking anywhere in the box, or
+   *  committing a chip, puts the cursor back here. */
+  const nameRef = useRef<HTMLInputElement | null>(null);
 
   const range = useMemo(() => rangeOf(period, from, to), [period, from, to]);
   const stats = useMemo(() => expenseStats(s.expenses, range, cat, q), [s.expenses, range, cat, q]);
@@ -90,6 +173,44 @@ export default function ExpensesPage() {
   const pickerCats = savedCats.length > 0 ? savedCats : EXPENSE_CATEGORIES;
   const formCats =
     form && form.category && !pickerCats.includes(form.category) ? [form.category, ...pickerCats] : pickerCats;
+  /* ---- the things the shop buys every month ----------------------------
+     Nearly every expense is the same handful of purchases repeating. The
+     names are remembered (app/lib/expenseItemStore.ts) so next month is a
+     tick and an amount instead of typing. Two sources, merged: the saved
+     list, and every name an expense already carries — so a shop with months
+     of history has a full pick-list the first time it opens this, without
+     anyone re-entering a thing. */
+  const savedItems = expenseItemsFrom(
+    useSyncExternalStore(subscribeToExpenseItems, getExpenseItemsSnapshot, getExpenseItemsServerSnapshot),
+  );
+  const items = useMemo(() => {
+    const m = new Map<string, ExpenseItem>();
+    for (const i of savedItems) if (itemKey(i.name)) m.set(itemKey(i.name), i);
+    for (const e of s.expenses) {
+      const k = itemKey(e.title);
+      if (k && !m.has(k)) m.set(k, { name: e.title.trim(), category: e.category });
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [savedItems, s.expenses]);
+
+  /** Per purchase: what it last cost, and which months it has already been
+   *  recorded in — that second one is what strikes a name through, so you can
+   *  see at a glance what is still left to enter for the month. */
+  const itemFacts = useMemo(() => {
+    const m = new Map<string, { lastAmount: number; lastDate: string; months: Set<string> }>();
+    for (const e of s.expenses) {
+      const k = itemKey(e.title);
+      if (!k) continue;
+      const cur = m.get(k);
+      if (!cur) m.set(k, { lastAmount: e.amount, lastDate: e.expenseDate, months: new Set([e.expenseDate.slice(0, 7)]) });
+      else {
+        cur.months.add(e.expenseDate.slice(0, 7));
+        if (e.expenseDate >= cur.lastDate) { cur.lastDate = e.expenseDate; cur.lastAmount = e.amount; }
+      }
+    }
+    return m;
+  }, [s.expenses]);
+
   /** How many expenses sit in each category — shown on the filter chips, and
    *  what decides whether a category is safe to delete. */
   const usage = useMemo(() => {
@@ -170,6 +291,137 @@ export default function ExpensesPage() {
 
   const rows = useMemo(() => [...stats.rows].sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.at - a.at), [stats.rows]);
 
+  /** The same rows, gathered by purchase: one line per thing bought, biggest
+   *  spend first, each opening to the individual payments behind it. This is
+   *  the view that answers "what did the gas cost us this year". */
+  const groups = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; categories: Set<string>; total: number; rows: typeof rows }>();
+    for (const e of rows) {
+      const k = itemKey(e.title) || e.id;
+      const g = m.get(k) ?? { key: k, name: e.title || "Expense", categories: new Set<string>(), total: 0, rows: [] };
+      g.total += e.amount;
+      g.categories.add(e.category);
+      g.rows.push(e);
+      m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  }, [rows]);
+
+  const toggleGroup = (k: string) =>
+    setOpenGroups((cur) => (cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]));
+
+  /* ---- the add-expense draft -------------------------------------------
+     The box at the top holds chips. Tap a name from the row underneath and
+     it moves up into the box; tap its × up there and it drops back down.
+     Type a name that is not on the row yet and it becomes a chip too — and
+     joins the row, so next month it is one tap. The price is entered once,
+     for everything in the box. */
+  const draftItems = useMemo(() => {
+    const m = new Map<string, ExpenseItem>();
+    for (const i of items) m.set(itemKey(i.name), i);
+    // A name typed into this draft wins: it carries the category just chosen.
+    for (const i of draft?.extra ?? []) m.set(itemKey(i.name), i);
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }, [items, draft]);
+
+  const typed = newName.trim();
+  const typedKey = itemKey(typed);
+  /** Typing filters the row underneath, so a long list is still one tap. */
+  const shownItems = typed ? draftItems.filter((i) => itemKey(i.name).includes(typedKey)) : draftItems;
+  const typedIsNew = Boolean(typed) && !draftItems.some((i) => itemKey(i.name) === typedKey);
+  const pickedKeys = useMemo(() => new Set((draft?.picked ?? []).map(itemKey)), [draft]);
+  /** The one expense this draft would write: the chips, joined up. */
+  const draftTitle = (draft?.picked ?? []).join(", ");
+  const draftAmount = Number(draft?.amount);
+  const draftCats = draft && draft.category && !pickerCats.includes(draft.category) ? [draft.category, ...pickerCats] : pickerCats;
+
+  const openDraft = () => {
+    setNewName("");
+    setDraft({ picked: [], category: pickerCats[0] ?? "", amount: "", expenseDate: todayISO(), notes: "", extra: [] });
+  };
+  const closeDraft = () => { setDraft(null); setNewName(""); };
+
+  /** Put a name in the box. Already there → take it out again, so a mis-tap
+   *  costs one tap. */
+  const toggleChip = (name: string) => {
+    const k = itemKey(name);
+    setDraft((d) =>
+      d ? { ...d, picked: d.picked.some((p) => itemKey(p) === k) ? d.picked.filter((p) => itemKey(p) !== k) : [...d.picked, name] } : d,
+    );
+  };
+  const unpick = (name: string) => {
+    const k = itemKey(name);
+    setDraft((d) => (d ? { ...d, picked: d.picked.filter((p) => itemKey(p) !== k) } : d));
+  };
+
+  /** Commit whatever is in the text box: it becomes a chip, and if it is a
+   *  name we have never seen it also joins the row underneath for next time. */
+  const commitTyped = () => {
+    if (!draft || !typed) return;
+    const k = typedKey;
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            extra: typedIsNew ? [...d.extra, { name: typed, category: d.category }] : d.extra,
+            picked: d.picked.some((p) => itemKey(p) === k) ? d.picked : [...d.picked, typed],
+          }
+        : d,
+    );
+    setNewName("");
+  };
+
+  const forgetItem = async (it: ExpenseItem) => {
+    const ok = await confirm({
+      title: `Take "${it.name}" off the list?`,
+      body: "It stops being offered here. Expenses already recorded under it are not touched.",
+      ok: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+    const k = itemKey(it.name);
+    setDraft((d) =>
+      d ? { ...d, extra: d.extra.filter((x) => itemKey(x.name) !== k), picked: d.picked.filter((p) => itemKey(p) !== k) } : d,
+    );
+    const r = await forgetExpenseItem(it.name);
+    if (!r.ok) return toast({ kind: "err", title: r.error ?? "Could not update the list." });
+    toast({ kind: "ok", title: `"${it.name}" removed from the list.` });
+  };
+
+  /**
+   * Write the draft as ONE expense — the chips joined up as its title, the
+   * single price against the lot — then remember each chip so next month it
+   * is already on the row underneath.
+   */
+  const saveDraft = async () => {
+    if (!draft) return;
+    if (!draft.picked.length) return toast({ kind: "err", title: "Add what the money went on — tap a name, or type one and press Enter." });
+    if (!Number.isFinite(draftAmount) || draftAmount <= 0) return toast({ kind: "err", title: "Enter what it all cost." });
+    if (!draft.category.trim()) return toast({ kind: "err", title: "Choose a category for this expense." });
+
+    setBusy(true);
+    const r = await act<Expense>("expense.save", {
+      title: draftTitle,
+      category: draft.category,
+      amount: draftAmount,
+      expenseDate: draft.expenseDate,
+      notes: draft.notes,
+    });
+    if (!r.ok) { setBusy(false); return toast({ kind: "err", title: r.error }); }
+    // The expense is saved either way — a failure here costs the shortcut,
+    // not the record, so it is said plainly and nothing is rolled back.
+    const failed: string[] = [];
+    for (const name of draft.picked) {
+      const kept = await rememberExpenseItem(name, draft.category);
+      if (!kept.ok) failed.push(name);
+    }
+    setBusy(false);
+    if (failed.length) toast({ kind: "err", title: `Saved, but could not add ${failed.join(", ")} to your list.` });
+    else toast({ kind: "ok", title: `${draftTitle} recorded`, body: `${rupee(draftAmount)} on ${draft.expenseDate}.` });
+    closeDraft();
+  };
+
+  /** Editing one existing expense — a plain single form. */
   const save = async () => {
     if (!form) return;
     const amount = Number(form.amount);
@@ -180,7 +432,7 @@ export default function ExpensesPage() {
     const r = await act<Expense>("expense.save", { ...form, amount });
     setBusy(false);
     if (!r.ok) return toast({ kind: "err", title: r.error });
-    toast({ kind: "ok", title: form.id ? "Expense updated" : `${form.title.trim()} recorded` });
+    toast({ kind: "ok", title: "Expense updated" });
     setForm(null);
   };
 
@@ -219,7 +471,7 @@ export default function ExpensesPage() {
             <Btn icon="edit" onClick={() => setManageCats(true)}>
               Manage categories
             </Btn>
-            <Btn kind="red" icon="plus" onClick={() => setForm(blank(pickerCats[0] ?? ""))}>
+            <Btn kind="red" icon="plus" onClick={openDraft}>
               Add expense
             </Btn>
           </span>
@@ -304,12 +556,37 @@ export default function ExpensesPage() {
         </Card>
       )}
 
-      <Card title="Expenses">
+      <Card
+        title="Expenses"
+        right={
+          rows.length > 0 && (
+            <div className="flex items-center gap-1 rounded-full bg-slate-100 p-1">
+              {([
+                { v: "date", t: "By date" },
+                { v: "item", t: "By item" },
+              ] as const).map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  onClick={() => setView(o.v)}
+                  aria-pressed={view === o.v}
+                  className={cx(
+                    "h-8 rounded-full px-3.5 text-[12px] font-bold transition",
+                    view === o.v ? "bg-red-600 text-white shadow-[0_4px_12px_-4px_rgba(220,38,38,.9)]" : "text-slate-600 hover:text-slate-900",
+                  )}
+                >
+                  {o.t}
+                </button>
+              ))}
+            </div>
+          )
+        }
+      >
         {!rows.length ? (
           <Empty icon="bag" title="Nothing recorded in this period">
             Add what the shop paid out — rent, wages, gas, packaging — and Analytics will take it off revenue.
           </Empty>
-        ) : (
+        ) : view === "date" ? (
           <div className="adm-scroll overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full min-w-[720px]">
               <thead className="bg-slate-50">
@@ -322,37 +599,68 @@ export default function ExpensesPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((e) => (
-                  <tr key={e.id} className="border-b border-slate-100 last:border-0">
-                    <td className={cx(td, "whitespace-nowrap text-slate-600")}>{e.expenseDate}</td>
-                    <td className={td}>
-                      <b className="block text-slate-900">{e.title}</b>
-                      {e.notes && <span className="text-[11.5px] text-slate-500">{e.notes}</span>}
-                    </td>
-                    <td className={cx(td, "text-slate-600")}>{e.category}</td>
-                    <td className={cx(td, "adm-num text-right font-bold text-slate-900")}>{rupee(e.amount)}</td>
-                    <td className={cx(td, "text-right")}>
-                      <span className="inline-flex gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setForm({ id: e.id, title: e.title, category: e.category, amount: String(e.amount), expenseDate: e.expenseDate, notes: e.notes })}
-                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-                          aria-label={`Edit ${e.title}`}
-                        >
-                          <Icon name="edit" size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => remove(e)}
-                          className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-red-600 hover:bg-red-50"
-                          aria-label={`Delete ${e.title}`}
-                        >
-                          <Icon name="trash" size={14} />
-                        </button>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((e) => {
+                  const open = openGroups.includes(e.id);
+                  const parts = splitItems(e.title);
+                  return (
+                    <Fragment key={e.id}>
+                      <tr className={cx("border-b border-slate-100 last:border-0", open && "bg-slate-50/70")}>
+                        <td className={cx(td, "whitespace-nowrap align-top text-slate-600")}>{e.expenseDate}</td>
+                        <td className={cx(td, "align-top")}>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(e.id)}
+                            aria-expanded={open}
+                            className="flex w-full items-start gap-2 text-left"
+                          >
+                            <Icon
+                              name="chevron"
+                              size={14}
+                              className={cx("mt-1 shrink-0 text-slate-400 transition-transform", open && "rotate-90")}
+                            />
+                            <span className="min-w-0">
+                              {/* Never truncated: the whole thing it was for,
+                                  wrapped onto as many lines as it needs. */}
+                              <b className="block break-words text-slate-900">{e.title}</b>
+                              {parts.length > 1 && !open && (
+                                <span className="text-[11.5px] text-slate-400">{parts.length} things</span>
+                              )}
+                            </span>
+                          </button>
+                        </td>
+                        <td className={cx(td, "align-top text-slate-600")}>{e.category}</td>
+                        <td className={cx(td, "adm-num align-top text-right font-bold text-slate-900")}>{rupee(e.amount)}</td>
+                        <td className={cx(td, "align-top text-right")}>
+                          <span className="inline-flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setForm({ id: e.id, title: e.title, category: e.category, amount: String(e.amount), expenseDate: e.expenseDate, notes: e.notes })}
+                              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                              aria-label={`Edit ${e.title}`}
+                            >
+                              <Icon name="edit" size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => remove(e)}
+                              className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                              aria-label={`Delete ${e.title}`}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </span>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="border-b border-slate-100 bg-slate-50/40 last:border-0">
+                          <td colSpan={5} className="px-4 pb-4 pt-0">
+                            <ExpenseDetail e={e} parts={parts} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50">
@@ -365,18 +673,287 @@ export default function ExpensesPage() {
               </tfoot>
             </table>
           </div>
+        ) : (
+          /* By item — one line per thing the shop buys, biggest spend first,
+             each one opening to the individual payments behind it. The same
+             gas bought four times is one line that says four, not four lines
+             you have to add up by eye. */
+          <div className="adm-scroll overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full min-w-[720px]">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className={th}>Item</th>
+                  <th className={th}>Category</th>
+                  <th className={cx(th, "text-right")}>Times</th>
+                  <th className={cx(th, "text-right")}>Total</th>
+                  <th className={cx(th, "text-right")}>&nbsp;</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((g) => {
+                  const open = openGroups.includes(g.key);
+                  return (
+                    <Fragment key={g.key}>
+                      <tr
+                        className={cx("border-b border-slate-100 last:border-0", open && "bg-slate-50/70")}
+                      >
+                        <td className={td}>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(g.key)}
+                            aria-expanded={open}
+                            className="flex min-w-0 items-center gap-2 text-left"
+                          >
+                            <Icon
+                              name="chevron"
+                              size={14}
+                              className={cx("shrink-0 text-slate-400 transition-transform", open && "rotate-90")}
+                            />
+                            <b className="text-slate-900">{g.name}</b>
+                          </button>
+                        </td>
+                        <td className={cx(td, "text-slate-600")}>{[...g.categories].join(", ")}</td>
+                        <td className={cx(td, "adm-num text-right text-slate-600")}>{g.rows.length}</td>
+                        <td className={cx(td, "adm-num text-right font-bold text-slate-900")}>{rupee(g.total)}</td>
+                        <td className={cx(td, "text-right")}>
+                          <button
+                            type="button"
+                            onClick={() => toggleGroup(g.key)}
+                            aria-expanded={open}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50"
+                          >
+                            {open ? "Hide" : "Show"}
+                            <Icon name="chevron" size={12} className={cx("transition-transform", open ? "-rotate-90" : "rotate-90")} />
+                          </button>
+                        </td>
+                      </tr>
+                      {open &&
+                        g.rows.map((e) => (
+                          <tr key={e.id} className="border-b border-slate-100 bg-slate-50/40 last:border-0">
+                            <td className={cx(td, "whitespace-nowrap pl-10 text-slate-600")}>{e.expenseDate}</td>
+                            <td className={cx(td, "break-words text-slate-500")} colSpan={2}>
+                              {e.notes || <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className={cx(td, "adm-num text-right font-semibold text-slate-800")}>{rupee(e.amount)}</td>
+                            <td className={cx(td, "text-right")}>
+                              <span className="inline-flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setForm({ id: e.id, title: e.title, category: e.category, amount: String(e.amount), expenseDate: e.expenseDate, notes: e.notes })}
+                                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                  aria-label={`Edit ${e.title} on ${e.expenseDate}`}
+                                >
+                                  <Icon name="edit" size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => remove(e)}
+                                  className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-red-600 hover:bg-red-50"
+                                  aria-label={`Delete ${e.title} on ${e.expenseDate}`}
+                                >
+                                  <Icon name="trash" size={14} />
+                                </button>
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-50">
+                  <td className={cx(td, "font-bold text-slate-700")} colSpan={3}>
+                    Total · {groups.length} item{groups.length === 1 ? "" : "s"}
+                  </td>
+                  <td className={cx(td, "adm-num text-right text-[15px] font-extrabold text-slate-900")}>{rupee(stats.total)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         )}
       </Card>
 
+      {/* ---- Add -------------------------------------------------------
+          A box of chips and one price. Tap a name from the row underneath
+          and it moves up into the box; tap its × and it drops back down.
+          Type a name nobody has used before and it becomes a chip too, and
+          joins the row for next month. */}
+      <Modal
+        open={!!draft}
+        onClose={closeDraft}
+        title="Add expense"
+        footer={
+          <>
+            <Btn onClick={closeDraft}>Cancel</Btn>
+            <Btn kind="red" onClick={saveDraft} disabled={busy}>
+              {busy ? "Saving…" : "Add expense"}
+            </Btn>
+          </>
+        }
+      >
+        {draft && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {/* The box. Chips first, then a bare input — click anywhere in it
+                and you are typing. */}
+            <Field label="What was it for" className="sm:col-span-2">
+              <div
+                className="flex min-h-11 w-full flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-1.5 transition focus-within:border-red-300 focus-within:ring-2 focus-within:ring-red-100"
+                onClick={() => nameRef.current?.focus()}
+              >
+                {draft.picked.map((name) => (
+                  <span
+                    key={itemKey(name)}
+                    className="inline-flex max-w-full items-center gap-1 rounded-lg bg-red-50 py-1 pl-2.5 pr-1 text-[12.5px] font-bold text-red-700"
+                  >
+                    <span className="min-w-0 break-words">{name}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); unpick(name); }}
+                      aria-label={`Take ${name} out`}
+                      className="grid h-4 w-4 shrink-0 place-items-center rounded text-red-400 transition hover:bg-red-100 hover:text-red-700"
+                    >
+                      <Icon name="x" size={11} stroke={2.6} />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={nameRef}
+                  className="min-w-[9rem] flex-1 border-0 bg-transparent px-1 py-1 text-[14px] text-slate-900 outline-none placeholder:text-slate-400"
+                  value={newName}
+                  maxLength={80}
+                  placeholder={draft.picked.length ? "Add another…" : "Gas cylinder, October rent…"}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commitTyped(); return; }
+                    // Backspace on an empty box lifts the last chip back out,
+                    // which is what every tag box does.
+                    if (e.key === "Backspace" && !newName && draft.picked.length) {
+                      e.preventDefault();
+                      unpick(draft.picked[draft.picked.length - 1]);
+                    }
+                  }}
+                />
+              </div>
+            </Field>
+
+            {/* The row underneath: everything the shop has ever bought, small,
+                one tap each. Struck through while it is up in the box. */}
+            <div className="sm:col-span-2 -mt-2">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  {typed ? "Matching your list" : "Tap to add"}
+                </span>
+                {draftItems.length > 0 && (
+                  <span className="adm-num rounded-full bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-500">
+                    {shownItems.length === draftItems.length ? draftItems.length : `${shownItems.length} of ${draftItems.length}`}
+                  </span>
+                )}
+              </div>
+
+              {!draftItems.length ? (
+                <p className="rounded-xl border border-dashed border-slate-200 px-3 py-2.5 text-[12px] text-slate-500">
+                  Nothing saved yet. Type what the money went on and press Enter — every name is kept, so next month
+                  it is sitting here as a one-tap chip.
+                </p>
+              ) : (
+                <div className="adm-scroll max-h-32 overflow-y-auto rounded-xl border border-slate-200 p-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {typedIsNew && (
+                      <button
+                        type="button"
+                        onClick={commitTyped}
+                        className="inline-flex items-center gap-1 rounded-lg border border-dashed border-amber-400 bg-amber-50 px-2.5 py-1 text-[12.5px] font-bold text-amber-700 transition hover:bg-amber-100"
+                      >
+                        <Icon name="plus" size={11} stroke={2.6} />
+                        {typed}
+                      </button>
+                    )}
+                    {shownItems.map((it) => {
+                      const k = itemKey(it.name);
+                      const on = pickedKeys.has(k);
+                      const facts = itemFacts.get(k);
+                      return (
+                        <span
+                          key={k}
+                          className={cx(
+                            "inline-flex items-center rounded-lg border py-1 pl-2.5 pr-1 text-[12.5px] font-semibold transition",
+                            on ? "border-slate-200 bg-slate-50 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50 hover:text-red-700",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleChip(it.name)}
+                            aria-pressed={on}
+                            title={facts ? `Last time ${rupee(facts.lastAmount)} on ${facts.lastDate}` : "Not bought yet"}
+                            className={cx("max-w-[14rem] truncate", on && "line-through")}
+                          >
+                            {it.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => forgetItem(it)}
+                            aria-label={`Take ${it.name} off the list for good`}
+                            className="ml-1 grid h-4 w-4 shrink-0 place-items-center rounded text-slate-300 transition hover:bg-slate-200 hover:text-red-600"
+                          >
+                            <Icon name="x" size={11} stroke={2.6} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {!shownItems.length && !typedIsNew && (
+                      <span className="px-1 py-1 text-[12px] text-slate-400">Nothing on the list matches that.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+              <p className="mt-1.5 text-[11.5px] text-slate-400">
+                Tap a name to put it in the box · × on a chip here takes it off the list for good.
+              </p>
+            </div>
+
+            <Field label="Category">
+              <select className={inputCls} value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+                <option value="">Choose a category…</option>
+                {draftCats.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Total amount (KD)" hint="What the whole lot cost, not one item.">
+              <input
+                className={inputCls}
+                type="number"
+                min={0}
+                step="0.001"
+                inputMode="decimal"
+                value={draft.amount}
+                onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
+              />
+            </Field>
+            <Field label="Date it was paid">
+              <input className={inputCls} type="date" value={draft.expenseDate} onChange={(e) => setDraft({ ...draft, expenseDate: e.target.value })} />
+            </Field>
+            <Field label="Notes">
+              <input className={inputCls} value={draft.notes} maxLength={200} placeholder="Optional — invoice number, who was paid…" onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+            </Field>
+          </div>
+        )}
+      </Modal>
+
+      {/* ---- Edit: one existing expense, one plain form ----------------- */}
       <Modal
         open={!!form}
         onClose={() => setForm(null)}
-        title={form?.id ? "Edit expense" : "Add expense"}
+        title="Edit expense"
         footer={
           <>
             <Btn onClick={() => setForm(null)}>Cancel</Btn>
             <Btn kind="red" onClick={save} disabled={busy}>
-              {busy ? "Saving…" : form?.id ? "Save changes" : "Add expense"}
+              {busy ? "Saving…" : "Save changes"}
             </Btn>
           </>
         }
@@ -384,7 +961,7 @@ export default function ExpensesPage() {
         {form && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="What was it for" className="sm:col-span-2">
-              <input className={inputCls} value={form.title} maxLength={80} placeholder="Gas cylinder, October rent…" onChange={(e) => setForm({ ...form, title: e.target.value })} />
+              <input className={inputCls} value={form.title} maxLength={80} onChange={(e) => setForm({ ...form, title: e.target.value })} />
             </Field>
             <Field label="Category">
               <select className={inputCls} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
@@ -395,11 +972,6 @@ export default function ExpensesPage() {
                   </option>
                 ))}
               </select>
-              {savedCats.length === 0 && (
-                <p className="mt-1.5 text-[11.5px] text-slate-400">
-                  These are the starter categories. Make your own in <b>Manage categories</b> and the list becomes yours.
-                </p>
-              )}
             </Field>
             <Field label="Amount (KD)">
               <input className={inputCls} type="number" min={0} step="0.001" inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />

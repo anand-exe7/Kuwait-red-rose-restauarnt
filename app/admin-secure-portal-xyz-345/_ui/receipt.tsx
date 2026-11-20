@@ -28,6 +28,16 @@ const SHOP = shopIdentity();
 export const SHOP_ADDRESS = SHOP.address || BRAND.city;
 /** "Tel 55568759" — blank when no number is configured. */
 export const SHOP_CONTACT = SHOP.phone ? `Tel ${SHOP.phone}` : "";
+/* The shop badge. Deliberately the file path and NOT an environment variable:
+   the logo is a file that ships with the app, the same one the landing nav and
+   the sign-in page already hard-code, and making it configurable only meant
+   one more thing to set up in Vercel for no gain. Swapping the logo is a
+   matter of replacing public/finallogo.jpeg.
+
+   It is printed twice on a sheet invoice — a small mark in the letterhead and
+   a dimmed copy behind the body, the way a printed letterpad carries it — and
+   once, small and in greyscale, at the top of a thermal slip. */
+export const SHOP_LOGO = "/finallogo.jpeg";
 
 /** Short, public link to the invoice page — reads the bill back from the
  *  realtime store by invoice number. No URL blob. */
@@ -85,16 +95,31 @@ export const DEFAULT_FORMAT: PrintFormat = { kind: "thermal", roll: 3 };
 
 const ROLL_MM = { 2: [58, 48], 3: [80, 72] } as const;
 
+/** Id of the thermal @page rule, so the printer can give it a real height
+ *  once the slip has been laid out. See THERMAL_PAGE_STYLE_ID below. */
+export const THERMAL_PAGE_STYLE_ID = "rcpt-page-size";
+
+/** `@page{size:58mm 120mm;margin:2mm 0}` for a roll of the given width. */
+export const thermalPageCss = (roll: 2 | 3, heightMm: number) =>
+  `@page{size:${ROLL_MM[roll][0]}mm ${Math.max(40, Math.round(heightMm))}mm;margin:2mm 0}`;
+
+/* A roll has no page length — the printer cuts where the slip ends. CSS has no
+   way to say that: `size: 58mm auto` is NOT valid, Chrome throws the whole
+   declaration away and falls back to A4, and a fixed `58mm 297mm` is what put
+   a short bill at the top of a long empty page. So a roll gets a real height
+   in millimetres, measured off the laid-out slip just before the dialog opens
+   (app/.../Store.tsx). The 297mm here is only the fallback for the moment
+   before that measurement lands. */
 const pageCss = (f: PrintFormat) =>
   f.kind === "thermal"
-    ? `@page{size:${ROLL_MM[f.roll][0]}mm 297mm;margin:2mm 0}`
+    ? thermalPageCss(f.roll, 297)
     : `@page{size:${f.size};margin:${f.size === "A3" ? 16 : f.size === "A4" ? 14 : 10}mm}`;
 
 /** Receipt for the chosen printer, rendered into the print area. */
 export function Receipt({ b, shop, fmt = DEFAULT_FORMAT }: { b: Bill; shop: string; fmt?: PrintFormat }) {
   return (
     <>
-      <style>{pageCss(fmt)}</style>
+      <style id={fmt.kind === "thermal" ? THERMAL_PAGE_STYLE_ID : undefined}>{pageCss(fmt)}</style>
       {fmt.kind === "thermal" ? <Thermal b={b} shop={shop} roll={fmt.roll} /> : <Sheet b={b} shop={shop} size={fmt.size} />}
     </>
   );
@@ -128,15 +153,28 @@ function moneyLines(b: Bill): { label: string; value: string; minus?: boolean }[
   return L;
 }
 
-/** Full-page invoice for A3 / A4 / A5 — shop name, customer block, itemised
- *  table and a totals rail. No logo: a plain, typographic letterhead prints
- *  cleanly on any office printer. Scales by paper via inv--a{n}. */
+/** Full-page invoice for A3 / A4 / A5 — a letterpad: the shop badge and
+ *  address up top, the same badge dimmed in the middle of the sheet behind the
+ *  writing, a customer block, an itemised table and a totals rail.
+ *
+ *  The colour is carried by TEXT and BORDERS, never by a fill alone, because
+ *  Chrome's print dialog leaves "Background graphics" off by default — the
+ *  cream panels are a bonus when it is ticked, and the invoice still prints in
+ *  the shop's red and gold when it is not. Scales by paper via inv--a{n}. */
 export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: string; size: "A3" | "A4" | "A5"; hideSize?: boolean }) {
   const lines = moneyLines(b);
   return (
     <div className={`inv ${hideSize ? "" : `inv--${size.toLowerCase()}`}`}>
+      {/* The letterpad watermark: the same badge, dimmed, centred behind the
+          body. An <img> rather than a CSS background so it still prints when
+          "Background graphics" is off. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {SHOP_LOGO && <img className="inv__wm" src={SHOP_LOGO} alt="" aria-hidden="true" />}
+
       <header className="inv__head">
         <div className="inv__brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {SHOP_LOGO && <img className="inv__logo" src={SHOP_LOGO} alt="" aria-hidden="true" />}
           <div>
             <h1>{shop}</h1>
             <p>{SHOP_ADDRESS}</p>
@@ -149,6 +187,7 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
           <p>{fmtDateTime(b.createdAt)}</p>
         </div>
       </header>
+      <div className="inv__rule" aria-hidden="true" />
 
       <section className="inv__to">
         <div>
@@ -213,20 +252,24 @@ export function Sheet({ b, shop, size, hideSize = false }: { b: Bill; shop: stri
       </dl>
 
       <footer className="inv__foot">
-        <span>Thank you for visiting {BRAND.name}.</span>
+        <span className="inv__thanks">Thank you for visiting {BRAND.name}.</span>
         <span>{[SHOP_ADDRESS, SHOP_CONTACT].filter(Boolean).join(" · ")}</span>
       </footer>
     </div>
   );
 }
 
-/** 2-inch and 3-inch thermal rolls. No logo — a photo prints as a grey smear
- *  on a thermal head, and the shop name, address and telephone are what the
- *  customer actually needs off the top of the slip. */
+/** 2-inch and 3-inch thermal rolls. The shop badge sits at the top, small and
+ *  pushed to greyscale with the contrast lifted: a thermal head has no colour
+ *  and a full-size photo comes out a grey smear, so the mark is kept to a few
+ *  millimetres where its outline still reads. Shop name, address and telephone
+ *  follow it, which is what the customer actually needs off the top of a slip. */
 function Thermal({ b, shop, roll }: { b: Bill; shop: string; roll: 2 | 3 }) {
   const lines = moneyLines(b);
   return (
-    <div className={`rcpt rcpt--${roll}`} style={{ width: `${ROLL_MM[roll][1]}mm` }}>
+    <div className={`rcpt rcpt--${roll}`} data-roll={roll} style={{ width: `${ROLL_MM[roll][1]}mm` }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {SHOP_LOGO && <img className="rcpt__logo" src={SHOP_LOGO} alt="" aria-hidden="true" />}
       <h1>{shop}</h1>
       <p className="c rcpt__addr">{SHOP_ADDRESS}</p>
       {SHOP_CONTACT && <p className="c rcpt__addr">{SHOP_CONTACT}</p>}

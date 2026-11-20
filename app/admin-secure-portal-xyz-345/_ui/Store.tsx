@@ -20,6 +20,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useRouter } from "next/navigation";
+import { THERMAL_PAGE_STYLE_ID, thermalPageCss } from "./receipt";
 import type {
   AdminState,
   Bill,
@@ -492,6 +493,27 @@ const soundPref = {
   },
 };
 
+/**
+ * Give a thermal roll a page exactly as long as the slip.
+ *
+ * A receipt roll has no page length — the printer cuts where the paper ends —
+ * but CSS cannot say that: `@page{size:58mm auto}` is invalid and Chrome drops
+ * the whole declaration (falling back to A4), while a fixed 58mm x 297mm page
+ * is what printed a three-line bill at the top of a long empty sheet. So the
+ * slip is measured once it has been laid out and the @page rule the Receipt
+ * emitted is rewritten with that height, plus a few millimetres of tail for
+ * the cutter. Anything unexpected leaves the component's own fallback in place.
+ */
+function sizeThermalPage(area: Element | null): void {
+  const slip = area?.querySelector<HTMLElement>(".rcpt");
+  const style = document.getElementById(THERMAL_PAGE_STYLE_ID);
+  if (!slip || !style) return;
+  const roll = slip.dataset.roll === "2" ? 2 : 3;
+  const mm = (slip.getBoundingClientRect().height * 25.4) / 96;
+  if (!Number.isFinite(mm) || mm <= 0) return;
+  style.textContent = thermalPageCss(roll, mm + 6);
+}
+
 export function AdminProvider({
   initial,
   role,
@@ -625,12 +647,35 @@ export function AdminProvider({
     if (r) r(v);
   }, []);
 
-  // Print target
+  // Print target.
+  //
+  // The receipt now carries the shop badge (letterhead mark + the dimmed
+  // letterpad watermark), and an <img> that has not finished decoding prints
+  // as a blank box — so the dialog waits for the images inside the print area
+  // rather than firing on the next frame. The wait is capped so a logo that
+  // 404s or hangs can never stop someone printing a bill at the counter.
   const [printNode, setPrintNode] = useState<React.ReactNode>(null);
   const print = useCallback((node: React.ReactNode) => {
     setPrintNode(node);
-    requestAnimationFrame(() => window.print());
-    setTimeout(() => setPrintNode(null), 1500);
+    requestAnimationFrame(() => {
+      const area = document.querySelector(".adm-print");
+      const imgs = area ? Array.from(area.querySelectorAll("img")) : [];
+      const pending = imgs.filter((i) => !i.complete);
+      const ready = pending.length
+        ? Promise.race([
+            Promise.all(pending.map((i) => new Promise<void>((res) => {
+              i.addEventListener("load", () => res(), { once: true });
+              i.addEventListener("error", () => res(), { once: true });
+            }))),
+            new Promise<void>((res) => setTimeout(res, 1200)),
+          ])
+        : Promise.resolve();
+      ready.then(() => {
+        sizeThermalPage(area);
+        window.print();
+        setTimeout(() => setPrintNode(null), 1500);
+      });
+    });
   }, []);
 
   // Sound
