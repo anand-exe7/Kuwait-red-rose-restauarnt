@@ -6,6 +6,7 @@ import type { AdminState, OrderItem, OrderMode, OrderSource, Product } from "./t
 import { rupee } from "./money";
 import { useAdmin, whoIs } from "./Store";
 import Catalog, { type Pick as CatalogPick } from "./Catalog";
+import { OnlineStatusBadge } from "./SettingsModal";
 import { Badge, Btn, Empty, Icon, Page, PageHead, cx, fmtTime } from "./kit";
 import { resolveOrderNo } from "../../lib/invoice";
 
@@ -80,7 +81,7 @@ function buildTabs(s: AdminState) {
     // — it is still sitting in Online orders waiting to be let in.
     .filter((t) => !(t.home && t.awaitingApproval))
     // Cooked home orders stack on top: those are the ones where a customer is
-    // standing at the counter (or a driver is idle) waiting on a bill. Then
+    // standing at the counter (or a delivery is held up) waiting on a bill. Then
     // tabs with new orders, then by most recent activity.
     .sort((a, b) => {
       // A session with nothing on it is a leftover (an order that never
@@ -173,6 +174,7 @@ export default function KitchenPage() {
       <PageHead
         title="Open tabs"
         sub="Everything the shop owes someone right now — tables, walk-ins and accepted online orders. Green means cooked and waiting to be billed."
+        right={<OnlineStatusBadge />}
       />
 
       {!tabs.length ? (

@@ -3,39 +3,45 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useAdmin } from "./Store";
+import { confirmNeedsLock, useAdmin } from "./Store";
 import { Btn, Icon, Modal, cx, type IconName } from "./kit";
+import LockField from "./LockField";
+import SettingsModal from "./SettingsModal";
 import { BRAND } from "../../lib/brand";
 import { stockIsLow, stockIsOut } from "../../lib/menuStore";
 
-type Nav = { href: string; label: string; icon: IconName; roles: ("admin" | "staff")[]; group?: "wholesale" };
+type Nav = { href: string; label: string; icon: IconName; locked?: boolean; group?: "wholesale" };
 
 /* The panels Red Rose runs on, in the order the day runs in: take the money,
    accept what came in from the website, work the open tabs, then the records.
-   Staff sees the same list minus Analytics, Coupons and the delivery areas. */
+
+   There is one panel login, so the whole list is always here. The two analytics
+   pages carry a padlock: they open on the manager password, not on who signed
+   in. Deleting or voiding anything asks for the same password wherever it is
+   done. See _ui/LockGate.tsx and _ui/Store.tsx. */
 const NAV: Nav[] = [
   // The owner's own running order: what the counter touches most, then the
   // catalogue, then the things that are set once and left alone.
-  { href: "/admin-secure-portal-xyz-345/billing", label: "Billing", icon: "billing", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/online", label: "Online orders", icon: "bag", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/kitchen", label: "Open tabs", icon: "kitchen", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/orders", label: "Orders", icon: "orders", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/tables", label: "Tables", icon: "tables", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/analytics", label: "Analytics", icon: "chart", roles: ["admin"] },
-  { href: "/admin-secure-portal-xyz-345/inventory", label: "Inventory", icon: "box", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/stock", label: "Stock movements", icon: "list", roles: ["admin", "staff"] },
-  { href: "/admin-secure-portal-xyz-345/coupons", label: "Coupons", icon: "coupon", roles: ["admin"] },
-  { href: "/admin-secure-portal-xyz-345/expenses", label: "Expenses", icon: "rupee", roles: ["admin"] },
-  { href: "/admin-secure-portal-xyz-345/media", label: "Images & videos", icon: "image", roles: ["admin"] },
-  { href: "/admin-secure-portal-xyz-345/delivery", label: "Delivery areas", icon: "cart", roles: ["admin"] },
+  { href: "/admin-secure-portal-xyz-345/billing", label: "Billing", icon: "billing" },
+  { href: "/admin-secure-portal-xyz-345/online", label: "Online orders", icon: "bag" },
+  { href: "/admin-secure-portal-xyz-345/kitchen", label: "Open tabs", icon: "kitchen" },
+  { href: "/admin-secure-portal-xyz-345/orders", label: "Orders", icon: "orders" },
+  { href: "/admin-secure-portal-xyz-345/tables", label: "Tables", icon: "tables" },
+  { href: "/admin-secure-portal-xyz-345/analytics", label: "Analytics", icon: "chart", locked: true },
+  { href: "/admin-secure-portal-xyz-345/inventory", label: "Inventory", icon: "box" },
+  { href: "/admin-secure-portal-xyz-345/stock", label: "Stock movements", icon: "list" },
+  { href: "/admin-secure-portal-xyz-345/coupons", label: "Coupons", icon: "coupon" },
+  { href: "/admin-secure-portal-xyz-345/expenses", label: "Expenses", icon: "rupee" },
+  { href: "/admin-secure-portal-xyz-345/media", label: "Images & videos", icon: "image" },
+  { href: "/admin-secure-portal-xyz-345/delivery", label: "Delivery areas", icon: "cart" },
 
   // Wholesale (B2B) — a self-contained billing world that sits apart from the
   // restaurant POS. Its own catalogue, trade customers, bills and figures.
-  { href: "/admin-secure-portal-xyz-345/wholesale/billing", label: "Billing", icon: "billing", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/orders", label: "Orders", icon: "orders", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/analytics", label: "Analytics", icon: "chart", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/inventory", label: "Inventory", icon: "box", roles: ["admin"], group: "wholesale" },
-  { href: "/admin-secure-portal-xyz-345/wholesale/customers", label: "Customers", icon: "users", roles: ["admin"], group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/billing", label: "Billing", icon: "billing", group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/orders", label: "Orders", icon: "orders", group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/analytics", label: "Analytics", icon: "chart", locked: true, group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/inventory", label: "Inventory", icon: "box", group: "wholesale" },
+  { href: "/admin-secure-portal-xyz-345/wholesale/customers", label: "Customers", icon: "users", group: "wholesale" },
 ];
 
 const Cherry = () => (
@@ -51,8 +57,9 @@ const Cherry = () => (
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
-  const { s, role, floor, toasts, dismiss, pending, answer, printNode } = useAdmin();
+  const { s, floor, toasts, dismiss, pending, answer, printNode, lock, unlock, biller } = useAdmin();
   const [menu, setMenu] = useState(false);
+  const [settings, setSettings] = useState(false);
   const [rail, setRail] = useState(false); // desktop sidebar collapsed to icons
   useEffect(() => {
     try {
@@ -72,6 +79,41 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     setLastPath(path);
     setMenu(false);
   }
+
+  /* The confirmation dialog in front of a delete.
+     It asks for the manager password EVERY time, even if this browser just
+     typed it — deleting a record is never something that happens on a single
+     click. (The unlock cookie it mints is only how /api/db is told the
+     password was given; it is thrown away again on the next route change.)
+     The password is checked by /api/lock before `answer(true)` ever fires,
+     and /api/db refuses the write without it regardless. */
+  const [pw, setPw] = useState("");
+  const [pwErr, setPwErr] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const askPw = confirmNeedsLock(pending);
+
+  const closeConfirm = () => {
+    setPw("");
+    setPwErr("");
+    setPwBusy(false);
+    answer(false);
+  };
+
+  const okConfirm = async () => {
+    if (!askPw) return answer(true);
+    if (pwBusy || !pw) return;
+    setPwBusy(true);
+    setPwErr("");
+    const r = await unlock(pw);
+    setPwBusy(false);
+    if (!r.ok) {
+      setPwErr(r.error ?? "Wrong password.");
+      setPw("");
+      return;
+    }
+    setPw("");
+    answer(true);
+  };
 
   /* Each badge counts exactly what its page lists — nothing else. A number
      here with an empty page behind it is worse than no number at all.
@@ -129,19 +171,19 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  const nav = NAV.filter((n) => n.roles.includes(role));
+  const nav = NAV;
   const active = (href: string) => path === href || path.startsWith(`${href}/`);
 
   const renderSide = (mini: boolean) => (
     <div className="flex h-full flex-col">
-      <Link href={role === "admin" ? "/admin-secure-portal-xyz-345/billing" : "/admin-secure-portal-xyz-345/billing"} title={`${BRAND.name} · Admin`} className={cx("adm-side__brand flex items-center gap-3 pb-6 pt-6", mini ? "justify-center px-0" : "px-5")}>
+      <Link href="/admin-secure-portal-xyz-345/billing" title={`${BRAND.name} · Admin`} className={cx("adm-side__brand flex items-center gap-3 pb-6 pt-6", mini ? "justify-center px-0" : "px-5")}>
         <Cherry />
         {!mini && (
           <span className="leading-tight">
             <b className="block text-[19px] italic" style={{ fontFamily: "var(--font-display), Georgia, serif", fontWeight: 500 }}>
               {BRAND.name}
             </b>
-            <small className="text-[10px] font-bold uppercase tracking-[0.18em]">{role === "admin" ? "Admin console" : "Staff console"}</small>
+            <small className="text-[10px] font-bold uppercase tracking-[0.18em]">Admin console</small>
           </span>
         )}
       </Link>
@@ -166,6 +208,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               >
                 <Icon name={n.icon} size={19} />
                 {!mini && <span className="flex-1">{n.label}</span>}
+                {/* The analytics open on the manager password, not on who is
+                    signed in — so the sidebar says so before they tap it. */}
+                {!mini && n.locked && !lock.unlocked && (
+                  <Icon name="key" size={14} className="shrink-0 opacity-50" aria-label="Needs the manager password" />
+                )}
                 {!mini && badge[n.href]}
                 {mini && badge[n.href] && <span className="adm-pulse absolute right-2 top-2 h-2 w-2 rounded-full bg-red-600 text-red-600" />}
               </Link>
@@ -174,6 +221,35 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         })}
       </nav>
       <div className="adm-side space-y-1 px-3 py-4" style={{ borderTop: "1px solid var(--line-dark)" }}>
+        {/* Settings — reachable from any page, because closing the website is
+            a decision the owner makes wherever he is standing, not something
+            to go hunting for on one particular screen. */}
+        <button
+          type="button"
+          onClick={() => setSettings(true)}
+          title={mini ? "Settings" : undefined}
+          className={cx("adm-link flex h-10 w-full items-center rounded-xl text-[13px] font-semibold", mini ? "justify-center px-0" : "gap-3 px-3")}
+        >
+          <Icon name="sliders" size={17} />
+          {!mini && "Settings"}
+        </button>
+        {/* Who is on the till, visible from any page — the shop's complaint was
+            not knowing which of the two is behind the counter. Tapping it goes
+            to Billing, where the name is switched on and off. */}
+        {!biller.loading && !mini && (
+          <Link
+            href="/admin-secure-portal-xyz-345/billing"
+            className={cx(
+              "mb-1 flex items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-bold",
+              biller.current ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900",
+            )}
+          >
+            <span className={cx("h-2 w-2 shrink-0 rounded-full", biller.current ? "bg-emerald-500" : "adm-pulse bg-amber-500")} />
+            <span className="min-w-0 flex-1 truncate">
+              {biller.current ? `Billing as ${biller.current}` : "No biller signed in"}
+            </span>
+          </Link>
+        )}
         <a href="/" target="_blank" rel="noopener noreferrer" title={mini ? "Guest website" : undefined} className={cx("adm-link flex h-10 items-center rounded-xl text-[13px] font-semibold", mini ? "justify-center px-0" : "gap-3 px-3")}>
           <Icon name="globe" size={17} />
           {!mini && "Guest website"}
@@ -209,7 +285,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             <Icon name="menu" size={20} />
           </button>
           <b className="min-w-0 flex-1 truncate text-[16px] italic" style={{ fontFamily: "var(--font-display), Georgia, serif", fontWeight: 500 }}>
-            {BRAND.name} · {role === "admin" ? "Admin" : "Staff"}
+            {BRAND.name} · Admin
           </b>
           {fresh > 0 && (
             <Link href="/admin-secure-portal-xyz-345/online" className="shrink-0 rounded-full bg-red-600 px-3 py-1 text-[12px] font-bold text-white">
@@ -278,22 +354,43 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           ))}
         </div>
 
-        {/* confirm */}
+        {/* confirm — centred on every screen size, and locked when destructive */}
         <Modal
           open={!!pending}
-          onClose={() => answer(false)}
+          onClose={closeConfirm}
           title={pending?.title ?? ""}
           footer={
             <>
-              <Btn onClick={() => answer(false)}>Cancel</Btn>
-              <Btn kind={pending?.danger ? "red" : "dark"} onClick={() => answer(true)}>
-                {pending?.ok ?? "Confirm"}
+              <Btn onClick={closeConfirm}>Cancel</Btn>
+              <Btn
+                kind={pending?.danger ? "red" : "dark"}
+                disabled={askPw && (pwBusy || !pw || lock.configured === false)}
+                onClick={okConfirm}
+              >
+                {pwBusy ? "Checking…" : pending?.ok ?? "Confirm"}
               </Btn>
             </>
           }
         >
-          <div className="text-[14px] leading-relaxed text-slate-600">{pending?.body}</div>
+          <div className="space-y-4">
+            <div className="text-[14px] leading-relaxed text-slate-600">{pending?.body}</div>
+            {askPw && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <LockField
+                  value={pw}
+                  onChange={setPw}
+                  onEnter={okConfirm}
+                  error={pwErr}
+                  busy={pwBusy}
+                  configured={lock.configured}
+                  note="Only the owner's password lets this through."
+                />
+              </div>
+            )}
+          </div>
         </Modal>
+
+        <SettingsModal open={settings} onClose={() => setSettings(false)} />
 
         <div id="adm-layer" />
       </div>

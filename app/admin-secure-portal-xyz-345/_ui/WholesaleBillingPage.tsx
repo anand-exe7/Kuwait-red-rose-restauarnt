@@ -10,6 +10,7 @@ import {
 } from "../../lib/wholesaleStore";
 import { useAdmin } from "./Store";
 import PrintModal, { PrintFormats } from "./PrintModal";
+import BillerCard from "./BillerCard";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
 import { wholesaleToBill } from "./wholesaleAdapter";
 import { rupee } from "./money";
@@ -57,7 +58,7 @@ const stepOf = (unit: WholesaleUnit) => (unit === "gram" ? 50 : 1);
 const startQty = (unit: WholesaleUnit) => (unit === "gram" ? "100" : "1");
 
 export default function WholesaleBillingPage() {
-  const { s, print, toast } = useAdmin();
+  const { s, print, toast, biller } = useAdmin();
   const shop = s.settings.shopName;
   const products = useSyncExternalStore(subscribeToWholesaleProducts, getWholesaleProductsSnapshot, getWholesaleProductsServerSnapshot);
   const customers = useSyncExternalStore(subscribeToWholesaleCustomers, getWholesaleCustomersSnapshot, getWholesaleCustomersServerSnapshot);
@@ -182,6 +183,18 @@ export default function WholesaleBillingPage() {
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
   else if (pay === "split" && splitOff !== 0) problems.push(`Split payment: cash + card should equal ${rupee(calc.total)}.`);
   if (phone && !okPhone(phone)) problems.push("Enter the mobile number (8 digits for Kuwait, or with country code).");
+  /* Same rule as the shop's POS: a wholesale bill says who took the money, so
+     nothing is billed until somebody has signed on as the biller. */
+  if (!biller.current) {
+    /* Also while we are still asking the server who is signed in: the bill
+       row goes up in the background, so letting Save through for that moment
+       could mean a printed receipt for a bill the server then refused. */
+    problems.push(
+      biller.loading
+        ? "Checking who is on the till…"
+        : "Pick who is billing (top right) and enter your password.",
+    );
+  }
   const ready = !problems.length && !busy;
 
   const complete = async (via: "wa" | "print" | "none", fmt?: PrintFormat) => {
@@ -199,6 +212,7 @@ export default function WholesaleBillingPage() {
       cashAmount: sCash,
       cardAmount: sCard,
       deliveryPartner: isDelivery ? partner : "",
+      biller: biller.current ?? "",
     });
     setBusy(false);
     if (!res.ok || !res.bill) {
@@ -354,7 +368,10 @@ export default function WholesaleBillingPage() {
         </div>
 
         {/* ================= right: summary ================= */}
-        <aside className="min-w-0 xl:sticky xl:top-6 xl:self-start">
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start">
+          {/* Who is on the till — the first thing on this column, same as the
+              shop's POS, so the two panels behave identically. */}
+          <BillerCard />
           <div className={cx(box, "space-y-4")}>
             <dl className="divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-slate-50/70 px-4 text-[12px]">
               <div className="flex items-center justify-between py-3">

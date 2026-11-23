@@ -60,8 +60,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'Unknown role' }, { status: 400 });
   }
 
-  const expected = passwordForRole(role);
-  if (!expected) {
+  /* One password per role. The panel used to accept a second, "staff" password
+     in the same box; the shop now has a single panel login, and who is actually
+     billing is recorded by the biller gate (see app/api/biller/route.ts). */
+  const candidates: Role[] = [role];
+  if (!candidates.some((r) => passwordForRole(r))) {
     return NextResponse.json(
       { ok: false, error: 'Login is not configured on the server. Set the password in .env.' },
       { status: 500 }
@@ -76,12 +79,20 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!(await passwordMatches(password, expected))) {
+  let matched: Role | null = null;
+  for (const r of candidates) {
+    const expected = passwordForRole(r);
+    if (expected && (await passwordMatches(password, expected))) {
+      matched = r;
+      break;
+    }
+  }
+  if (!matched) {
     await logAttempt(ip, role, false);
     return NextResponse.json({ ok: false, error: 'Incorrect password' }, { status: 401 });
   }
 
-  const token = await createSessionToken(role);
+  const token = await createSessionToken(matched);
   if (!token) {
     return NextResponse.json(
       { ok: false, error: 'Login is not configured on the server. Set AUTH_SECRET in .env.' },
@@ -89,7 +100,7 @@ export async function POST(request: Request) {
     );
   }
   await logAttempt(ip, role, true);
-  const res = NextResponse.json({ ok: true, role });
+  const res = NextResponse.json({ ok: true, role: matched });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',

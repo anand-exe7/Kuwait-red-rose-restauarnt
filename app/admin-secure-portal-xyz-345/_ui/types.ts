@@ -13,7 +13,8 @@ export type LiveStatus = LiveOrderStatus;
 // Everything here is the shape the pages EXPECT; the Store in this folder
 // adapts Red Rose's live Supabase data to this shape.
 
-export type Role = "admin" | "staff";
+/** The only login the panel has. */
+export type Role = "admin";
 
 export type SessionStatus = "open" | "bill_requested" | "closed";
 export type OrderStatus = "new" | "preparing" | "ready" | "served" | "cancelled";
@@ -150,6 +151,11 @@ export interface Bill {
   change: number;
   extra: number;
   note: string;
+  /** Who took the money, from the biller signed in on the till. ADMIN PANEL
+   *  ONLY — it is never printed on a receipt, never on the public invoice page
+   *  and never in the WhatsApp message. The shop wants to know internally who
+   *  billed what; the customer has no business seeing a staff name. */
+  biller?: string;
 }
 
 // Per-item stock history isn't tracked in Red Rose, so this is a stub
@@ -180,7 +186,9 @@ export interface Settings {
   shopName: string;
   publicUrl: string;
   walkInsOnly: boolean;
-  kotEnabled: boolean;
+  /** The website is taking customer orders. Off = browse-only: the menu and
+   *  the prices are all still there, the order buttons are not. Lives in
+   *  app_settings (see app/lib/opsStore.ts) and is flipped from Online orders. */
   orderingEnabled: boolean;
 }
 
@@ -226,7 +234,6 @@ export function emptyAdminState(): AdminState {
       shopName: shopName(),
       publicUrl: "",
       walkInsOnly: false,
-      kotEnabled: true,
       orderingEnabled: true,
     },
     products: [],

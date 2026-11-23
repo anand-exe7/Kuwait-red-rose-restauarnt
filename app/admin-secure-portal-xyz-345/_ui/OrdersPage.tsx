@@ -36,7 +36,10 @@ function Chip({ on, children, onClick, tone = "red" }: { on: boolean; children: 
 }
 
 export default function OrdersPage() {
-  const { s, act, confirm } = useAdmin();
+  const { s, act, confirm, toast } = useAdmin();
+  /* Voiding and deleting a bill both ask for the manager password — the
+     confirm dialog does it (see _ui/Shell.tsx), and /api/db refuses the write
+     without it, so the buttons can simply be here for everyone. */
   const [type, setType] = useState<"all" | "dinein" | "takeaway" | "delivery">("all");
   const [date, setDate] = useState<DateF>("any");
   const [from, setFrom] = useState("");
@@ -47,14 +50,17 @@ export default function OrdersPage() {
   const [bill, setBill] = useState<Bill | null>(null);
   const [printFor, setPrintFor] = useState<Bill | null>(null);
 
+  /* Delete is the only way a bill leaves the records — there is no "void" any
+     more. The row goes for good: out of Orders, out of Analytics, stock back
+     on the shelf, any coupon use given back. */
   const remove = async (b: Bill) => {
     const body =
-      b.status === "completed"
-        ? "It is removed from Orders and Analytics for good. Its items go back into stock and any coupon use is given back. This can't be undone."
-        : "This voided bill is removed from your records for good. This can't be undone.";
+      "The bill is gone for good — it leaves Orders and Analytics, its items go back into stock and any coupon use is given back. This can't be undone.";
     if (await confirm({ title: `Delete ${b.invoiceNo}?`, body, ok: "Delete bill", danger: true })) {
       const r = await act("bill.delete", { id: b.id });
-      if (r.ok && bill?.id === b.id) setBill(null);
+      if (!r.ok) return toast({ kind: "err", title: "Could not delete that bill", body: r.error });
+      toast({ kind: "ok", title: `${b.invoiceNo} deleted` });
+      if (bill?.id === b.id) setBill(null);
     }
   };
 
@@ -65,7 +71,7 @@ export default function OrdersPage() {
     () =>
       s.bills
         .filter((b) => (type === "all" || channelOf(b) === type) && inRange(b.createdAt, range))
-        .filter((b) => !needle || `${b.invoiceNo} ${b.customerName} ${b.customerPhone} ${b.couponCode ?? ""} ${b.items.map((i) => i.name).join(" ")}`.toLowerCase().includes(needle))
+        .filter((b) => !needle || `${b.invoiceNo} ${b.customerName} ${b.customerPhone} ${b.biller ?? ""} ${b.couponCode ?? ""} ${b.items.map((i) => i.name).join(" ")}`.toLowerCase().includes(needle))
         .sort((a, b) => b.createdAt - a.createdAt),
     [s.bills, type, range, needle],
   );
@@ -76,8 +82,8 @@ export default function OrdersPage() {
 
   /* The bills on screen as an Excel workbook with real columns. */
   const exportRows = (): (string | number)[][] => [
-    ["Invoice", "Channel", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Delivery", "Extra", "Bill type", "VAT %", "Taxable amount", "VAT amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
-    ...bills.map((b) => [b.invoiceNo, CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.deliveryFee, b.extra, b.isGst ? "VAT" : "No VAT", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
+    ["Invoice", "Billed by", "Channel", "Customer", "Mobile", "Items", "Subtotal", "Coupon", "Coupon discount", "Manual discount", "Delivery", "Extra", "Bill type", "VAT %", "Taxable amount", "VAT amount", "Total", "Payment", "Cash", "UPI", "Card", "Status", "Date", "Time"],
+    ...bills.map((b) => [b.invoiceNo, b.biller || "", CHANNEL_LABEL[channelOf(b)], b.customerName, b.customerPhone, b.itemCount, b.subtotal, b.couponCode ?? "", b.couponDiscount, b.manualDiscount, b.deliveryFee, b.extra, b.isGst ? "VAT" : "No VAT", b.gstPercent, b.taxableAmount, b.gstAmount, b.total, b.payment, b.cashAmount, b.upiAmount, b.cardAmount, b.status, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
   ];
   const stamp = () => new Date().toISOString().slice(0, 10);
   const exportExcel = () => downloadExcel(`bills-${stamp()}.xlsx`, [{ name: "Bills", rows: exportRows() }]);
@@ -156,10 +162,13 @@ export default function OrdersPage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 shadow-[0_2px_10px_-2px_rgba(15,23,42,.08)]">
         <div className="overflow-x-auto adm-scroll">
-            <table className="w-full min-w-[820px]">
+            <table className="w-full min-w-[940px]">
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className={th}>Invoice no</th>
+                  {/* Who put the bill in. The shop's own record — it is not on
+                      the receipt, the invoice page or the WhatsApp message. */}
+                  <th className={th}>Billed by</th>
                   <th className={th}>Customer name</th>
                   <th className={th}>Mobile</th>
                   <th className={th}>Channel</th>
@@ -180,6 +189,15 @@ export default function OrdersPage() {
                           <Icon name="external" size={13} />
                         </span>
                       </button>
+                    </td>
+                    <td className={td}>
+                      {b.biller ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-bold text-slate-700">
+                          <Icon name="users" size={12} /> {b.biller}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className={cx(td, "font-semibold text-slate-800")}>{b.customerName || "—"}</td>
                     <td className={cx(td, "adm-num text-slate-600")}>{b.customerPhone || <span className="text-slate-400">—</span>}</td>
@@ -242,20 +260,6 @@ export default function OrdersPage() {
         footer={
           bill && (
             <>
-              {bill.status === "completed" && (
-                <Btn
-                  kind="plain"
-                  className="mr-auto text-red-600"
-                  onClick={async () => {
-                    if (await confirm({ title: `Void ${bill.invoiceNo}?`, body: "It drops out of revenue, its items return to stock and any coupon use is given back. This can't be undone.", ok: "Void bill", danger: true })) {
-                      const r = await act<Bill>("bill.void", { id: bill.id });
-                      if (r.ok) setBill(r.result);
-                    }
-                  }}
-                >
-                  Void bill
-                </Btn>
-              )}
               {bill.customerPhone && (
                 <a href={waLink(bill.customerPhone, billText(bill, s.settings.shopName, s.settings.publicUrl))} target="_blank" rel="noopener noreferrer" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#22c55e] px-4 text-[13px] font-semibold text-white hover:bg-[#16a34a]">
                   <WaIcon size={16} /> WhatsApp
@@ -283,6 +287,11 @@ export default function OrdersPage() {
                 <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">{CHANNEL_LABEL[channelOf(bill)]}</span>
                 <b>{fmtDateTime(bill.createdAt)}</b>
                 <span className="block">{bill.status === "completed" ? <Badge tone="green">Completed</Badge> : <Badge tone="slate">Void</Badge>}</span>
+              </p>
+              <p className="col-span-2 border-t border-slate-200 pt-3">
+                <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Billed by</span>
+                <b>{bill.biller || "—"}</b>
+                <span className="block text-[11.5px] text-slate-400">Shown here only — never on the receipt or the customer&apos;s invoice.</span>
               </p>
             </div>
             {/* A big order used to run off the bottom of the sheet; the list

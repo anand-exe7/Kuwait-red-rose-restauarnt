@@ -12,6 +12,7 @@ import {
   deleteTable,
   isNumberTaken,
 } from "../../lib/tableStore";
+import { useAdmin } from "./Store";
 import { Page, PageHead, Card, Btn, Badge, Icon, Empty, Modal, Field, inputCls, cx } from "./kit";
 
 // Table Management — just the floor plan. Waiters open a table from the Waiter
@@ -25,7 +26,19 @@ export default function TablesPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  /* Deleting a table was a two-tap inline "Yes / No". It goes through the
+     panel's own confirmation now, which is what asks for the manager
+     password — the shop wants every deletion behind it. */
+  const { confirm } = useAdmin();
+  const removeTable = async (t: RestaurantTable) => {
+    const ok = await confirm({
+      title: `Delete ${t.label || `Table ${t.number}`}?`,
+      body: "Waiters can no longer open a tab on it. Past orders keep the table number they were placed on.",
+      ok: "Delete table",
+      danger: true,
+    });
+    if (ok) deleteTable(t.id);
+  };
 
   const openAdd = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (t: RestaurantTable) => { setEditing(t); setFormOpen(true); };
@@ -61,16 +74,9 @@ export default function TablesPage() {
                   <button type="button" onClick={() => openEdit(t)} title="Edit" className="rounded-lg p-2 text-slate-600 transition-colors hover:bg-slate-100">
                     <Icon name="edit" size={15} />
                   </button>
-                  {confirmDeleteId === t.id ? (
-                    <div className="flex items-center gap-1 text-xs font-bold">
-                      <button type="button" onClick={() => { deleteTable(t.id); setConfirmDeleteId(null); }} className="rounded bg-red-600 px-2 py-1 text-white">Yes</button>
-                      <button type="button" onClick={() => setConfirmDeleteId(null)} className="rounded bg-slate-100 px-2 py-1 text-slate-700">No</button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => setConfirmDeleteId(t.id)} title="Delete" className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50">
-                      <Icon name="trash" size={15} />
-                    </button>
-                  )}
+                  <button type="button" onClick={() => void removeTable(t)} title="Delete" className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50">
+                    <Icon name="trash" size={15} />
+                  </button>
                 </div>
               </div>
             </Card>

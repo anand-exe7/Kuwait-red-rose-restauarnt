@@ -49,6 +49,13 @@ export default function WholesaleBillDetail({ bill, onClose, onPrint }: { bill: 
               <b>{fmtDateTime(bill.createdAt)}</b>
               <span className="block"><Badge tone="green">Completed</Badge></span>
             </p>
+            {/* Who was on the till. This sheet is admin-only; the name is not
+                on the printed receipt, the invoice page or the WhatsApp. */}
+            <p className="col-span-2 border-t border-slate-200 pt-3">
+              <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Billed by</span>
+              <b>{bill.biller || "—"}</b>
+              <span className="block text-[11.5px] text-slate-400">Shown here only — never on the receipt or the customer&apos;s invoice.</span>
+            </p>
           </div>
           <ul className="adm-scroll my-4 max-h-[42dvh] divide-y divide-dashed divide-slate-200 overflow-y-auto pr-1">
             {bill.items.map((i, k) => (

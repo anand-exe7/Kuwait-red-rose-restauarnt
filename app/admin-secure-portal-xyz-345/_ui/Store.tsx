@@ -19,7 +19,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { THERMAL_PAGE_STYLE_ID, thermalPageCss } from "./receipt";
 import type {
   AdminState,
@@ -73,6 +73,7 @@ import {
   getBillsSnapshot,
   getBillsServerSnapshot,
   createBill as rrCreateBill,
+  deleteBill as rrDeleteBill,
   type Bill as RrBill,
 } from "../../lib/billStore";
 import { invoiceNumber, issueInvoiceNumber, resolveInvoiceNo } from "../../lib/invoice";
@@ -95,6 +96,14 @@ import {
   type Expense as RrExpense,
 } from "../../lib/expenseStore";
 import {
+  subscribeToOps,
+  getOpsSnapshot,
+  getOpsServerSnapshot,
+  opsFrom,
+  saveOps,
+  type Ops,
+} from "../../lib/opsStore";
+import {
   subscribeToCoupons,
   getCouponsSnapshot,
   getCouponsServerSnapshot,
@@ -111,7 +120,40 @@ export type Toast = {
   body?: string;
   href?: string;
 };
-type ConfirmReq = { title: string; body?: React.ReactNode; ok?: string; danger?: boolean };
+export type ConfirmReq = {
+  title: string;
+  body?: React.ReactNode;
+  ok?: string;
+  danger?: boolean;
+  /** Ask for the manager password before this goes ahead.
+   *
+   *  Left unset it follows `danger`, so every destructive confirm is locked by
+   *  default and a new one cannot be forgotten. Pass `lock: false` for a
+   *  confirm that is merely irreversible rather than a deletion — declining an
+   *  incoming order, say, which the counter decides a dozen times a day. */
+  lock?: boolean;
+};
+
+/** Does this confirmation need the manager password? */
+export const confirmNeedsLock = (c: ConfirmReq | null): boolean =>
+  !!c && (c.lock ?? !!c.danger);
+
+/** The manager lock, as the panel sees it. */
+export interface LockState {
+  /** The password has been typed in this browser and has not timed out. */
+  unlocked: boolean;
+  /** ADMIN_LOCK_PASSWORD is set on the server. When false, nothing can be
+   *  unlocked and the panel says so instead of rejecting every try. */
+  configured: boolean;
+}
+
+/** Who is billing. `names` comes from BILLERS on the server. */
+export interface BillerState {
+  current: string | null;
+  names: string[];
+  /** Still asking the server who is signed in — the first paint. */
+  loading: boolean;
+}
 export type ActResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 export type ActOpts = { optimistic?: (s: AdminState) => AdminState };
 
@@ -147,7 +189,6 @@ export interface FloorTab {
 
 interface Ctx {
   s: AdminState;
-  role: "admin" | "staff";
   act: <T = unknown>(op: string, args?: Record<string, unknown>, opts?: ActOpts) => Promise<ActResult<T>>;
   refresh: () => Promise<void>;
   toast: (t: Omit<Toast, "id">) => void;
@@ -158,6 +199,22 @@ interface Ctx {
   answer: (v: boolean) => void;
   print: (node: React.ReactNode) => void;
   printNode: React.ReactNode;
+  /** The manager lock on the analytics and on every delete. */
+  lock: LockState;
+  /** Try the manager password. On success this browser is unlocked for a while. */
+  unlock: (password: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Lock it again by hand ("Lock now" on an unlocked page). The panel also
+   *  calls this on load and on every route change. */
+  relock: () => Promise<void>;
+  /** Who is on the counter, and the names they can sign in as. */
+  biller: BillerState;
+  /** Sign a biller on. Needs that person's own password. */
+  signInBiller: (name: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Sign off. No password — but nothing can be billed until somebody signs on. */
+  signOutBiller: () => Promise<void>;
+  /** The shop's switches (so far: is the website taking orders). */
+  ops: Ops;
+  setOps: (next: Ops) => Promise<{ ok: boolean; error?: string }>;
   sound: boolean;
   setSound: (v: boolean) => void;
   base: string;
@@ -398,6 +455,9 @@ function toBill(b: RrBill, bySession: Map<string, RrOrder[]>, sessions: Map<stri
       change: p.change ?? 0,
       extra: p.extra ?? 0,
       note: p.note ?? "",
+      // Bills saved before the shop started recording this have no name on
+      // them; the order history shows a dash rather than inventing one.
+      biller: typeof p.biller === "string" ? p.biller : "",
     };
   }
   return {
@@ -516,11 +576,9 @@ function sizeThermalPage(area: Element | null): void {
 
 export function AdminProvider({
   initial,
-  role,
   children,
 }: {
   initial: AdminState;
-  role: "admin" | "staff";
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -533,6 +591,8 @@ export function AdminProvider({
   const rrCoupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
   const rrExpenses = useSyncExternalStore(subscribeToExpenses, getExpensesSnapshot, getExpensesServerSnapshot);
   const rrCategoryRows = useSyncExternalStore(subscribeToCategories, getCategoriesSnapshot, getCategoriesServerSnapshot);
+  const opsRows = useSyncExternalStore(subscribeToOps, getOpsSnapshot, getOpsServerSnapshot);
+  const ops = useMemo(() => opsFrom(opsRows), [opsRows]);
   /* Saved categories first, then anything a product still carries that isn't
      in the saved list — so nothing disappears from the pickers if the settings
      row is missing or a product was filed under an old name. */
@@ -558,6 +618,9 @@ export function AdminProvider({
     const localOnly = extraBills.filter((b) => !serverIds.has(b.id));
     return {
       ...initial,
+      // The website-ordering switch lives in app_settings, so every panel and
+      // every customer device agrees about it without a reload.
+      settings: { ...initial.settings, orderingEnabled: ops.orderingEnabled },
       products: menu.map(toProduct),
       orders: rrOrders.map(toOrder),
       sessions: rrSessions.map((x) => toSession(x, bySession)),
@@ -566,7 +629,7 @@ export function AdminProvider({
       expenses: rrExpenses.map(toExpense),
       expenseCategories: [...new Set(rrExpenses.map((e) => e.category).filter(Boolean))].map((name) => ({ id: name, name })),
     };
-  }, [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons, rrExpenses, extraBills]);
+  }, [initial, menu, rrOrders, rrSessions, rrBills, rrCoupons, rrExpenses, extraBills, ops]);
 
   // Floor tabs — the open sessions, with their orders aggregated
   const floor: FloorTab[] = useMemo(() => {
@@ -646,6 +709,155 @@ export function AdminProvider({
     setPending(null);
     if (r) r(v);
   }, []);
+
+  /* ----------------------------- the manager lock -----------------------------
+     The panel login is shared by whoever is behind the counter, so it is not
+     what guards the figures or the right to wipe a bill out of the records. A
+     second password does that.
+
+     An unlock lasts for ONE PAGE VISIT. Open the analytics, go anywhere else
+     and come back, and it asks again — the route-change effect below throws
+     the cookie away the moment the path changes, and the panel starts every
+     load locked. The cookie's own TTL is only a backstop for a browser left
+     sitting on one page. Deletions are stricter still: the confirm dialog asks
+     for the password every single time, unlocked or not (see Shell.tsx). */
+  const [lock, setLock] = useState<LockState>({ unlocked: false, configured: true });
+  const lockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* A mirror of lock.unlocked that relock() can read without being rebuilt on
+     every change — it has to keep a stable identity for the effects below. */
+  const unlockedRef = useRef(false);
+
+  /* Throw the unlock away. The panel calls this on load, on every route
+     change, and from the "Lock now" button on an unlocked page.
+
+     Everything it touches is set from the server's reply rather than before
+     the call, so there is no synchronous state change inside the effects that
+     drive it. The page being re-locked is on its way out anyway — a route
+     change has already unmounted it — so nothing is on screen for longer than
+     it should be. */
+  const relock = useCallback(async () => {
+    if (lockTimer.current) clearTimeout(lockTimer.current);
+    if (!unlockedRef.current) return;
+    unlockedRef.current = false;
+    try {
+      const r = await fetch("/api/lock", { method: "DELETE" });
+      const d = (await r.json().catch(() => null)) as { configured?: boolean } | null;
+      setLock({ unlocked: false, configured: d?.configured !== false });
+    } catch {
+      // Offline. The local flag is off and the server refuses any destructive
+      // write it cannot see a valid cookie for, so this is safe either way.
+      setLock((cur) => ({ ...cur, unlocked: false }));
+    }
+  }, []);
+
+  /* Start every load locked, whatever cookie survived from last time, and
+     learn in the same call whether a manager password is configured at all —
+     so the panel can say "none is set" instead of rejecting every attempt. */
+  useEffect(() => {
+    let alive = true;
+    unlockedRef.current = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/lock", { method: "DELETE" });
+        const d = (await r.json().catch(() => null)) as { configured?: boolean } | null;
+        if (alive && d) setLock({ unlocked: false, configured: d.configured !== false });
+      } catch {
+        // Leave it locked; the server has the last word on every write.
+      }
+    })();
+    return () => {
+      alive = false;
+      if (lockTimer.current) clearTimeout(lockTimer.current);
+    };
+  }, []);
+
+  /* Leaving the page ends the unlock. This is the rule the shop asked for:
+     the figures are open while you are looking at them and locked again the
+     moment you go somewhere else. */
+  const path = usePathname();
+  const seenPath = useRef(path);
+  useEffect(() => {
+    if (seenPath.current === path) return;
+    seenPath.current = path;
+    void relock();
+  }, [path, relock]);
+
+  const unlock = useCallback(async (password: string) => {
+    try {
+      const r = await fetch("/api/lock", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; until?: number } | null;
+      if (!r.ok || !d?.ok) return { ok: false, error: d?.error ?? "Could not check that password." };
+      unlockedRef.current = true;
+      setLock((cur) => ({ ...cur, unlocked: true }));
+      // Fall back to locked the moment the cookie would have expired, for a
+      // browser that is left sitting on the page and never navigates.
+      if (lockTimer.current) clearTimeout(lockTimer.current);
+      const ms = Math.max(1000, (d.until ?? Date.now()) - Date.now());
+      lockTimer.current = setTimeout(() => {
+        unlockedRef.current = false;
+        setLock((cur) => ({ ...cur, unlocked: false }));
+      }, ms);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Network problem — try again." };
+    }
+  }, []);
+
+  /* ------------------------------ the biller ------------------------------
+     Two people share this login, so a bill has to say which of them took the
+     money. Signing a name on needs THAT person's password, and the name is
+     stamped on the bill by the server from the cookie — never from here. */
+  const [biller, setBiller] = useState<BillerState>({ current: null, names: [], loading: true });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/biller");
+        const d = (await r.json().catch(() => null)) as { biller?: string | null; names?: string[] } | null;
+        if (alive && d) setBiller({ current: d.biller ?? null, names: d.names ?? [], loading: false });
+        else if (alive) setBiller((cur) => ({ ...cur, loading: false }));
+      } catch {
+        if (alive) setBiller((cur) => ({ ...cur, loading: false }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const signInBiller = useCallback(async (name: string, password: string) => {
+    try {
+      const r = await fetch("/api/biller", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, password }),
+      });
+      const d = (await r.json().catch(() => null)) as { ok?: boolean; error?: string; biller?: string; names?: string[] } | null;
+      if (!r.ok || !d?.ok || !d.biller) return { ok: false, error: d?.error ?? "Could not sign you in." };
+      setBiller({ current: d.biller, names: d.names ?? [], loading: false });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Network problem — try again." };
+    }
+  }, []);
+
+  const signOutBiller = useCallback(async () => {
+    try {
+      const r = await fetch("/api/biller", { method: "DELETE" });
+      const d = (await r.json().catch(() => null)) as { names?: string[] } | null;
+      setBiller((cur) => ({ current: null, names: d?.names ?? cur.names, loading: false }));
+    } catch {
+      // Keep the name on screen if the call failed — the server still has the
+      // cookie, so claiming it is off would be a lie.
+    }
+  }, []);
+
+  const setOps = useCallback(async (next: Ops) => saveOps(next), []);
 
   // Print target.
   //
@@ -996,8 +1208,24 @@ export function AdminProvider({
               change,
               extra,
               note: typeof args.note === "string" ? args.note : "",
+              /* Who is on the till. This copy is only so the bill reads right
+                 the instant it is saved — the server writes the name on the
+                 stored payload from the signed cookie, so it does not matter
+                 what we put here. */
+              biller: biller.current ?? "",
             };
             setExtraBills((cur) => [bill, ...cur.filter((b) => b.id !== id)]);
+            /* The row goes up in the background, so a refusal has to shout —
+               otherwise the counter prints a receipt for a bill the database
+               never took. The server refuses one with no biller signed in. */
+            const billSaveFailed = (message: string) => {
+              setExtraBills((cur) => cur.filter((b) => b.id !== id));
+              toast({
+                kind: "err",
+                title: `${invoiceNo} was NOT saved`,
+                body: message,
+              });
+            };
             // Serialise the rich bill into a Supabase-safe payload. Numbers,
             // strings and plain objects only — the admin uses this on the
             // public /invoice/INV-… page to re-render the same bill without
@@ -1019,6 +1247,7 @@ export function AdminProvider({
                   paidMethod: payment,
                   invoiceNo,
                   payload: payloadJson,
+                  onError: billSaveFailed,
                 });
                 // Close the tickets out too. Without this the orders stay
                 // billed=false, so a settled order kept showing up as
@@ -1043,9 +1272,19 @@ export function AdminProvider({
                 paidMethod: payment,
                 invoiceNo,
                 payload: payloadJson,
+                onError: billSaveFailed,
               });
             }
             return { ok: true, result: bill as unknown as T };
+          }
+          case "bill.delete": {
+            const id = args.id as string;
+            const current = s.bills.find((b) => b.id === id);
+            if (!current) return { ok: false, error: "That bill is no longer here." };
+            const { error } = await rrDeleteBill(id);
+            if (error) return { ok: false, error };
+            setExtraBills((cur) => cur.filter((b) => b.id !== id));
+            return { ok: true, result: undefined as T };
           }
           case "settings.update": {
             // Admin settings are locally-controlled defaults in Red Rose; a
@@ -1077,7 +1316,7 @@ export function AdminProvider({
             // A takeaway or delivery is one order spread over several tickets.
             // The ticket we are about to write has to carry the same identity
             // and the same address as the first one, or the chef prints a
-            // delivery with nowhere to send it and the driver gets half an
+            // delivery with nowhere to send it, and whoever takes it out gets half an
             // address. The ORDER's mode wins over the session's for the same
             // reason it does everywhere else: sessions opened before delivery
             // had its own mode were all filed as 'takeaway'.
@@ -1123,7 +1362,7 @@ export function AdminProvider({
         return { ok: false, error: err instanceof Error ? err.message : "Something went wrong." };
       }
     },
-    [menu, rrCoupons, rrOrders, rrSessions, savedCategories]
+    [menu, rrCoupons, rrOrders, rrSessions, savedCategories, s.bills, biller, rrBills, toast]
   );
 
   const refresh = useCallback(async () => {
@@ -1135,7 +1374,6 @@ export function AdminProvider({
     <C.Provider
       value={{
         s,
-        role,
         act,
         refresh,
         toast,
@@ -1146,6 +1384,14 @@ export function AdminProvider({
         answer,
         print,
         printNode,
+        lock,
+        unlock,
+        relock,
+        biller,
+        signInBiller,
+        signOutBiller,
+        ops,
+        setOps,
         sound,
         setSound,
         base,

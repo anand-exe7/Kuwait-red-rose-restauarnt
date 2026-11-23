@@ -12,6 +12,10 @@ export const isWholesaleNo = (no: string) => /^WB-/i.test((no || "").trim());
  *
  * A by-weight line has no whole-number quantity, so it is shown as one line
  * whose name carries the weight and rate ("Halwa — 500 g @ KD 1.200/100g").
+ *
+ * `biller` is deliberately NOT copied across. Everything this shape feeds is
+ * something the customer sees — the printed receipt, the public invoice, the
+ * WhatsApp message — and who was on the till is the shop's business only.
  */
 export function wholesaleToBill(w: WholesaleBill): Bill {
   const items: OrderItem[] = w.items.map((i) =>

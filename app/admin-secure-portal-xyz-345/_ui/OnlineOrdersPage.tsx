@@ -19,6 +19,7 @@ import { useMemo, useState } from "react";
 import type { Order } from "./types";
 import { rupee } from "./money";
 import { useAdmin } from "./Store";
+import { OnlineStatusBadge } from "./SettingsModal";
 import { Btn, Empty, Icon, Page, PageHead, SearchBox, cx, fmtTime, ago } from "./kit";
 import { resolveOrderNo } from "../../lib/invoice";
 
@@ -128,6 +129,11 @@ export default function OnlineOrdersPage() {
       body: `${g.customerName}'s ${MODE_STYLE[g.mode].label.toLowerCase()} order will not be made. Call them on ${g.customerPhone || "their number"} to let them know — we don't send an automatic message.`,
       ok: "Decline order",
       danger: true,
+      /* The one destructive confirm that does NOT ask for the manager
+         password. Turning an order away is an everyday counter decision —
+         the kitchen is busy, the item is off — not a record being wiped, and
+         it happens several times a day. */
+      lock: false,
     });
     if (!ok) return;
     setBusy(g.sessionId);
@@ -145,6 +151,10 @@ export default function OnlineOrdersPage() {
         sub="Takeaway and delivery orders from the website, waiting for you. Accept one and it goes straight to the chef — you then cook, bill and send it from Open tabs."
         right={
           <div className="flex flex-wrap items-center gap-2">
+            {/* Is the website even taking orders? An empty queue means two very
+                different things depending on the answer, so it is said here
+                rather than left to be guessed. Changed in Settings. */}
+            <OnlineStatusBadge className="mr-1" />
             {(["all", "takeaway", "delivery"] as const).map((v) => (
               <button
                 key={v}

@@ -46,6 +46,9 @@ function Chip({ on, children, onClick, tone = "red" }: { on: boolean; children: 
 
 export default function WholesaleOrdersPage() {
   const { s, confirm, toast } = useAdmin();
+  /* Deleting a wholesale bill asks for the manager password, the same rule as
+     the shop's order history: the confirm dialog asks (see _ui/Shell.tsx) and
+     /api/db refuses the delete without it. */
   const all = useSyncExternalStore(subscribeToWholesaleBills, getWholesaleBillsSnapshot, getWholesaleBillsServerSnapshot);
 
   const [payF, setPayF] = useState<PayF>("all");
@@ -75,7 +78,7 @@ export default function WholesaleOrdersPage() {
     () =>
       all
         .filter((b) => (payF === "all" || b.payment === payF) && inRange(b.createdAt, range))
-        .filter((b) => !needle || `${b.id} ${b.customerName} ${b.customerPhone} ${b.items.map((i) => i.name).join(" ")}`.toLowerCase().includes(needle))
+        .filter((b) => !needle || `${b.id} ${b.customerName} ${b.customerPhone} ${b.biller} ${b.items.map((i) => i.name).join(" ")}`.toLowerCase().includes(needle))
         .sort((a, b) => b.createdAt - a.createdAt),
     [all, payF, range, needle],
   );
@@ -87,10 +90,10 @@ export default function WholesaleOrdersPage() {
       {
         name: "Wholesale bills",
         rows: [
-          ["Invoice", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Delivery partner", "Extra", "VAT %", "VAT amount", "Total", "Payment", "Cash", "Card", "Date", "Time"],
-          ...bills.map((b) => [b.id, b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.deliveryPartner, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment], b.payment === "cash" ? b.total : b.cashAmount, b.payment === "card" ? b.total : b.cardAmount, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
+          ["Invoice", "Billed by", "Customer", "Mobile", "Items", "Subtotal", "Discount", "Delivery", "Delivery partner", "Extra", "VAT %", "VAT amount", "Total", "Payment", "Cash", "Card", "Date", "Time"],
+          ...bills.map((b) => [b.id, b.biller, b.customerName, b.customerPhone, b.items.length, b.subtotal, b.discount, b.deliveryFee, b.deliveryPartner, b.extra, b.gstPercent, b.gstAmount, b.total, PAYMENT_LABEL[b.payment], b.payment === "cash" ? b.total : b.cashAmount, b.payment === "card" ? b.total : b.cardAmount, fmtDate(b.createdAt), fmtTime(b.createdAt)]),
           [],
-          ["Total", "", "", "", round3(bills.reduce((a, b) => a + b.subtotal, 0)), round3(bills.reduce((a, b) => a + b.discount, 0)), round3(bills.reduce((a, b) => a + b.deliveryFee, 0)), "", round3(bills.reduce((a, b) => a + b.extra, 0)), "", round3(bills.reduce((a, b) => a + b.gstAmount, 0)), round3(bills.reduce((a, b) => a + b.total, 0))],
+          ["Total", "", "", "", "", round3(bills.reduce((a, b) => a + b.subtotal, 0)), round3(bills.reduce((a, b) => a + b.discount, 0)), round3(bills.reduce((a, b) => a + b.deliveryFee, 0)), "", round3(bills.reduce((a, b) => a + b.extra, 0)), "", round3(bills.reduce((a, b) => a + b.gstAmount, 0)), round3(bills.reduce((a, b) => a + b.total, 0))],
         ],
       },
       {
@@ -177,10 +180,12 @@ export default function WholesaleOrdersPage() {
 
       <div className="overflow-hidden rounded-2xl border border-slate-100 shadow-[0_2px_10px_-2px_rgba(15,23,42,.08)]">
         <div className="overflow-x-auto adm-scroll">
-          <table className="w-full min-w-[820px]">
+          <table className="w-full min-w-[940px]">
             <thead>
               <tr className="border-b border-slate-100">
                 <th className={th}>Invoice no</th>
+                {/* Shop's own record of who was on the till — never printed. */}
+                <th className={th}>Billed by</th>
                 <th className={th}>Customer name</th>
                 <th className={th}>Mobile</th>
                 <th className={th}>Channel</th>
@@ -201,6 +206,15 @@ export default function WholesaleOrdersPage() {
                         <Icon name="external" size={13} />
                       </span>
                     </button>
+                  </td>
+                  <td className={td}>
+                    {b.biller ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-bold text-slate-700">
+                        <Icon name="users" size={12} /> {b.biller}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className={cx(td, "font-semibold text-slate-800")}>{b.customerName || "—"}</td>
                   <td className={cx(td, "adm-num text-slate-600")}>{b.customerPhone || <span className="text-slate-400">—</span>}</td>

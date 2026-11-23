@@ -1,8 +1,14 @@
 "use client";
 
-// Admin sign-in — posts to the existing /api/auth/login (role=admin), which
-// sets the shared `rr_session` cookie that /chef-station, /waiter-dashboard and
-// this /admin-secure-portal-xyz-345 all read. One password gate, one cookie.
+// Panel sign-in — posts to /api/auth/login (role=admin), which sets the shared
+// `rr_session` cookie that /chef-station, /waiter-dashboard and this
+// /admin-secure-portal-xyz-345 all read. One password gate, one cookie.
+//
+// ONE password: ADMIN_PASSWORD. Whoever is behind the counter signs in with it.
+// There used to be a second, "staff" password here with a cut-down panel; the
+// shop did not want two logins. Inside the panel, instead, the analytics and
+// anything being deleted ask for the manager password (ADMIN_LOCK_PASSWORD),
+// and the billing pages ask who is on the till (BILLERS).
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -43,7 +49,7 @@ export default function LoginForm() {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/finallogo.jpeg" alt="Red Rose" className="h-14 w-14 rounded-2xl object-cover shadow" />
         <h1 className="adm-title mt-4 text-[28px] leading-none text-slate-900 sm:text-[32px]">Sign in</h1>
-        <p className="mt-1 text-[14px] text-slate-500">{BRAND.fullName} · Admin</p>
+        <p className="mt-1 text-[14px] text-slate-500">{BRAND.fullName} · admin password</p>
         <div className="mt-6 space-y-4">
           <Field label="Password">
             <div className="relative">
