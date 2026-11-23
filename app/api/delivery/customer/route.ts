@@ -5,7 +5,6 @@ import { requireCustomer, type Customer } from '../../../lib/server/customerAuth
 import { checkCoupon, consumeCoupon, priceItems, TAX_RATE } from '../../../lib/server/pricing';
 import { buildQuote, type QuoteTarget } from '../../../lib/delivery/server';
 import { hydrate, newId, type Row } from '../../../lib/delivery/service';
-import { deriveCode } from '../../../lib/delivery/otp';
 import { onlinePaymentAvailable, refundPayment, startOnlinePayment } from '../../../lib/payments';
 
 // Signed-in customers: place a delivery order, track it, manage saved addresses.
@@ -134,20 +133,7 @@ export async function POST(request: NextRequest) {
       const { data } = await sb.from('deliveries').select('*').eq('id', id).eq('user_id', customer.id).maybeSingle();
       if (!data) throw new HttpError(404, 'Order not found');
       const [dto] = await hydrate(sb, [data as Row]);
-      // The handover code is only shown to the owner, while the driver is on the way.
-      let code: string | null = null;
-      let codeExpiresAt: number | null = null;
-      if (data.status === 'out_for_delivery' && data.otp_issued_at && !data.otp_locked) {
-        const { data: st } = await sb.from('delivery_settings').select('otp_length,otp_expiry_minutes').eq('id', 1).maybeSingle();
-        const length = Math.min(6, Math.max(4, Number(st?.otp_length ?? 6)));
-        const expiry = Number(st?.otp_expiry_minutes ?? 120) * 60_000;
-        const issued = Number(data.otp_issued_at);
-        if (Date.now() < issued + expiry) {
-          code = deriveCode(id, issued, length);
-          codeExpiresAt = issued + expiry;
-        }
-      }
-      return { delivery: dto, code, codeExpiresAt };
+      return { delivery: dto };
     }
 
     if (action === 'cancel') {

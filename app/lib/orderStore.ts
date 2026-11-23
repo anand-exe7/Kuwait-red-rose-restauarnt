@@ -70,7 +70,7 @@ export interface DeliveryAddress {
   building: string;      // house / building number
   floor?: string;
   apartment?: string;
-  landmark?: string;     // free-text hint for the driver
+  landmark?: string;     // free-text hint for whoever delivers it
 }
 
 /** Lightweight customer identity captured at checkout — present on
@@ -106,7 +106,7 @@ export interface Order {
   customer?: CustomerInfo;        // signed-in customer / contact details
   deliveryAddress?: DeliveryAddress; // present when mode === 'delivery'
   note?: string;       // the customer's remark typed at checkout
-  handedOverAt?: number; // takeaway handed to the customer / delivery given to the driver
+  handedOverAt?: number; // handed to the customer, or to the delivery partner
 }
 
 /** Human label for where an order goes — used by every role's UI. */
@@ -576,7 +576,7 @@ export function cancelSession(sessionId: string) {
   }
 }
 
-/** Waiter handed the takeaway to the customer / gave the delivery to the driver. */
+/** Waiter handed the order over — to the customer, or to the delivery partner. */
 export function markHandedOver(sessionId: string) {
   if (!sessionId) return;
   const at = Date.now();

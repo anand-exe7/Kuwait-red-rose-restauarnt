@@ -74,7 +74,7 @@ export default function ChefDashboard() {
   const waitMinutes = (createdAt: number) => Math.max(0, Math.floor((now - createdAt) / 60000));
   /* A home order looks different on the pass, because it IS different: nobody
      is sitting at a table waiting for it, it gets packed, and a delivery has a
-     driver to catch. Violet = delivery, blue = takeaway, cream = eat-in. */
+     delivery to catch. Violet = delivery, blue = takeaway, cream = eat-in. */
   const modeSkin = (mode: Order['mode']) =>
     mode === 'delivery'
       ? { card: 'bg-[#f0e8fb] border-[#a78bda]', ribbon: 'bg-[#6d44b8]', label: 'Delivery' }

@@ -97,6 +97,11 @@ export function createBill(input: {
   paidMethod?: string | null;
   invoiceNo?: string | null;
   payload?: Record<string, unknown> | null;
+  /** Told when the row did not actually land. The bill is returned
+   *  optimistically, so without this a refused insert only reached the
+   *  console and the counter walked away believing it had saved. The server
+   *  refuses a bill with no biller signed in, which made that reachable. */
+  onError?: (message: string) => void;
 }): Bill {
   // `BL-` prefix + alphanumeric tail — matches the server-side id validator.
   const id =
@@ -126,10 +131,34 @@ export function createBill(input: {
     paid_method: bill.paidMethod,
     invoice_no: bill.invoiceNo,
     payload: bill.payload,
-  }).then(({ error }) => { if (error) console.error('[bills] create failed', error.message); });
+  }).then(({ error }) => {
+    if (!error) return;
+    console.error('[bills] create failed', error.message);
+    // Take the optimistic row back out, or the panel shows a bill that the
+    // database has never heard of until the tab is reloaded.
+    store.patchLocal((cur) => cur.filter((b) => b.id !== bill.id));
+    input.onError?.(error.message);
+  });
   return bill;
 }
 
 export function subscribeToBills(callback: () => void): () => void {
   return store.subscribe(callback);
+}
+
+/* No Supabase configured (demo mode): the local caches ARE the shop, so the
+   optimistic change stands rather than reading as a failed void. */
+const demoOnly = (m: string) => /not configured/i.test(m || '');
+
+export async function deleteBill(id: string): Promise<{ error: string | null }> {
+  const kept = store.get().find((b) => b.id === id) ?? null;
+  store.patchLocal((cur) => cur.filter((b) => b.id !== id));
+  const { error } = await write({ table: 'bills', op: 'delete', match: { id } });
+  if (error && !demoOnly(error.message)) {
+    console.error('[bills] delete failed', error.message);
+    if (kept) store.patchLocal((cur) => (cur.some((b) => b.id === id) ? cur : [kept, ...cur]));
+    void store.refetch();
+    return { error: error.message };
+  }
+  return { error: null };
 }

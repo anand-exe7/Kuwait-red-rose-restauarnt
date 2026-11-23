@@ -93,6 +93,11 @@ export interface WholesaleBill {
   /** For a split payment: how much was paid in cash and how much by card. */
   cashAmount: number;
   cardAmount: number;
+  /** Who took the money, from the biller signed in on the till. ADMIN PANEL
+   *  ONLY — never printed, never sent to the customer. Written by the server
+   *  from the signed biller cookie, so the browser cannot choose it.
+   *  "" on bills saved before the shop started recording this. */
+  biller: string;
   createdAt: number;
 }
 
@@ -281,6 +286,7 @@ function billFromRow(r: Record<string, unknown>): WholesaleBill {
     received: num(r.received, total),
     cashAmount: num(r.cash_amount),
     cardAmount: num(r.card_amount),
+    biller: String(r.biller ?? ""),
     createdAt: num(r.created_at),
   };
 }
@@ -437,6 +443,10 @@ export async function saveWholesaleBill(input: {
   cashAmount?: number;
   cardAmount?: number;
   deliveryPartner?: string;
+  /** Only so the saved bill reads right on screen straight away. The stored
+   *  value is written by the server from the biller cookie, whatever is sent
+   *  here — a bill cannot be filed under a name you are not signed in as. */
+  biller?: string;
 }): Promise<{ ok: boolean; error?: string; bill?: WholesaleBill }> {
   const items = input.items.filter((i) => i.qty > 0);
   if (items.length === 0) return { ok: false, error: "Add at least one product." };
@@ -466,6 +476,7 @@ export async function saveWholesaleBill(input: {
     received,
     cashAmount,
     cardAmount,
+    biller: (input.biller ?? "").trim(),
     createdAt,
   };
   bills.patchLocal((cur) => [bill, ...cur]);
@@ -493,6 +504,9 @@ export async function saveWholesaleBill(input: {
       created_at: createdAt,
     },
   });
+  // The server stamped its own biller on the row; re-read so the list shows
+  // what was actually saved rather than what this browser guessed.
+  if (!error) void bills.refetch();
   if (error) { void bills.refetch(); return { ok: false, error: schemaHint(error.message) }; }
   return { ok: true, bill };
 }

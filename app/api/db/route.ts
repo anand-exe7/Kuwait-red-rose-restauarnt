@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { SESSION_COOKIE, verifySessionToken, type Role } from '../../lib/session';
+import {
+  BILLER_COOKIE, LOCK_COOKIE, SESSION_COOKIE,
+  verifyBillerToken, verifyLockToken, verifySessionToken, type Role,
+} from '../../lib/session';
 import { getServerSupabase } from '../../lib/supabaseServer';
 import { HttpError, bad, deny, throttle, isObj, str, int, money, round3, clientIp } from '../../lib/server/http';
-import { priceItems, checkCoupon, consumeCoupon, TAX_RATE } from '../../lib/server/pricing';
-import { applySaleForBill, applySaleForOrder, reverseSaleForOrder } from '../../lib/server/stock';
+import { priceItems, checkCoupon, consumeCoupon, releaseCoupon, TAX_RATE } from '../../lib/server/pricing';
+import { applySaleForBill, applySaleForOrder, reverseSaleForBill, reverseSaleForOrder } from '../../lib/server/stock';
 import { feeForAreaName } from '../../lib/delivery/server';
+import { orderingEnabled } from '../../lib/server/ops';
 
 // Single guarded door for every database WRITE made by the browser.
 //
@@ -50,12 +54,19 @@ const COLUMNS: Record<string, string[]> = {
   wholesale_products: ['id', 'name', 'category', 'unit', 'wholesale_price', 'retail_price', 'cost_price', 'active', 'created_at'],
   wholesale_customers: ['id', 'name', 'phone', 'note', 'created_at'],
   wholesale_prices: ['id', 'customer_id', 'product_id', 'price', 'created_at'],
+  // `biller` is who was on the counter — stamped here from the signed biller
+  // cookie, never from the browser. See supabase/wholesale_biller.sql.
   wholesale_bills: ['id', 'customer_id', 'customer_name', 'customer_phone', 'items', 'subtotal', 'discount',
-    'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'total', 'payment', 'received', 'cash_amount', 'card_amount', 'created_at'],
+    'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'total', 'payment', 'received', 'cash_amount', 'card_amount', 'created_at', 'biller'],
 };
 
 const isStaff = (r: Role | null) => r === 'admin' || r === 'waiter' || r === 'chef';
 const isFloor = (r: Role | null) => r === 'admin' || r === 'waiter'; // may bill / serve
+/* The back office — catalogue, tables, coupons, expenses, settings, wholesale.
+   There is one panel login now, so this is simply the owner's. What stops the
+   second man behind the counter wiping a record is not a role but the manager
+   lock: see requireUnlocked() below. */
+const isBackOffice = (r: Role | null) => r === 'admin';
 
 // Columns that newer migrations added. When one of them hasn't been applied
 // yet, PostgREST answers "Could not find the 'note' column of 'orders' in the
@@ -71,7 +82,7 @@ const DROPPABLE: Record<string, string[]> = {
   // Columns added by the wholesale migration — if the owner hasn't re-run
   // supabase/wholesale.sql yet, save the row without them instead of failing.
   wholesale_products: ['cost_price'],
-  wholesale_bills: ['discount', 'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'payment', 'received', 'cash_amount', 'card_amount'],
+  wholesale_bills: ['discount', 'delivery_fee', 'delivery_partner', 'extra', 'gst_percent', 'gst_amount', 'payment', 'received', 'cash_amount', 'card_amount', 'biller'],
 };
 
 /** The column name out of a PostgREST "missing column" error, if that's what it is. */
@@ -104,16 +115,50 @@ function assertKeys(obj: Values | undefined, allowed: string[], what: string) {
 }
 
 // ---- per-table handlers ----
-type Ctx = { sb: SupabaseClient; role: Role | null; ip: string };
+type Ctx = {
+  sb: SupabaseClient;
+  role: Role | null;
+  ip: string;
+  /** The manager password was typed in this browser recently (ADMIN_LOCK_PASSWORD). */
+  unlocked: boolean;
+  /** Who is on the counter, from the signed biller cookie. Null = nobody. */
+  biller: string | null;
+};
 
-async function adminOnlyWrite(ctx: Ctx, table: string, op: Op, values: Values, match: Match) {
-  if (ctx.role !== 'admin') throw deny('Admin only');
+/* The manager lock, server side.
+   Deleting a record is not something the counter decides on its own, so every
+   delete — and voiding a bill — needs the manager password to have been typed
+   in that browser inside the last few minutes. The panel asks for it in a
+   dialog before it calls us; this is what makes refusing it mean something,
+   because a hand-written POST to /api/db gets the same answer. */
+function requireUnlocked(ctx: Ctx, what: string): void {
+  if (!ctx.unlocked) throw deny(`${what} needs the manager password.`);
+}
+
+async function backOfficeWrite(ctx: Ctx, table: string, op: Op, values: Values, match: Match) {
+  if (!isBackOffice(ctx.role)) throw deny('Admin only');
   // insertTolerant drops any DROPPABLE column the database doesn't have yet, so
   // a pending migration degrades the row instead of rejecting it.
   if (op === 'insert') return insertTolerant(ctx.sb, table, values);
   const q = ctx.sb.from(table);
   if (Object.keys(match).length === 0) throw bad('match is required');
+  /* Clearing a customer's special price deletes its row, but it is a price
+     edit, not a record being wiped — the row is derived, deterministically
+     keyed, and re-made the moment a price is typed again. It would be absurd
+     to ask for the manager password to take an override off, so this one table
+     is exempt. Everything else: password first. */
+  if (op === 'delete' && table !== 'wholesale_prices') requireUnlocked(ctx, 'Deleting this');
   return op === 'update' ? q.update(values).match(match) : q.delete().match(match);
+}
+
+/* Wholesale bills are back-office rows like the rest, except for who signed
+   them: the biller's name is stamped from the cookie, so the man at the
+   counter cannot file a bill under the owner's name by editing the request. */
+async function wholesaleBillsWrite(ctx: Ctx, op: Op, values: Values, match: Match) {
+  if (op !== 'insert') return backOfficeWrite(ctx, 'wholesale_bills', op, values, match);
+  if (!isBackOffice(ctx.role)) throw deny('Admin only');
+  if (!ctx.biller) throw deny('Nobody is signed in as the biller. Pick your name and enter your password first.');
+  return insertTolerant(ctx.sb, 'wholesale_bills', { ...values, biller: ctx.biller });
 }
 
 async function sessionsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
@@ -161,6 +206,11 @@ async function sessionsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   if (!isFloor(role)) throw deny('Staff only');
   assertKeys(v, ['status', 'closed_at', 'bill_id', 'bill_requested_at'], 'session');
   if (v.status !== undefined && v.status !== 'closed' && v.status !== 'void') throw bad('Invalid status');
+  /* 'closed' is a tab being BILLED — the ordinary end of a sale, and it must
+     never ask for a password. 'void' is a tab thrown away with no bill, which
+     is a sale disappearing, so it needs the manager password like any other
+     deletion. Only the admin panel ever sends it (Open tabs → Cancel tab). */
+  if (v.status === 'void') requireUnlocked(ctx, 'Cancelling a tab');
   const patch: Values = { ...v };
   if (v.status) patch.closed_at = Date.now();
   const res = await sb.from('sessions').update(patch).eq('id', id);
@@ -233,6 +283,13 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   // insert
   const staff = isStaff(role);
   if (!staff) throttle(`o:${ctx.ip}`, 20);
+  /* Online ordering can be switched off from the panel (Online orders → the
+     website switch). With it off the website is a menu to look at: a customer
+     cannot send an order, however they ask. Staff carry on billing and taking
+     orders at the counter, which is the point of the switch. */
+  if (!staff && !(await orderingEnabled(sb))) {
+    throw deny('Online ordering is closed right now. Please order at the counter.');
+  }
   // Who put this on the tab. It is printed on the ticket and shown as the
   // "added by" badge, so an admin's line must not be filed as the customer's.
   const claimed = v.source === 'waiter' || v.source === 'admin' ? v.source : 'customer';
@@ -340,19 +397,70 @@ async function ordersWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
   return res;
 }
 
-async function billsWrite(ctx: Ctx, op: Op, v: Values) {
-  if (op !== 'insert') throw deny();
+/** Delete a bill. The shop asked for one way out, not two: a bill is either
+ *  in the records or it is gone. Deleting undoes the sale with it — the stock
+ *  goes back on the shelf and any coupon use is given back.
+ *
+ *  (There used to be a "void" that kept the row marked dead. It confused the
+ *  counter — two buttons, both final-looking — so the panel now deletes and
+ *  nothing writes a void. Old rows already marked void still read correctly
+ *  wherever bills are listed.) */
+async function billDelete(ctx: Ctx, op: 'update' | 'delete', match: Match) {
+  if (ctx.role !== 'admin') throw deny('Only the admin panel can delete a bill');
+  if (op !== 'delete') throw bad('A bill can only be deleted, not edited');
+  // Taking a bill back out of the records is the owner's decision, and the
+  // manager password is how he makes it. Refused here as well as in the
+  // panel, so calling this directly fails the same way.
+  requireUnlocked(ctx, 'Deleting a bill');
+  if (typeof match.id !== 'string' || Object.keys(match).length !== 1) throw bad('match must be { id }');
+  const id = match.id;
+  if (!/^BL-[A-Za-z0-9]+$/.test(id)) throw bad('Invalid id');
+  const { data: row, error } = await ctx.sb
+    .from('bills').select('id,session_id,coupon_code,payload').eq('id', id).maybeSingle();
+  if (error) throw new HttpError(500, 'Bill lookup failed');
+  if (!row) throw bad('That bill no longer exists');
+
+  const stored = (row.payload && typeof row.payload === 'object' ? row.payload : null) as Record<string, unknown> | null;
+  const wasVoid = stored?.status === 'void';
+  const sessionId = (row.session_id as string | null) ?? null;
+  const couponCode = (row.coupon_code as string | null) ?? (typeof stored?.couponCode === 'string' ? (stored.couponCode as string) : null);
+
+  // A bill left over from the old void gave its stock and its coupon back at
+  // the time, so deleting it now is only the paperwork — nothing is undone
+  // twice.
+  if (!wasVoid) {
+    await reverseSaleForBill(ctx.sb, { id, sessionId }, 'Bill deleted');
+    await releaseCoupon(ctx.sb, couponCode);
+  }
+
+  return ctx.sb.from('bills').delete().eq('id', id);
+}
+
+async function billsWrite(ctx: Ctx, op: Op, v: Values, match: Match) {
+  if (op !== 'insert') return billDelete(ctx, op, match);
   if (!isFloor(ctx.role)) throw deny('Waiter or admin only');
   const id = str(v.id, 40, 'id');
   if (!/^BL-[A-Za-z0-9]+$/.test(id)) throw bad('Invalid id');
   const invoiceNo = typeof v.invoice_no === 'string' ? v.invoice_no.slice(0, 40) : null;
-  const payload = v.payload && typeof v.payload === 'object' ? v.payload : null;
+  /* Who billed it. Taken from the signed biller cookie and written OVER
+     whatever the browser sent, which is the whole point: two people share the
+     panel login, and neither of them can put a bill in the other's name.
+     No biller signed in → no bill. The panel says so and asks for a name and
+     password; refusing it here is what makes that more than a nag. */
+  const biller = ctx.biller;
+  if (ctx.role === 'admin' && !biller) {
+    throw deny('Nobody is signed in as the biller. Pick your name and enter your password first.');
+  }
+  const payload: Record<string, unknown> | null =
+    v.payload && typeof v.payload === 'object'
+      ? { ...(v.payload as Record<string, unknown>), biller: biller ?? '' }
+      : null;
   const sessionIdRaw = v.session_id;
   // The lines the bill actually charges for. A counter sale never becomes a
   // kitchen ticket, so this is the ONLY record that it left the shelf — the
   // stock has to come off here or it never comes off at all.
-  const billLines = Array.isArray((payload as { items?: unknown } | null)?.items)
-    ? ((payload as { items: unknown[] }).items as { productId?: string | null; qty?: number | null }[])
+  const billLines = Array.isArray(payload?.items)
+    ? (payload.items as { productId?: string | null; qty?: number | null }[])
     : [];
   // Counter walk-in bills have no session — trust the payload for amounts.
   if (sessionIdRaw === null || sessionIdRaw === undefined || sessionIdRaw === '') {
@@ -434,7 +542,13 @@ export async function POST(request: NextRequest) {
     const sb = getServerSupabase();
     if (!sb) throw new HttpError(503, 'Database is not configured');
     const role = await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
-    const ctx: Ctx = { sb, role, ip: clientIp(request) };
+    // Both of these are signed cookies this server minted (/api/lock,
+    // /api/biller), so neither can be set by hand in the browser.
+    const [unlocked, biller] = await Promise.all([
+      verifyLockToken(request.cookies.get(LOCK_COOKIE)?.value),
+      verifyBillerToken(request.cookies.get(BILLER_COOKIE)?.value),
+    ]);
+    const ctx: Ctx = { sb, role, ip: clientIp(request), unlocked, biller };
 
     let result: { error: { message: string; code?: string } | null };
     switch (table) {
@@ -446,12 +560,12 @@ export async function POST(request: NextRequest) {
       case 'wholesale_products':
       case 'wholesale_customers':
       case 'wholesale_prices':
-      case 'wholesale_bills':
-        result = await adminOnlyWrite(ctx, table, op, values, match);
+        result = await backOfficeWrite(ctx, table, op, values, match);
         break;
+      case 'wholesale_bills': result = await wholesaleBillsWrite(ctx, op, values, match); break;
       case 'sessions': result = await sessionsWrite(ctx, op, values, match); break;
       case 'orders': result = await ordersWrite(ctx, op, values, match); break;
-      case 'bills': result = await billsWrite(ctx, op, values); break;
+      case 'bills': result = await billsWrite(ctx, op, values, match); break;
       default: result = await waiterCallsWrite(ctx, op, values, match);
     }
     if (result.error) {
