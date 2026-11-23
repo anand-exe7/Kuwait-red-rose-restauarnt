@@ -23,8 +23,6 @@ ALLOW_DEV_CUSTOMER_LOGIN=1
 NEXT_PUBLIC_ALLOW_DEV_CUSTOMER_LOGIN=1
 ```
 
-**Driver login:** Admin -> Drivers -> add a driver (name, mobile, PIN), then sign in on the driver page with that mobile + PIN.
-
 **Database:** `supabase/delivery.sql` then `supabase/delivery_areas.sql` must already be run (they are, on the shared Supabase).
 
 ## Pages and screens (all new unless noted)
@@ -33,32 +31,26 @@ NEXT_PUBLIC_ALLOW_DEV_CUSTOMER_LOGIN=1
 |---|---|---|---|
 | Delivery menu | `/delivery` | `app/customer/page.tsx` (existing page, delivery mode when the URL is `/delivery`) | Same menu as dine-in. Header chip "Delivery", no Call Waiter, no takeaway toggle, button "Continue to delivery". |
 | Checkout | `/delivery/checkout` | `app/delivery/checkout/page.tsx` | Sign in, pick **area** (dropdown with fee), optional "Use my current location" button, address form, payment (cash on delivery, online is greyed out "Coming soon"), order summary, Place order. |
-| Order tracking | `/delivery/track/<id>` | `app/delivery/track/[id]/page.tsx` | Progress steps, driver name + call button, the **handover code** the customer tells the driver, cancel button. |
+| Order tracking | `/delivery/track/<id>` | `app/delivery/track/[id]/page.tsx` | Progress steps, cancel button. |
 | My orders | `/delivery/orders` | `app/delivery/orders/page.tsx` | List of the signed-in customer's delivery orders. |
-| Driver app (phone-first) | `/driver-station-ghi-789` | `app/driver-station-ghi-789/page.tsx` | Phone + PIN login, assigned orders, Navigate, Pick up, enter customer code + cash, "I called", Mark failed. |
-| Admin: Deliveries | admin portal tab "Deliveries" | `app/admin-portal-xyz-987/DeliveriesSection.tsx` | Live list, assign driver, cancel, unlock code. |
-| Admin: Drivers | tab "Drivers" | `app/admin-portal-xyz-987/DriversSection.tsx` | Add/edit drivers, cash each driver owes, "Cash handed in". |
-| Admin: Delivery Settings | tab "Delivery Settings" | `app/admin-portal-xyz-987/DeliverySettingsSection.tsx` + `AreasPanel.tsx` | Areas and fees (add/edit/on-off/delete), min order, hours per weekday, busy switch, code rules, failed-delivery rule, cash limit. |
+| Admin: Delivery areas | panel tab "Delivery areas" | `app/admin-secure-portal-xyz-345/_ui/DeliveryPage.tsx` | The areas you deliver to and the weight brackets that price each one. |
 | Kitchen | `/chef-station-abc-123` (existing) | `app/chef-station-abc-123/page.tsx` | Small "DELIV" tag on delivery tickets. |
 | Waiter | (existing) | `app/waiter-dashboard-def-456/page.tsx` | Delivery orders are hidden here on purpose. |
 | Top nav | existing | `app/components/HeroNav.tsx` | Added a "Delivery" link. |
 
 Other new front-end files: `app/components/MapPinPicker.tsx` (Google map pin, only used
 if the admin switches fee mode to "By distance"), `app/lib/customerClient.ts`
-(sign-in hook + API helper), `app/admin-portal-xyz-987/staffApi.ts`.
+(sign-in hook + API helper), `app/admin-secure-portal-xyz-345/_ui/staffApi.ts`.
 
 ## The customer journey (good to design as one flow)
 
 1. Menu `/delivery` -> add items -> "Continue to delivery"
 2. Checkout -> sign in -> choose area (fee shows) -> optionally share exact location -> fill address -> pay on delivery -> Place order
-3. Tracking page: waiting -> driver assigned -> out for delivery (the **code appears**) -> delivered
-4. Driver asks for the code at the door and confirms
+3. Tracking page: waiting -> out for delivery -> delivered
 
 ## UI things that would help most
 
 - **Checkout** is the busiest page; it should feel clear and short on a phone (most customers are on mobile).
-- **Tracking page**: the handover code must be big and easy to read at the door.
-- **Driver app**: used one-handed outdoors; big buttons, high contrast.
 - **Admin Delivery Settings** is long; grouping/tabs or collapsible cards would help.
 - Error and "closed / too busy / below minimum" messages come from the server and show as plain red boxes.
 - English only for now; Arabic / right-to-left is not built (nice to plan for).

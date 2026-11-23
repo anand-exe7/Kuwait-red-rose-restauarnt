@@ -46,7 +46,7 @@ const DIAG=()=>{
 // dense sweep around the md boundary + the full list
 const W=[300,319,320,340,360,375,390,414,430,480,540,600,640,700,720,740,760,767,768,769,780,800,820,900,1024,1100,1280,1366,1440,1600,1920,2560,3440];
 let tot=0,fail=0; const off=new Map();
-for(const route of ['/','/menu','/login','/admin/login','/chef-station-abc-123','/waiter-dashboard-def-456','/driver-station-ghi-789','/admin','/admin/orders','/admin/kitchen','/admin/inventory','/admin/analytics','/admin/billing','/admin/stock','/admin/expenses','/admin/coupons','/admin/delivery','/admin/media','/admin/online']){
+for(const route of ['/','/menu','/login','/admin/login','/chef-station-abc-123','/waiter-dashboard-def-456','/admin','/admin/orders','/admin/kitchen','/admin/inventory','/admin/analytics','/admin/billing','/admin/stock','/admin/expenses','/admin/coupons','/admin/delivery','/admin/media','/admin/online']){
   const line=[];
   for(const w of W){
     const p=await ctx.newPage(); await p.setViewportSize({width:w,height:900});

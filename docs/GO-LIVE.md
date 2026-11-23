@@ -23,14 +23,24 @@ ran one, just run it again.
 | 7 | `supabase/best_seller.sql` | The "best seller" flag on a product. |
 | 8 | `supabase/homepage_media.sql` | Homepage pictures and video. |
 | 9 | `supabase/storage.sql` | The image upload bucket. |
-| 10 | `supabase/delivery.sql` | Drivers, delivery codes, cash on delivery. |
+| 10 | `supabase/delivery.sql` | Delivery rows, addresses, cash on delivery. |
 | 11 | `supabase/delivery_areas.sql` | **Delivery areas and their fees** — the Delivery page and the checkout. |
 | 12 | `supabase/order_notes_handover.sql` | **NEW.** The customer's remark on an order, and the hand-over stamp that takes a finished takeaway/delivery off the waiter's board. |
 | 13 | `supabase/stock_movements.sql` | **NEW.** The stock ledger behind Admin → Stock movements. |
 | 14 | `supabase/delivery_weight_tiers.sql` | Delivery priced by weight: weight brackets per area, and a weight in grams on each product. |
 | 15 | `supabase/expenses.sql` | **NEW.** Admin → Expenses, and the "net earnings" figure on Analytics. |
 | 16 | `supabase/product_variants.sql` | **NEW.** Product sizes (500 g / 1 kg…), each with its own price and stock. |
+| 17 | `supabase/wholesale.sql` | The whole wholesale (B2B) side: trade products, trade customers, their own prices, and wholesale bills. Without it the five Wholesale pages render but have nothing in them. |
+| 18 | `supabase/wholesale_biller.sql` | **NEW.** Who was on the till for a wholesale bill — the "Billed by" column in Wholesale orders. Until it is run, wholesale bills still save and show a dash instead of a name. |
 | — | `supabase/enable_product_fields.sql` | Shortcut: #7, #14 and #16 in one paste. Run it if saving a product says "best seller", the weight and the sizes could not be stored. |
+
+Two more are **one-off fixes, not part of the setup** — run them only if the
+line describes you:
+
+| File | Run it only if |
+|------|----------------|
+| `supabase/wholesale_rename_invoice_ids.sql` | You have wholesale bills from before the `WB-2026-48213` numbering and they still show an id like `WB-MWGPU8AOLCV64`. Renumbers them once; re-running changes nothing. |
+| `supabase/remove_drivers.sql` | You ran an older build that had the in-house driver module. It **drops** the `drivers` table and the driver columns on deliveries. Nothing in the app reads them any more. Take a backup first if you want that old history. |
 
 `supabase/delivery.sql` (#10) is also what adds `orders.delivery_fee` — the
 delivery charge stored on the order. Without it the charge still shows at
@@ -46,6 +56,10 @@ console (right-click → Inspect → Console) and carries on without that featur
 - `[stock] no stock_movements table yet` → run **#13**.
 - Delivery areas page shows an amber banner → run **#11**.
 - Weight brackets won't save, or a product's weight won't stick → run **#14**.
+- A wholesale bill's **"Billed by"** is always a dash → run **#18**. (The shop's
+  own bills need nothing: the name goes inside the bill payload from **#4**.)
+- Any Wholesale page says the tables are missing → run **#17**.
+- The website-ordering switch on **Online orders** won't save → run **#6**.
 - Expenses page says the table is missing → run **#15**.
 - A delivery is billed without its delivery charge → run **#10**.
 
@@ -64,14 +78,88 @@ one on Vercel you must **redeploy**, or the old value stays on the site.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API (publishable / anon) | Public by design — read-only. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API (service_role) | **Secret.** Server only — never `NEXT_PUBLIC_`. Every write goes through it. |
 | `AUTH_SECRET` | Any long random string | Signs the staff login cookie. Changing it signs everyone out. |
-| `ADMIN_PASSWORD` | You choose | Admin console. |
+| `ADMIN_PASSWORD` | You choose | Admin console. One password — whoever is behind the counter signs in with it. |
 | `WAITER_PASSWORD` | You choose | Waiter dashboard. |
 | `CHEF_PASSWORD` | You choose | Chef station. |
+| `ADMIN_LOCK_PASSWORD` | You choose | **The manager lock.** The owner's own password, asked for inside the panel to open Analytics or to delete anything. See below. |
+| `BILLERS` | You choose | **Who may bill**, as `Name:password,Name:password`. See below. |
 
-> **`DRIVER_PASSWORD` does nothing.** Drivers do not share a password: each one
-> signs in with their own phone number and PIN, which the admin sets on the
-> Drivers screen and the database stores hashed. If it is in your `.env`, you
-> can delete the line — do not add it to Vercel.
+#### Three passwords, three jobs
+
+| | What it opens | Who knows it |
+|---|---|---|
+| `ADMIN_PASSWORD` | The admin panel itself | Everyone who works the till |
+| `ADMIN_LOCK_PASSWORD` | Analytics, and every delete | The owner alone |
+| `BILLERS` | Signing on as the person billing | One password each |
+
+**`ADMIN_LOCK_PASSWORD` must not be the same as `ADMIN_PASSWORD`.** Whoever bills
+has to know `ADMIN_PASSWORD` to open the panel at all, so if the two matched,
+the counter would hold the key to the figures and the deletions too.
+
+#### The manager lock — `ADMIN_LOCK_PASSWORD`
+
+The panel has one login, shared by everyone who works the counter, so it cannot
+be what guards the money. A second password does that. Inside the panel it is
+asked for before:
+
+* opening **Analytics** or **Wholesale analytics** — until it is typed, the page
+  is not even loaded, so no revenue figure reaches the browser;
+* **deleting** a bill, and deleting anything else — a product, a category, a
+  coupon, an expense, a table, a delivery area, a wholesale product or
+  customer, or cancelling an open tab.
+
+It is typed into a box in the middle of the screen, on a phone and on the till
+alike.
+
+**An unlock lasts one page visit.** Open the analytics, go to any other page and
+come back, and it asks again — the panel throws the unlock away on every change
+of page, and starts every load locked. Deletions are stricter still: the
+confirm dialog asks for the password **every single time**, so a bill can never
+go on one click. The server checks it too, so nothing can be clicked past:
+`/api/db` refuses a delete without it.
+
+Declining an incoming website order is the one destructive-looking action that
+does **not** ask. It is an everyday counter decision, not a record being wiped.
+
+Leave `ADMIN_LOCK_PASSWORD` empty and nothing can be unlocked or deleted at
+all — the panel says so instead of rejecting every try.
+
+#### Deleting a bill
+
+There is one way a bill leaves the records and it is final. **Delete** asks for
+the manager password, then removes the row for good: it disappears from Orders
+and from Analytics, its items go back into stock and any coupon use is given
+back. It cannot be undone, and it cannot be deleted twice, because it is no
+longer there.
+
+The old **Void** button — which kept a dead row in the list — is gone. Two
+final-looking buttons side by side was one too many at a counter. Bills voided
+before this change still read as *Void* in the list; delete them if you want
+them out.
+
+#### Who is billing — `BILLERS`
+
+Two people work the counter, the owner and one other, and a bill has to say
+which of them took the money.
+
+```
+BILLERS=Anand:4821,Ravi:7390
+```
+
+* Both billing panels (shop and wholesale) show a **"Who is billing?"** card at
+  the top of the right-hand column. Nothing can be billed until one of these
+  names is signed on — the panel says so and the server refuses the bill.
+* Signing a name on needs **that person's own password**, so one of them can
+  never put a bill in the other's name.
+* Once on, it stays on — bill after bill, no password again.
+* **"I'm leaving"** signs off and needs no password: handing the counter over is
+  not a privilege. It then stays off until the next person signs on, so the till
+  is never quietly left in the last person's name.
+* The name is saved on the bill and shown as **"Billed by"** in Orders and
+  Wholesale orders (and in the Excel export). It is **never** on the printed
+  receipt, the public `/invoice/…` page or the WhatsApp message.
+
+Changing this list signs out anybody whose name is no longer in it.
 
 
 ### The shop's identity (printed on every invoice, receipt and message)
@@ -129,10 +217,10 @@ NEXT_PUBLIC_SHOP_LOCATION
 `NEXT_PUBLIC_SHOP_COUNTRY` only change what is printed on a receipt; without
 them the address line falls back to the location plus "Kuwait".
 
-**Do not add** `DRIVER_PASSWORD`, `ALLOW_DEV_CUSTOMER_LOGIN`,
+**Do not add** `ALLOW_DEV_CUSTOMER_LOGIN`,
 `NEXT_PUBLIC_ALLOW_DEV_CUSTOMER_LOGIN`, or `NEXT_PUBLIC_VERCEL_URL`. The first
-is unused, the next two are a test-only sign-in bypass, and the last is only a
-fallback for when `NEXT_PUBLIC_SITE_URL` is missing.
+two are a test-only sign-in bypass, and the last is only a fallback for when
+`NEXT_PUBLIC_SITE_URL` is missing.
 
 ---
 
@@ -178,10 +266,27 @@ the tab.
 > customer orders → **Admin → Online orders** → admin accepts → chef → cooked →
 > the waiter sees it as *cooked, waiting for the bill* (no hand-over yet) →
 > **the admin bills it and sends the invoice** → the waiter goes green and hands
-> it to the customer (or the driver) by **name and mobile number** → done.
+> it to the customer by **name and mobile number** → done.
 
 Declining an order, or cancelling a tab, marks it **cancelled** — the customer
 sees that in their order history, and any stock it took comes back.
+
+### Switching website ordering off
+
+**Settings** in the sidebar — just above the biller strip, on every page —
+opens a dialog with one switch: *the website is taking orders* / *not taking
+orders*. Turn it off and the website becomes a menu to look at: every item,
+every price and every photo still there, but **no buttons on the cards at
+all**, no basket and no checkout, and a line saying to come to the shop or
+call. The server refuses a customer order as well, so there is no way round it.
+
+**Online orders** and **Open tabs** both carry a *Website live* / *Website
+inactive* badge, so an empty queue never has to be guessed at.
+
+Nothing at the counter changes: billing, open tabs, the chef station and the
+waiter station all work exactly as before, and staff can still take an order on
+a customer's behalf. Turning it back on takes one tap — it saves to
+`app_settings` and every device follows within a second, with no redeploy.
 
 ## 5. A 5-minute check once the SQL is in
 

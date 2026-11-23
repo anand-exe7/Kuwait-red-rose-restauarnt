@@ -1,9 +1,14 @@
 # Delivery: how it works and how to set it up
 
-Customers order for delivery, a driver delivers, and the handover is confirmed with a
-code shown in the customer's app. Free delivery within a distance you set, a fee
-beyond it, up to a maximum distance. Payment is **cash on delivery** for now; online
-payment hooks are marked and documented in `docs/PAYMENTS-TODO.md`.
+Customers order for delivery and the shop hands the order to one of its delivery
+partners (Talabat, Keeta...; see `app/lib/deliveryPartners.ts`). Free delivery within
+a distance you set, a fee beyond it, up to a maximum distance. Payment is **cash on
+delivery** for now; online payment hooks are marked and documented in
+`docs/PAYMENTS-TODO.md`.
+
+There is no in-house driver module: no driver accounts, no driver app and no handover
+code. If you are coming from an older copy of this project, run
+`supabase/remove_drivers.sql` once to drop what it left in the database.
 
 ## One-time setup
 
@@ -16,18 +21,15 @@ payment hooks are marked and documented in `docs/PAYMENTS-TODO.md`.
    |---|---|
    | `GOOGLE_MAPS_SERVER_KEY` | road distance (Routes API). Without it the server **estimates** distance (straight line x 1.3). |
    | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | the map and pin on the checkout page. Without it checkout shows "use my location" / manual coordinates. |
-   | `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET` | already required (writes, staff login, handover codes). |
+   | `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET` | already required (writes, staff login). |
 
    Restrict both Google keys (browser key to your domain, server key to Routes API) and
    set a daily spending limit in Google Cloud.
 3. **Google sign-in for customers.** Create an OAuth client in Google Cloud, then in
    Supabase -> Authentication -> Providers enable **Google** with that client id and
    secret, and add your site URL(s) to Authentication -> URL Configuration.
-4. **Set the rules.** Admin -> **Delivery Settings**: shop location (latitude/longitude),
-   free km, max km, fee, minimum order, hours, busy switch, code rules, failed-delivery
-   rule, cash limit.
-5. **Add drivers.** Admin -> **Drivers** -> name, mobile number, PIN. Drivers sign in at
-   `/driver-station-ghi-789`.
+4. **Set the rules.** Admin -> **Delivery areas**: the areas you deliver to and the
+   weight brackets that price each one.
 
 ## Delivery by area (the default, no maps)
 
@@ -40,8 +42,7 @@ fee is charged. The server looks the fee up itself; the browser only sends the a
   free km and max km instead (needs the Google keys). Both modes stay in the code.
 - Orders keep a copy of the area name, so renaming, re-pricing or deleting an area
   never changes old orders.
-- Drivers see the written address; the Navigate button opens Google Maps with that
-  address as a search (no API key needed).
+- The written address is what goes to the delivery partner; it is kept as typed.
 
 ## The flow
 
@@ -50,10 +51,10 @@ Customer  /delivery (menu) -> /delivery/checkout (Google sign-in, pin, address, 
               -> server prices items, fee, tax and checks hours / busy / min order / distance
               -> order (mode 'delivery') + delivery row created
 Kitchen   chef sees the order like any other: cooking -> ready
-Admin     Admin -> Deliveries: assign a driver once it is ready
-Driver    /driver-station-ghi-789: Pick up -> (customer code) -> Confirm delivery (+ cash if COD)
-Customer  /delivery/track/<id>: live progress, driver name + call, the code
-Billing   confirmed delivery marks the order billed, so it counts in Orders and Analytics
+Admin     Online orders -> accept, then bill it from Billing when it is ready
+Handover  the order goes out with the delivery partner
+Customer  /delivery/track/<id>: live progress
+Billing   the closed bill is what makes it count in Orders and Analytics
 ```
 
 Waiters do **not** handle delivery orders; they are hidden from the waiter screen.
@@ -67,24 +68,16 @@ Waiters do **not** handle delivery orders; they are hidden from the waiter scree
 - **Hours** are Kuwait time (UTC+3), per weekday; a close earlier than the open means
   after midnight. **Busy** and **Accept deliveries** switches stop new orders at once.
 - **Minimum order** is checked on the item subtotal before discount.
-- **Handover code**: 4-6 digits, derived from the delivery id, pickup time and
-  `AUTH_SECRET` (never stored). It expires, and locks after N wrong attempts; staff can
-  unlock and re-issue it from Deliveries.
-- **Failed delivery**: the driver must log the required number of calls and wait the
-  set minutes before "Mark failed" works. The policy (customer pays all / fee only /
-  restaurant absorbs) decides refunds for already-paid online orders.
-- **Cash on delivery**: the driver enters the cash collected when confirming; the admin
-  Drivers page shows what each driver still owes and a "Cash handed in" button.
+- **Cash on delivery**: the cash comes back to the till with the partner's settlement;
+  the shop records it as the bill's payment.
 
 ## Privacy and security model
 
-- Addresses, phones and PIN hashes live in tables the public key **cannot read or
-  write** (`drivers`, `deliveries`, `customer_addresses`). Only the server (service-role
-  key) touches them, through `/api/delivery/*`.
+- Addresses and phones live in tables the public key **cannot read or write**
+  (`deliveries`, `customer_addresses`). Only the server (service-role key) touches
+  them, through `/api/delivery/*`.
 - Customers are verified with their Supabase sign-in token on every request; the
   customer id is never taken from the request body. A customer can only see their own orders.
-- Drivers sign in with phone + PIN (scrypt hash, lockout after 5 failures) and can only
-  act on deliveries assigned to them.
 - Prices, fees, tax, hours and distance are always computed on the server.
 - `ALLOW_DEV_CUSTOMER_LOGIN=1` (plus `NEXT_PUBLIC_ALLOW_DEV_CUSTOMER_LOGIN=1`) lets a
   developer act as a fake customer **in development only**. It is ignored in production
@@ -96,13 +89,11 @@ Waiters do **not** handle delivery orders; they are hidden from the waiter scree
 |---|---|
 | Rules, fee, hours (shared) | `app/lib/delivery/shared.ts` |
 | Settings load, distance, quote | `app/lib/delivery/server.ts` |
-| Handover code | `app/lib/delivery/otp.ts` |
-| Response mapping, billing on delivery | `app/lib/delivery/service.ts` |
-| Public / customer / staff / driver APIs | `app/api/delivery/{public,customer,staff,driver}/route.ts`, `app/api/driver/{login,logout}/route.ts` |
+| Response mapping | `app/lib/delivery/service.ts` |
+| Public / customer / staff APIs | `app/api/delivery/{public,customer,staff}/route.ts` |
 | Customer pages | `app/delivery/` (menu, `checkout`, `track/[id]`, `orders`) |
 | Map picker, sign-in hook | `app/components/MapPinPicker.tsx`, `app/lib/customerClient.ts` |
-| Admin | `app/admin-portal-xyz-987/{DeliverySettingsSection,DeliveriesSection,DriversSection}.tsx` |
-| Driver app | `app/driver-station-ghi-789/page.tsx` |
+| Admin | `app/admin-secure-portal-xyz-345/_ui/DeliveryPage.tsx` |
 | Payment hooks | `app/lib/payments/index.ts`, `app/api/payments/webhook/route.ts` |
 
 ## Known limits
@@ -111,4 +102,4 @@ Waiters do **not** handle delivery orders; they are hidden from the waiter scree
 - A cancelled or failed delivery's order is marked "served" (and not billed) so the
   kitchen stops showing it; it appears in the chef's History.
 - Staff screens refresh deliveries by polling every few seconds (not live push).
-- Driver live location sharing and customer SMS/WhatsApp alerts are not included.
+- Live location sharing and customer SMS/WhatsApp alerts are not included.

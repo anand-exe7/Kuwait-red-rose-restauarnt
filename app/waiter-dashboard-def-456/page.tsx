@@ -11,7 +11,7 @@
 //   Tables   — the floor plan, plus walk-ins. Tap a table, see what they
 //              ordered, add more, close the bill.
 //   Takeaway — bags the admin has accepted, waiting to be handed over.
-//   Delivery — orders the admin has accepted, waiting for a driver.
+//   Delivery — orders the admin has accepted, waiting to go out.
 //
 // Alerts and the kitchen feed are NOT tabs. They are one drawer behind the
 // bell in the header, reachable from any tab, because a waiter needs them
@@ -225,7 +225,7 @@ export default function WaiterDashboard() {
     for (const o of orders) {
       if (!o.sessionId) continue;
       // A billed takeaway/delivery is NOT finished for the waiter: it still has
-      // to be handed to the customer or the driver. It stays on the board until
+      // to be handed over. It stays on the board until
       // somebody marks that, and only then disappears.
       if (o.status === 'cancelled') continue;
       const isHome = isHomeMode(o.mode);
@@ -451,18 +451,18 @@ export default function WaiterDashboard() {
     showToast('Marked as served');
   };
 
-  /** Takeaway given to the customer / delivery given to the driver. It leaves
+  /** Takeaway or delivery handed over at the counter. It leaves
    *  the board for good, on every device. */
   const handOver = (tab: Tab) => {
     markHandedOver(tab.sessionId);
     setTarget(null);
-    showToast(tab.mode === 'delivery' ? `#${tab.orderNo} — with the driver` : `#${tab.orderNo} — handed over`);
+    showToast(`#${tab.orderNo} — handed over`);
   };
 
   const handOverOrder = (o: Order) => {
     if (!o.sessionId) return;
     markHandedOver(o.sessionId);
-    showToast(o.mode === 'delivery' ? 'With the driver' : 'Handed over');
+    showToast('Handed over');
   };
 
   /* The waiter never takes the money. They tell the admin the table is ready
@@ -745,7 +745,7 @@ function HomeLane({
     <div className="flex flex-col gap-4">
       <Hint>
         {isDelivery
-          ? 'Deliveries the admin has accepted. Green means the admin has billed it and it can go to the driver.'
+          ? 'Deliveries the admin has accepted. Green means the admin has billed it and it can go out.'
           : 'Takeaway bags the admin has accepted. Green means the admin has billed it and the customer can take it.'}
         {' '}You can&rsquo;t add items to these, and the admin closes the bill.
       </Hint>
@@ -777,7 +777,7 @@ function HomeLane({
                   onClick={() => onHandOver(tab)}
                   className="btn shrink-0 bg-brand-green px-4 py-3 text-[10px] text-white"
                 >
-                  <Check size={14} /> {isDelivery ? 'Driver took it' : 'Handed over'}
+                  <Check size={14} /> Handed over
                 </button>
               </div>
             ))}
@@ -849,7 +849,7 @@ function HomeLane({
                   </p>
                   <div className="mt-1.5 flex flex-wrap gap-1">
                     {tab.readyToHandOver
-                      ? <Pill tone="green"><PackageCheck size={10} /> {isDelivery ? 'Give to driver' : 'Ready to hand over'}</Pill>
+                      ? <Pill tone="green"><PackageCheck size={10} /> Ready to hand over</Pill>
                       : tab.allReady
                         ? <Pill tone="gold"><Receipt size={10} /> Cooked · not billed</Pill>
                         : tab.hasCooking
@@ -997,13 +997,13 @@ function TabDetail({
         {home && tab && tab.readyToHandOver && (
           <div className="mb-4 rounded-2xl border-2 border-emerald-400 bg-emerald-50 p-3.5">
             <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800">
-              <BellRing size={13} /> Billed — {target.mode === 'delivery' ? 'ready for the driver' : 'ready to hand over'}
+              <BellRing size={13} /> Billed — ready to hand over
             </p>
             <p className="mt-1 text-[11.5px] font-medium text-brand-ink/60">
               The invoice has gone to the customer. Give it out and tap below — it then leaves every screen.
             </p>
             <button onClick={() => onHandOver(tab)} className="btn mt-2.5 w-full bg-brand-green py-3.5 text-[11px] text-white">
-              <Check size={15} /> {target.mode === 'delivery' ? 'Driver took it' : 'Handed over'}
+              <Check size={15} /> Handed over
             </button>
           </div>
         )}
@@ -1023,7 +1023,7 @@ function TabDetail({
           <div className="mb-4 rounded-2xl border border-emerald-300 bg-emerald-50 p-3.5">
             <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-800">
               <BellRing size={13} />
-              {target.mode === 'delivery' ? 'Ready for the driver' : target.mode === 'takeaway' ? 'Ready to hand over' : 'Ready to take over'}
+              {target.mode === 'table' ? 'Ready to take over' : 'Ready to hand over'}
             </p>
             <div className="mt-2.5 flex flex-col gap-2">
               {ready.map(o => (
@@ -1032,7 +1032,7 @@ function TabDetail({
                     {o.items.map(i => `${i.qty}× ${i.name}`).join(', ')}
                   </span>
                   <button onClick={() => onServe(o.id)} className="btn shrink-0 bg-brand-green px-4 py-2.5 text-[10px] text-white">
-                    <Check size={13} /> {target.mode === 'delivery' ? 'To driver' : target.mode === 'takeaway' ? 'Handed over' : 'Served'}
+                    <Check size={13} /> {target.mode === 'table' ? 'Served' : 'Handed over'}
                   </button>
                 </div>
               ))}
@@ -1100,7 +1100,7 @@ function TabDetail({
             <Info size={14} className="mt-0.5 shrink-0" />
             {canAdd
               ? `Anything you add is cooked on this same order and goes on the same invoice — no second bill. ${
-                  target.mode === 'delivery' ? 'The admin closes the bill before the driver takes it out.' : 'The admin closes the bill and sends the invoice.'
+                  target.mode === 'delivery' ? 'The admin closes the bill before it goes out.' : 'The admin closes the bill and sends the invoice.'
                 }`
               : 'Billed and on its way out — nothing more can go on this one.'}
           </p>
@@ -1688,7 +1688,7 @@ function AlertsSheet({
                           {o.note && <p className="mt-0.5 truncate text-[11px] italic text-brand-gold-dark">{o.note}</p>}
                         </div>
                         <button onClick={() => onHandOver(o)} className="btn shrink-0 bg-brand-green px-5 py-3 text-[10px] text-white">
-                          <Check size={14} /> {o.mode === 'delivery' ? 'To driver' : 'Handed over'}
+                          <Check size={14} /> Handed over
                         </button>
                       </div>
                     ))}
@@ -1713,7 +1713,7 @@ function AlertsSheet({
                           </p>
                         </div>
                         <button onClick={() => onServe(o.id)} className="btn shrink-0 bg-brand-green px-5 py-3 text-[10px] text-white">
-                          <Check size={14} /> {o.mode === 'delivery' ? 'To driver' : o.mode === 'takeaway' ? 'Handed over' : 'Served'}
+                          <Check size={14} /> {o.mode === 'table' ? 'Served' : 'Handed over'}
                         </button>
                       </div>
                     ))}

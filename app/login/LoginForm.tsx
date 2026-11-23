@@ -2,15 +2,15 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react';
-import type { Role } from '../lib/session';
+import type { GateRole } from '../lib/session';
 
-const ROLE_TITLES: Record<Role, string> = {
+const ROLE_TITLES: Record<GateRole, string> = {
   admin: 'Admin Portal',
   waiter: 'Waiter Station',
   chef: 'Chef Station',
 };
 
-export default function LoginForm({ role, next }: { role: Role; next: string }) {
+export default function LoginForm({ role, next }: { role: GateRole; next: string }) {
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

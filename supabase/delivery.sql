@@ -5,9 +5,9 @@
 --
 -- Privacy model:
 --   * delivery_settings  -> readable by the public key (hours, min order, free km...)
---   * drivers, deliveries, customer_addresses -> NOT readable or writable by the
---     public key at all (addresses, phones, PIN hashes). The server reaches them
---     with the service-role key through /api/delivery/*.
+--   * deliveries, customer_addresses -> NOT readable or writable by the public
+--     key at all (addresses, phones). The server reaches them with the
+--     service-role key through /api/delivery/*.
 
 -- ---------------------------------------------------------------------------
 -- orders: delivery fee + payment columns
@@ -39,28 +39,9 @@ create table if not exists delivery_settings (
   cod_enabled           boolean not null default true,
   cod_max               numeric not null default 0,              -- 0 = no limit
   online_payment_enabled boolean not null default false,         -- PAYMENT: flip on once a gateway is wired
-  failed_call_attempts  integer not null default 2,
-  failed_wait_minutes   integer not null default 10,
-  failed_policy         text    not null default 'customer_pays_all'
-                        check (failed_policy in ('customer_pays_all','customer_pays_fee','restaurant_absorbs')),
-  otp_length            integer not null default 6 check (otp_length between 4 and 6),
-  otp_expiry_minutes    integer not null default 120,
-  otp_max_attempts      integer not null default 3,
   updated_at            bigint  not null default (extract(epoch from now()) * 1000)::bigint
 );
 insert into delivery_settings (id) values (1) on conflict (id) do nothing;
-
--- ---------------------------------------------------------------------------
--- drivers
--- ---------------------------------------------------------------------------
-create table if not exists drivers (
-  id         text primary key,
-  name       text    not null,
-  phone      text    not null unique,
-  pin_hash   text    not null,                 -- scrypt hash, never the PIN itself
-  active     boolean not null default true,
-  created_at bigint  not null default (extract(epoch from now()) * 1000)::bigint
-);
 
 -- ---------------------------------------------------------------------------
 -- customer_addresses (owner = Supabase Auth user)
@@ -103,14 +84,8 @@ create table if not exists deliveries (
   fee             numeric not null default 0,
   status          text    not null default 'pending'
                   check (status in ('pending','assigned','out_for_delivery','delivered','failed','cancelled')),
-  driver_id       text,
-  assigned_at     bigint,
   picked_up_at    bigint,
   delivered_at    bigint,
-  otp_issued_at   bigint,                                        -- set at pickup; the code is derived, never stored
-  otp_attempts    integer not null default 0,
-  otp_locked      boolean not null default false,
-  call_attempts   jsonb   not null default '[]'::jsonb,          -- [timestamps of driver calls]
   failed_at       bigint,
   failed_reason   text,
   payment_method  text    not null default 'cod',                -- cod | online
@@ -118,20 +93,18 @@ create table if not exists deliveries (
   payment_ref     text,                                          -- PAYMENT: gateway payment id
   cod_expected    numeric not null default 0,
   cod_collected   numeric,
-  cod_settled     boolean not null default false,                -- driver handed the cash in
+  cod_settled     boolean not null default false,                -- the cash is in the till
   cod_settled_at  bigint,
   note            text    not null default '',
   created_at      bigint  not null default (extract(epoch from now()) * 1000)::bigint
 );
 create index if not exists deliveries_user_idx   on deliveries (user_id);
-create index if not exists deliveries_driver_idx on deliveries (driver_id, status);
 create index if not exists deliveries_status_idx on deliveries (status);
 
 -- ---------------------------------------------------------------------------
 -- Row level security
 -- ---------------------------------------------------------------------------
 alter table delivery_settings  enable row level security;
-alter table drivers            enable row level security;
 alter table customer_addresses enable row level security;
 alter table deliveries         enable row level security;
 
@@ -139,5 +112,5 @@ drop policy if exists anon_read on delivery_settings;
 create policy anon_read on delivery_settings for select to anon, authenticated using (true);
 
 -- No policies on the private tables = the public key can do nothing with them.
-revoke all on drivers, customer_addresses, deliveries from anon, authenticated;
+revoke all on customer_addresses, deliveries from anon, authenticated;
 revoke insert, update, delete, truncate on delivery_settings from anon, authenticated;

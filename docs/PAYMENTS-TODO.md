@@ -20,7 +20,7 @@ Gateway comparison and fee estimates: `docs/kuwait-payment-gateways.pdf`.
 | Server refuses online orders until enabled | `app/api/delivery/customer/route.ts`, `checkout()` | guard in place |
 | Admin switch "Allow online payment" | Admin -> Delivery Settings -> Payment (`online_payment_enabled`) | stored, keep OFF |
 | Server-side price, fee and tax | `app/api/delivery/customer/route.ts` | done, the amount to charge is already trustworthy |
-| Cash on delivery collection and cash report | driver page, Admin -> Drivers | done |
+| Cash on delivery | recorded as the bill's payment at the counter | done |
 
 ## What you must implement (in this order)
 
@@ -52,7 +52,6 @@ Gateway comparison and fee estimates: `docs/kuwait-payment-gateways.pdf`.
 | `app/api/payments/webhook/route.ts` | `PAYMENT:` | confirmation endpoint (steps are in the comment) |
 | `app/api/delivery/customer/route.ts` | `PAYMENT:` x3 | `checkout`: calls `startOnlinePayment`, stores `payment_ref`; `cancel`: refunds a paid order first |
 | `app/api/delivery/staff/route.ts` | `PAYMENT:` x2 | staff `cancel`: refunds a paid order first; settings switch |
-| `app/api/delivery/driver/route.ts` | `PAYMENT:` | `markFailed`: refunds per the failed-delivery policy when the order was paid online |
 | `app/api/delivery/public/route.ts` | `PAYMENT:` | exposes whether online payment is on |
 | `app/delivery/checkout/page.tsx` | `PAYMENT:` x2 | online radio button; redirect to the gateway page |
 | `app/admin-portal-xyz-987/DeliverySettingsSection.tsx` | `PAYMENT:` | the on/off switch |

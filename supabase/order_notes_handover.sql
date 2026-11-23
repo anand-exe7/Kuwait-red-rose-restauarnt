@@ -6,7 +6,7 @@
 --                 the bell twice"). Shown to the admin, the chef and the
 --                 waiter, and printed on the invoice.
 -- handed_over_at  when the waiter physically handed a takeaway to the customer
---                 or a delivery to the driver. A billed home order stays on the
+--                 or a delivery to the partner. A billed home order stays on the
 --                 waiter's board until this is set, then drops off.
 
 alter table orders add column if not exists note           text;
