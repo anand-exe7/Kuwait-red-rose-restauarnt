@@ -5,7 +5,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE, verifySessionToken } from "../../lib/session";
+import { SESSION_COOKIE, isPanelRole, verifySessionToken } from "../../lib/session";
 import { emptyAdminState } from "../_ui/types";
 import { AdminProvider } from "../_ui/Store";
 import Shell from "../_ui/Shell";
@@ -13,14 +13,16 @@ import Shell from "../_ui/Shell";
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const role = await verifySessionToken(token);
-  if (role !== "admin") redirect("/admin-secure-portal-xyz-345/login");
+  // One panel login. The analytics and every destructive action ask for the
+  // manager password inside the panel (see _ui/Store.tsx and _ui/LockGate.tsx).
+  if (!isPanelRole(role)) redirect("/admin-secure-portal-xyz-345/login");
 
   // Empty seed — the Store in _ui/Store.tsx hydrates from Red Rose's live
   // Supabase stores on mount, so the first paint is instant but the numbers
   // fill in as the client subscribes.
   const initial = emptyAdminState();
   return (
-    <AdminProvider initial={initial} role="admin">
+    <AdminProvider initial={initial}>
       <Shell>{children}</Shell>
     </AdminProvider>
   );

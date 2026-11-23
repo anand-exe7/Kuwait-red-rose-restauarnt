@@ -22,7 +22,6 @@ export default function robots(): MetadataRoute.Robots {
           '/admin-secure-portal-xyz-345/',
           '/chef-station-abc-123/',
           '/waiter-dashboard-def-456/',
-          '/driver-station-ghi-789/',
           '/login',
           '/auth/',
           '/invoice/',

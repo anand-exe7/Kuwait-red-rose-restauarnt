@@ -6,6 +6,7 @@ import { checkCoupon, computeBill, couponStatus, mergeItems, rupee } from "./mon
 import { useAdmin, whoIs, type FloorTab } from "./Store";
 import Catalog from "./Catalog";
 import PrintModal, { PrintFormats } from "./PrintModal";
+import BillerCard from "./BillerCard";
 import { Receipt, billText, waLink, type PrintFormat } from "./receipt";
 import { Badge, Btn, Icon, Modal, WaIcon, cx, fmtTime, ago } from "./kit";
 import { deliveryPartners } from "../../lib/deliveryPartners";
@@ -39,14 +40,14 @@ const linesOf = (f: FloorTab): Line[] => {
 };
 
 export default function BillingPage({ sessionId }: { sessionId?: string }) {
-  const { s, floor, act, print, now } = useAdmin();
+  const { s, floor, act, print, now, biller } = useAdmin();
   const shop = s.settings.shopName;
   /* "Walk-ins only" and the ordering toggle both reduce POS to counter walk-ins.
      Either one on → the "Customer tab" mode and its tab picker drop out. */
   const counterOnly = s.settings.walkInsOnly || !s.settings.orderingEnabled;
 
   /* Cooked takeaway/delivery orders first — somebody is standing at the
-     counter or a driver is waiting on the invoice. Then tabs that asked for
+     counter or a delivery is waiting on the invoice. Then tabs that asked for
      the bill, then the rest, oldest first. */
   const openTabs = counterOnly
     ? []
@@ -187,6 +188,19 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
   if (pay === "split" && (!(sCash > 0) || !(sCard > 0))) problems.push("Split payment: enter both the cash and the card amount.");
   else if (pay === "split" && splitOff !== 0) problems.push(`Split payment: cash + card should equal ${rupee(calc.total)}.`);
   if (isDelivery && mode === "counter" && !partner) problems.push("Choose the delivery partner.");
+  /* No name on the till, no bill. The whole point of the biller gate is that a
+     bill always says who took the money, so it comes BEFORE the money: the
+     server refuses the save too, which is what makes it a rule. */
+  if (!biller.current) {
+    /* Also while we are still asking the server who is signed in: the bill
+       row goes up in the background, so letting Save through for that moment
+       could mean a printed receipt for a bill the server then refused. */
+    problems.push(
+      biller.loading
+        ? "Checking who is on the till…"
+        : "Pick who is billing (top right) and enter your password.",
+    );
+  }
   if (phone && !okPhone(phone)) problems.push("Enter the mobile number (8 digits for Kuwait, or with country code).");
   const ready = !problems.length && !busy;
 
@@ -460,7 +474,10 @@ export default function BillingPage({ sessionId }: { sessionId?: string }) {
         </div>
 
         {/* ================= right: summary ================= */}
-        <aside className="min-w-0 xl:sticky xl:top-6 xl:self-start">
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start">
+          {/* Who is on the till — directly under the Counter / Customer tab
+              toggle, the first thing on this column. */}
+          <BillerCard />
           <div className={cx(box, "space-y-4")}>
             <dl className="divide-y divide-slate-100 rounded-2xl border border-slate-100 bg-slate-50/70 px-4 text-[12px]">
               <div className="flex items-center justify-between py-3">

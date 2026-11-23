@@ -18,9 +18,10 @@ export async function proxy(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE)?.value;
   const sessionRole = await verifySessionToken(token);
 
-  if (sessionRole && roleCanAccess(sessionRole, requiredRole)) {
-    return NextResponse.next();
-  }
+  // Signed in for this area. Inside the panel, the analytics and the
+  // destructive actions ask for the manager password of their own accord — the
+  // edge no longer has a second panel role to keep apart.
+  if (sessionRole && roleCanAccess(sessionRole, requiredRole)) return NextResponse.next();
 
   // Admin → its own login page; chef and waiter still share /login.
   const loginUrl =

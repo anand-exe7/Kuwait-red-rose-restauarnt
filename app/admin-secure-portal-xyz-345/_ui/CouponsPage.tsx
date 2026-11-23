@@ -18,6 +18,7 @@ import {
 import { publicLink } from "../../lib/publicUrl";
 import { BRAND } from "../../lib/brand";
 import { WA, openWhatsApp } from "../../lib/waLink";
+import { useAdmin } from "./Store";
 import { Page, PageHead, Card, Btn, Badge, SearchBox, Empty, Field, Modal, Switch, WaIcon, inputCls, cx } from "./kit";
 
 function randomCode(len = 7) {
@@ -30,6 +31,7 @@ function randomCode(len = 7) {
 const blankForm = { code: "", discountPercent: "", minOrder: "", expiry: "", usageLimit: "", active: true, targetedOnly: false };
 
 export default function CouponsPage() {
+  const { confirm } = useAdmin();
   const coupons = useSyncExternalStore(subscribeToCoupons, getCouponsSnapshot, getCouponsServerSnapshot);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -48,6 +50,21 @@ export default function CouponsPage() {
     setForm(blankForm);
     setEditingId(null);
     setError(null);
+  };
+
+  /* Deleting a coupon used to happen on a single click, with no confirmation
+     at all. It is a deletion like any other now: it asks, and asking means the
+     manager password (see the confirm dialog in _ui/Shell.tsx). */
+  const removeCoupon = async (c: Coupon) => {
+    const ok = await confirm({
+      title: `Delete ${c.code}?`,
+      body: "The code stops working for customers straight away. Bills that already used it keep their copy of the discount.",
+      ok: "Delete coupon",
+      danger: true,
+    });
+    if (!ok) return;
+    if (editingId === c.id) resetForm();
+    deleteCoupon(c.id);
   };
 
   const startEdit = (c: Coupon) => {
@@ -203,10 +220,7 @@ export default function CouponsPage() {
                         size="sm"
                         icon="trash"
                         className="text-red-600"
-                        onClick={() => {
-                          if (editingId === c.id) resetForm();
-                          deleteCoupon(c.id);
-                        }}
+                        onClick={() => void removeCoupon(c)}
                       />
                     </div>
                   </div>

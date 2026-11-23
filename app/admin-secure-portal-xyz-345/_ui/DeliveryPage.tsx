@@ -13,7 +13,7 @@
 // it is flagged here until you give it one.
 //
 // Nothing else lives here on purpose. A delivery's kitchen life (accept → cook
-// → ready → bill → hand to the driver) is Online orders, Open tabs and the
+// → ready → bill → hand over) is Online orders, Open tabs and the
 // waiter board; a second board for the same orders only splits attention.
 
 import { useCallback, useEffect, useState } from "react";

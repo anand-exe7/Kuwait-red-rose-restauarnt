@@ -3,19 +3,23 @@
 // per-page re-checks still compile.
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { SESSION_COOKIE, verifySessionToken } from "../../lib/session";
+import { SESSION_COOKIE, isPanelRole, verifySessionToken } from "../../lib/session";
 
-export type Role = "admin" | "staff";
-
-async function readRole(): Promise<"admin" | null> {
+/** Who is looking at the panel: the owner, or nobody. There is one panel login
+ *  now — the second one ("staff") is gone, replaced by the manager lock on the
+ *  analytics and the deletions, and by the biller gate on the billing pages. */
+export async function panelRole(): Promise<"admin" | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const role = await verifySessionToken(token);
-  return role === "admin" ? "admin" : null;
+  return isPanelRole(role) ? role : null;
 }
 
-/** Guard an admin-only panel page. Redirects staff / signed-out viewers. */
+/**
+ * Guard a panel page. Anyone without a valid panel session goes to the sign-in
+ * page. proxy.ts already does this at the edge, so this is the belt-and-braces
+ * half: the page cannot render even if the matcher is ever changed.
+ */
 export async function requireAdmin(fallback = "/admin-secure-portal-xyz-345/login"): Promise<void> {
-  const role = await readRole();
-  if (!role) redirect(fallback);
+  if (await panelRole()) return;
+  redirect(fallback);
 }
-
