@@ -352,3 +352,43 @@ export async function applySaleForBill(
   });
   await logMovements(sb, movements);
 }
+
+/**
+ * Put a whole bill's stock back — the bill was voided or deleted, so nothing
+ * on it left the shop.
+ *
+ * A counter sale moved its stock under the bill's own id; a tab moved most of
+ * it under each kitchen ticket's id and only the typed-on-the-bill extras
+ * under the bill's. So both sets have to be reversed, which is why this walks
+ * the session's orders as well. Anything already put back is skipped, so
+ * voiding and then deleting the same bill cannot return the stock twice.
+ */
+export async function reverseSaleForBill(
+  sb: SupabaseClient,
+  bill: { id: string; sessionId?: string | null },
+  reason = 'Bill voided',
+): Promise<void> {
+  if (ledgerMissing) return;
+  const ids = [bill.id];
+  if (bill.sessionId) {
+    const { data: orders } = await sb.from('orders').select('id').eq('session_id', bill.sessionId);
+    for (const o of orders ?? []) {
+      const id = String(o.id ?? '');
+      if (id) ids.push(id);
+    }
+  }
+  const { data: done, error } = await sb
+    .from('stock_movements')
+    .select('order_id')
+    .eq('kind', 'return')
+    .in('order_id', ids);
+  if (error && isMissingTable(error.message || '')) {
+    ledgerMissing = true;
+    return;
+  }
+  const already = new Set((done ?? []).map((r) => String(r.order_id ?? '')));
+  for (const id of ids) {
+    if (already.has(id)) continue;
+    await reverseSaleForOrder(sb, { id, session_id: bill.sessionId ?? null }, reason);
+  }
+}

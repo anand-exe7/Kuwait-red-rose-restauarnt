@@ -9,7 +9,6 @@ export interface DaySchedule {
 
 export interface FeeTier { upToKm: number; fee: number }
 export type FeeMode = 'per_km' | 'fixed' | 'tiers';
-export type FailedPolicy = 'customer_pays_all' | 'customer_pays_fee' | 'restaurant_absorbs';
 
 /** areas = admin-defined areas with a fee each (default); distance = map pin + km. */
 export type PricingMode = 'areas' | 'distance';
@@ -133,12 +132,6 @@ export interface DeliverySettings {
   codEnabled: boolean;
   codMax: number; // 0 = no limit
   onlinePaymentEnabled: boolean; // PAYMENT: only true once a gateway is wired
-  failedCallAttempts: number;
-  failedWaitMinutes: number;
-  failedPolicy: FailedPolicy;
-  otpLength: number;
-  otpExpiryMinutes: number;
-  otpMaxAttempts: number;
 }
 
 export const DEFAULT_DAY: DaySchedule = { closed: false, open: '10:00', close: '23:00' };
@@ -162,12 +155,6 @@ export const DEFAULT_SETTINGS: DeliverySettings = {
   codEnabled: true,
   codMax: 0,
   onlinePaymentEnabled: false,
-  failedCallAttempts: 2,
-  failedWaitMinutes: 10,
-  failedPolicy: 'customer_pays_all',
-  otpLength: 6,
-  otpExpiryMinutes: 120,
-  otpMaxAttempts: 3,
 };
 
 export const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -213,13 +200,6 @@ export function rowToSettings(r: Record<string, unknown> | null | undefined): De
     codEnabled: r.cod_enabled !== false,
     codMax: n(r.cod_max, D.codMax),
     onlinePaymentEnabled: r.online_payment_enabled === true,
-    failedCallAttempts: n(r.failed_call_attempts, D.failedCallAttempts),
-    failedWaitMinutes: n(r.failed_wait_minutes, D.failedWaitMinutes),
-    failedPolicy: (['customer_pays_all', 'customer_pays_fee', 'restaurant_absorbs'] as const).includes(r.failed_policy as FailedPolicy)
-      ? (r.failed_policy as FailedPolicy) : D.failedPolicy,
-    otpLength: Math.min(6, Math.max(4, n(r.otp_length, D.otpLength))),
-    otpExpiryMinutes: n(r.otp_expiry_minutes, D.otpExpiryMinutes),
-    otpMaxAttempts: n(r.otp_max_attempts, D.otpMaxAttempts),
   };
 }
 
@@ -231,8 +211,6 @@ export function settingsToRow(s: DeliverySettings): Record<string, unknown> {
     fee_mode: s.feeMode, fee_per_km: s.feePerKm, fee_fixed: s.feeFixed, fee_tiers: s.feeTiers,
     min_order: s.minOrder, tax_on_fee: s.taxOnFee, hours: s.hours,
     cod_enabled: s.codEnabled, cod_max: s.codMax, online_payment_enabled: s.onlinePaymentEnabled,
-    failed_call_attempts: s.failedCallAttempts, failed_wait_minutes: s.failedWaitMinutes, failed_policy: s.failedPolicy,
-    otp_length: s.otpLength, otp_expiry_minutes: s.otpExpiryMinutes, otp_max_attempts: s.otpMaxAttempts,
     updated_at: Date.now(),
   };
 }
@@ -300,14 +278,16 @@ export function hoursLabel(hours: Record<string, DaySchedule>, now: Date = new D
 }
 
 // ---------------------------------------------------------------------------
-// Statuses (shown to customers, drivers and staff)
+// Statuses (shown to customers and staff)
 // ---------------------------------------------------------------------------
-
+//
+// 'assigned' is only here because rows written before deliveries were handed
+// to a partner still carry it; nothing sets it any more.
 export type DeliveryStatus = 'pending' | 'assigned' | 'out_for_delivery' | 'delivered' | 'failed' | 'cancelled';
 
 export const STATUS_LABEL: Record<DeliveryStatus, string> = {
-  pending: 'Waiting for a driver',
-  assigned: 'Driver assigned',
+  pending: 'Waiting to go out',
+  assigned: 'Ready to go out',
   out_for_delivery: 'Out for delivery',
   delivered: 'Delivered',
   failed: 'Delivery failed',
@@ -342,7 +322,7 @@ export function addressLine(a: Partial<AddressInput>): string {
   return parts.join(', ');
 }
 
-/** A delivery as sent to the browser (customer, staff or driver). */
+/** A delivery as sent to the browser (customer or staff). */
 export interface DeliveryDto {
   id: string;
   orderId: string;
@@ -358,7 +338,6 @@ export interface DeliveryDto {
   distanceKm: number;
   distanceSource: string;
   fee: number;
-  driver: { id: string; name: string; phone: string } | null;
   kitchenStatus: string;
   items: { name: string; qty: number; price: number; notes?: string }[];
   subtotal: number;
@@ -371,12 +350,10 @@ export interface DeliveryDto {
   codExpected: number;
   codCollected: number | null;
   codSettled: boolean;
-  callAttempts: number[];
   pickedUpAt: number | null;
   deliveredAt: number | null;
   failedAt: number | null;
   failedReason: string | null;
-  otpLocked: boolean;
   note: string;
 }
 

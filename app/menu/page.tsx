@@ -9,6 +9,7 @@
 // the kitchen.
 
 import React, { useEffect, useState, useSyncExternalStore } from 'react';
+import { subscribeToOps, getOpsSnapshot, getOpsServerSnapshot, opsFrom } from '../lib/opsStore';
 import Link from 'next/link';
 import {
   ShoppingBag, Minus, Plus, ChevronLeft, CheckCircle2, Loader2, Tag, X, Search,
@@ -293,6 +294,15 @@ export default function MenuPage() {
 
   const allMenuItems = useSyncExternalStore(subscribeToMenu, getMenuSnapshot, getMenuServerSnapshot);
 
+  /* Is the shop taking orders from the website at all?
+     The owner flips this in the admin panel (Online orders). With it off this
+     page is a menu and nothing else: every item, every price and every photo
+     stay exactly as they are, but there is no way to send an order. The server
+     refuses a customer order as well (app/lib/server/ops.ts), so this is what
+     the page SHOWS, not what enforces it. */
+  const opsRows = useSyncExternalStore(subscribeToOps, getOpsSnapshot, getOpsServerSnapshot);
+  const canOrder = opsFrom(opsRows).orderingEnabled;
+
   const menu = allMenuItems.filter(m => m.status === 'active');
   // Categories reflect what the admin actually created (built-ins + any custom
   // ones in use), so a new category shows up here automatically.
@@ -349,6 +359,9 @@ export default function MenuPage() {
     try { sessionStorage.setItem(CART_STORAGE_KEY, JSON.stringify(c)); } catch { /* storage off — in-memory cart still works */ }
   };
   const addToCart = (key: string) => setCart(p => {
+    // Ordering switched off: nothing goes in the basket, whatever a stale
+    // button or an old tab still shows.
+    if (!canOrder) return p;
     const left = stockLeft(key);
     const have = p[key] || 0;
     // Sold out, or the basket already holds everything on the shelf.
@@ -465,6 +478,7 @@ export default function MenuPage() {
   };
 
   const openCheckout = () => {
+    if (!canOrder) return;
     if (cartItemCount === 0) return;
     if (!auth.user) {
       // Google OAuth replaces the whole document, so stash the cart and a
@@ -793,6 +807,7 @@ export default function MenuPage() {
                 <span className="hidden sm:inline">Sign in</span>
               </button>
             )}
+            {canOrder && (
             <button onClick={() => setIsCartOpen(true)} aria-label="Your order" className="btn btn-gold relative h-9 w-9 p-0 transition-transform hover:scale-105 active:scale-95 sm:h-10 sm:w-10">
               <ShoppingBag size={15} strokeWidth={1.8} />
               {cartItemCount > 0 && (
@@ -801,6 +816,7 @@ export default function MenuPage() {
                 </span>
               )}
             </button>
+            )}
           </div>
         </div>
       </header>
@@ -839,10 +855,12 @@ export default function MenuPage() {
             </h1>
 
             <p className="anim-fade-up mt-6 max-w-md font-body text-[14px] font-light leading-relaxed text-white/80 sm:text-[15px]">
-              Baklava, cakes and pastries from our {BRAND.area} kitchen — browse, build your order, and we&apos;ll have it to your table, counter or door.
+              {canOrder
+                ? <>Baklava, cakes and pastries from our {BRAND.area} kitchen — browse, build your order, and we&apos;ll have it to your table, counter or door.</>
+                : <>Baklava, cakes and pastries from our {BRAND.area} kitchen — have a look at the whole counter, then come and see us.</>}
             </p>
 
-            <div className="anim-fade-up mt-7 flex flex-wrap items-center gap-4 font-body text-[10px] font-medium uppercase tracking-[0.26em] text-brand-gold-light/85">
+            <div className={`anim-fade-up mt-7 ${canOrder ? 'flex' : 'hidden'} flex-wrap items-center gap-4 font-body text-[10px] font-medium uppercase tracking-[0.26em] text-brand-gold-light/85`}>
               <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> 12 items</span>
               <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> Dine-in</span>
               <span className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-brand-gold-light/80" /> Takeaway</span>
@@ -943,8 +961,23 @@ export default function MenuPage() {
           Fresh from the <span className="text-brand-red">oven</span>
         </h2>
         <p className="mx-auto mt-5 max-w-xl font-body text-sm text-brand-wine/60">
-          Browse freely — you&apos;ll choose dine-in, takeaway or delivery at checkout.
+          {canOrder
+            ? "Browse freely — you'll choose dine-in, takeaway or delivery at checkout."
+            : "Have a look at everything we bake. Online ordering isn't open yet — come to the shop or call us to order."}
         </p>
+        {/* Ordering switched off in the admin panel. The whole menu stays
+            exactly as it is; this says why there is nothing to tap. */}
+        {!canOrder && (
+          <div className="mx-auto mt-6 max-w-xl rounded-2xl border border-brand-gold/40 bg-brand-cream px-5 py-4">
+            <p className="font-body text-[11px] font-bold uppercase tracking-[0.2em] text-brand-red">
+              Ordering from the website is closed
+            </p>
+            <p className="mt-2 font-body text-sm text-brand-wine/70">
+              We&apos;re taking orders at the counter for now. Everything below is on the shelf today
+              {BRAND.phoneDisplay ? <> — call <a href={BRAND.telHref} className="font-semibold text-brand-red underline">{BRAND.phoneDisplay}</a> to place an order.</> : "."}
+            </p>
+          </div>
+        )}
       </div>
 
       {bestSellers.length > 0 && (
@@ -953,14 +986,23 @@ export default function MenuPage() {
             Best <span className="text-brand-red">sellers</span>
           </h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4">
-            {bestSellers.map(item => (
-              <button
+            {bestSellers.map(item => {
+              // Ordering off: the tile is a photograph, not a control — so it
+              // is rendered as one, with no button role for a screen reader
+              // to offer and nothing to press.
+              const Tile = (canOrder ? 'button' : 'div') as 'button';
+              return (
+              <Tile
                 key={item.id}
-                type="button"
-                onClick={() => addToCart(item.id)}
-                disabled={isSoldOut(item.id)}
+                {...(canOrder
+                  ? {
+                      type: 'button' as const,
+                      onClick: () => addToCart(item.id),
+                      disabled: isSoldOut(item.id),
+                      'aria-label': isSoldOut(item.id) ? `${item.name} is sold out` : `Add ${item.name} to cart`,
+                    }
+                  : {})}
                 className="group relative block aspect-square overflow-hidden rounded-2xl border border-brand-gold/30 bg-brand-sand text-left shadow-[0_18px_40px_-28px_rgba(74,21,21,0.45)] transition-transform hover:-translate-y-1 hover:border-brand-gold/60 disabled:pointer-events-none"
-                aria-label={isSoldOut(item.id) ? `${item.name} is sold out` : `Add ${item.name} to cart`}
               >
                 {isSoldOut(item.id) && (
                   <span className="absolute inset-0 z-10 flex items-center justify-center bg-[#2a0a0a]/65">
@@ -974,8 +1016,9 @@ export default function MenuPage() {
                   <span className="block truncate font-body text-[13px] font-bold text-white">{item.name}</span>
                   <span className="font-body text-[12px] font-medium text-brand-gold-light">{formatKWD(item.price)}</span>
                 </span>
-              </button>
-            ))}
+              </Tile>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1105,10 +1148,10 @@ export default function MenuPage() {
                         )
                       )}
                     </div>
-                    {/* Sized products never get a bare "+": the customer has
-                        to say WHICH size, or the kitchen gets a ticket for a
-                        cake with no weight on it. */}
-                    {hasSizes(item) ? (
+                    {/* Ordering off: the card is a shelf label — picture,
+                        name, description, price. No button at all, because
+                        there is nothing here for the customer to press. */}
+                    {!canOrder ? null : hasSizes(item) ? (
                       <button
                         onClick={() => setSizingFor(item.id)}
                         disabled={isSoldOut(item.id)}
@@ -1149,7 +1192,7 @@ export default function MenuPage() {
       </div>
 
       {/* Floating checkout CTA (mobile + anywhere) */}
-      {!isCartOpen && cartItemCount > 0 && (
+      {canOrder && !isCartOpen && cartItemCount > 0 && (
         <div className="anim-review-rise fixed inset-x-0 bottom-[max(1.5rem,env(safe-area-inset-bottom))] z-30 px-4">
           <button
             onClick={() => setIsCartOpen(true)}
@@ -1476,7 +1519,7 @@ export default function MenuPage() {
                           </div>
 
                           {/* The address itself. Block, street and building are
-                              what a driver actually navigates by, so they get
+                              what the delivery actually navigates by, so they get
                               the room; floor and flat are two digits each. */}
                           <Field label="Block" required>
                             <input value={address.area} onChange={e => setAddress(a => ({ ...a, area: e.target.value }))} placeholder="Block 10" className="input-plain" />

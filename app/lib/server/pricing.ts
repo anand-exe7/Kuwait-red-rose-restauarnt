@@ -107,3 +107,14 @@ export async function checkCoupon(sb: SupabaseClient, rawCode: unknown, subtotal
 export async function consumeCoupon(sb: SupabaseClient, coupon: CouponCheck) {
   await sb.from('coupons').update({ used_count: coupon.usedCount + 1 }).eq('id', coupon.id);
 }
+
+/** Give a coupon use back — a bill that used it was voided or deleted, so it
+ *  never really happened. Floors at 0 so a double-void can't go negative. */
+export async function releaseCoupon(sb: SupabaseClient, rawCode: unknown): Promise<void> {
+  if (typeof rawCode !== 'string' || !rawCode.trim()) return;
+  const code = rawCode.trim().toUpperCase().slice(0, 40);
+  const { data: c } = await sb.from('coupons').select('id,used_count').eq('code', code).maybeSingle();
+  if (!c) return;
+  const used = Math.max(0, (Number(c.used_count) || 0) - 1);
+  await sb.from('coupons').update({ used_count: used }).eq('id', c.id as string);
+}

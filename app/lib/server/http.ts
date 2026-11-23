@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Shared helpers for guarded API routes (/api/db, /api/delivery/*, /api/driver/*).
+// Shared helpers for guarded API routes (/api/db, /api/delivery/*).
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public code?: string) {

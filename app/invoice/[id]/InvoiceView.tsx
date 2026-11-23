@@ -59,7 +59,18 @@ function fromSessionOrders(sessionId: string | null | undefined, orders: Order[]
 }
 
 /** Rebuild the admin Bill from a persisted billStore row. Prefers the rich
- *  payload the admin POS wrote; otherwise rebuilds it from the orders. */
+ *  payload the admin POS wrote; otherwise rebuilds it from the orders.
+ *
+ *  This is the CUSTOMER's copy, so it is built field by field on purpose — do
+ *  not turn it into `{ ...p }`. The stored payload carries things that are the
+ *  shop's business and nobody else's: `biller` (which of the counter staff took
+ *  the money) and `deliveryPartner`. Neither is listed below, so neither can
+ *  end up on the page, on the printed sheet or in the WhatsApp message.
+ *
+ *  (The row itself is still read over the public anon key, so those fields do
+ *  travel in the response even though nothing renders them. Keeping them off
+ *  the wire as well means serving this page from the server and stripping
+ *  them — worth doing, but a separate change.) */
 function rehydrate(b: RrBill, orders: Order[] = []): Bill {
   const p = (b.payload ?? null) as Partial<Bill> | null;
   const rebuilt = fromSessionOrders(b.sessionId, orders);
